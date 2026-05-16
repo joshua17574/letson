@@ -1,0 +1,943 @@
+// components/deliveries/DeliveriesPageClient.tsx
+"use client";
+
+import { useEffect, useMemo, useState } from "react";
+import {
+  Eye,
+  Loader2,
+  Plus,
+  Printer,
+  RefreshCcw,
+  Search,
+  Trash2,
+} from "lucide-react";
+import { toast } from "sonner";
+
+import { Button } from "@/components/ui/button";
+import {
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import { Textarea } from "@/components/ui/textarea";
+import { formatPeso } from "@/lib/utils";
+
+type SupplierOption = {
+  _id: string;
+  name: string;
+};
+
+type ProductOption = {
+  _id: string;
+  name: string;
+  buyingPrice: number;
+};
+
+type DeliveryItemForm = {
+  productId: string;
+  bags: string;
+  kilos: string;
+  pieces: string;
+  buyingPrice: string;
+};
+
+type DeliveryItem = {
+  _id: string;
+  supplierName: string;
+  deliveryCode: string;
+  receiptNumber: string;
+  totalBags: number;
+  totalKilos: number;
+  totalPieces: number;
+  totalAmount: number;
+  deliveryDate: string;
+  remarks: string;
+};
+
+type ApiMeta = {
+  page: number;
+  limit: number;
+  total: number;
+  totalPages: number;
+};
+
+const emptyForm = {
+  supplierId: "",
+  deliveryCode: "",
+  receiptNumber: "",
+  deliveryDate: new Date().toISOString().slice(0, 10),
+  remarks: "",
+};
+
+const emptyItem: DeliveryItemForm = {
+  productId: "",
+  bags: "0",
+  kilos: "0",
+  pieces: "0",
+  buyingPrice: "0",
+};
+
+export function DeliveriesPageClient() {
+  const [deliveries, setDeliveries] = useState<DeliveryItem[]>([]);
+  const [suppliers, setSuppliers] = useState<SupplierOption[]>([]);
+  const [products, setProducts] = useState<ProductOption[]>([]);
+
+  const [meta, setMeta] = useState<ApiMeta>({
+    page: 1,
+    limit: 10,
+    total: 0,
+    totalPages: 1,
+  });
+
+  const [page, setPage] = useState(1);
+  const [limit, setLimit] = useState("10");
+
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
+  const [deliveryCode, setDeliveryCode] = useState("");
+  const [receiptNumber, setReceiptNumber] = useState("");
+
+  const [appliedFilters, setAppliedFilters] = useState({
+    dateFrom: "",
+    dateTo: "",
+    deliveryCode: "",
+    receiptNumber: "",
+  });
+
+  const [isLoading, setIsLoading] = useState(true);
+  const [isSaving, setIsSaving] = useState(false);
+
+  const [formDialogOpen, setFormDialogOpen] = useState(false);
+  const [viewDialogOpen, setViewDialogOpen] = useState(false);
+
+  const [form, setForm] = useState(emptyForm);
+  const [items, setItems] = useState<DeliveryItemForm[]>([{ ...emptyItem }]);
+  const [viewData, setViewData] = useState<any>(null);
+
+  const totals = useMemo(() => {
+    return items.reduce(
+      (sum, item) => {
+        const bags = Number(item.bags) || 0;
+        const kilos = Number(item.kilos) || 0;
+        const pieces = Number(item.pieces) || 0;
+        const buyingPrice = Number(item.buyingPrice) || 0;
+        const lineTotal = kilos > 0 ? kilos * buyingPrice : pieces * buyingPrice;
+
+        return {
+          bags: sum.bags + bags,
+          kilos: sum.kilos + kilos,
+          pieces: sum.pieces + pieces,
+          amount: sum.amount + lineTotal,
+        };
+      },
+      {
+        bags: 0,
+        kilos: 0,
+        pieces: 0,
+        amount: 0,
+      }
+    );
+  }, [items]);
+
+  async function loadSuppliers() {
+    const res = await fetch("/api/suppliers?limit=100", {
+      cache: "no-store",
+    });
+
+    const json = await res.json();
+
+    if (res.ok && json.success) {
+      setSuppliers(json.data || []);
+    }
+  }
+
+  async function loadProducts() {
+    const res = await fetch("/api/products?limit=100", {
+      cache: "no-store",
+    });
+
+    const json = await res.json();
+
+    if (res.ok && json.success) {
+      setProducts(json.data || []);
+    }
+  }
+
+  async function loadDeliveries() {
+    setIsLoading(true);
+
+    const params = new URLSearchParams({
+      page: String(page),
+      limit,
+    });
+
+    if (appliedFilters.dateFrom) {
+      params.set("dateFrom", appliedFilters.dateFrom);
+    }
+
+    if (appliedFilters.dateTo) {
+      params.set("dateTo", appliedFilters.dateTo);
+    }
+
+    if (appliedFilters.deliveryCode) {
+      params.set("deliveryCode", appliedFilters.deliveryCode);
+    }
+
+    if (appliedFilters.receiptNumber) {
+      params.set("receiptNumber", appliedFilters.receiptNumber);
+    }
+
+    try {
+      const res = await fetch(`/api/deliveries?${params.toString()}`, {
+        cache: "no-store",
+      });
+
+      const json = await res.json();
+
+      if (!res.ok || !json.success) {
+        throw new Error(json.message || "Failed to load deliveries.");
+      }
+
+      setDeliveries(json.data || []);
+      setMeta(
+        json.meta || {
+          page,
+          limit: Number(limit),
+          total: 0,
+          totalPages: 1,
+        }
+      );
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : "Failed to load deliveries."
+      );
+    } finally {
+      setIsLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    void loadSuppliers();
+    void loadProducts();
+  }, []);
+
+  useEffect(() => {
+    void loadDeliveries();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [page, limit, appliedFilters]);
+
+  function updateForm(name: keyof typeof emptyForm, value: string) {
+    setForm((current) => ({
+      ...current,
+      [name]: value,
+    }));
+  }
+
+  function updateItem(index: number, field: keyof DeliveryItemForm, value: string) {
+    setItems((current) => {
+      const next = [...current];
+      next[index] = {
+        ...next[index],
+        [field]: value,
+      };
+
+      if (field === "productId") {
+        const product = products.find((item) => item._id === value);
+
+        if (product) {
+          next[index].buyingPrice = String(product.buyingPrice || 0);
+        }
+      }
+
+      return next;
+    });
+  }
+
+  function addItemRow() {
+    setItems((current) => [...current, { ...emptyItem }]);
+  }
+
+  function removeItemRow(index: number) {
+    setItems((current) => {
+      if (current.length === 1) return current;
+      return current.filter((_, itemIndex) => itemIndex !== index);
+    });
+  }
+
+  function openCreateDialog() {
+    setForm(emptyForm);
+    setItems([{ ...emptyItem }]);
+    setFormDialogOpen(true);
+  }
+
+  function applyFilters() {
+    setAppliedFilters({
+      dateFrom,
+      dateTo,
+      deliveryCode: deliveryCode.trim(),
+      receiptNumber: receiptNumber.trim(),
+    });
+    setPage(1);
+  }
+
+  function resetFilters() {
+    setDateFrom("");
+    setDateTo("");
+    setDeliveryCode("");
+    setReceiptNumber("");
+    setAppliedFilters({
+      dateFrom: "",
+      dateTo: "",
+      deliveryCode: "",
+      receiptNumber: "",
+    });
+    setPage(1);
+  }
+
+  async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    setIsSaving(true);
+
+    try {
+      const payload = {
+        ...form,
+        items: items.map((item) => ({
+          productId: item.productId,
+          bags: Number(item.bags) || 0,
+          kilos: Number(item.kilos) || 0,
+          pieces: Number(item.pieces) || 0,
+          buyingPrice: Number(item.buyingPrice) || 0,
+        })),
+      };
+
+      const res = await fetch("/api/deliveries", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(payload),
+      });
+
+      const json = await res.json();
+
+      if (!res.ok || !json.success) {
+        throw new Error(json.message || "Failed to save delivery.");
+      }
+
+      toast.success(json.message || "Delivery saved successfully.");
+      setFormDialogOpen(false);
+      await loadDeliveries();
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : "Failed to save delivery."
+      );
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
+  async function handleView(delivery: DeliveryItem) {
+    try {
+      const res = await fetch(`/api/deliveries/${delivery._id}`, {
+        cache: "no-store",
+      });
+
+      const json = await res.json();
+
+      if (!res.ok || !json.success) {
+        throw new Error(json.message || "Failed to load delivery details.");
+      }
+
+      setViewData(json.data);
+      setViewDialogOpen(true);
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "Failed to load delivery details."
+      );
+    }
+  }
+
+  async function handleDelete(delivery: DeliveryItem) {
+    const confirmed = window.confirm(
+      `Void delivery ${delivery.deliveryCode}? This will reverse the stock added.`
+    );
+
+    if (!confirmed) return;
+
+    try {
+      const res = await fetch(`/api/deliveries/${delivery._id}`, {
+        method: "DELETE",
+      });
+
+      const json = await res.json();
+
+      if (!res.ok || !json.success) {
+        throw new Error(json.message || "Failed to void delivery.");
+      }
+
+      toast.success(json.message || "Delivery voided successfully.");
+      await loadDeliveries();
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : "Failed to void delivery."
+      );
+    }
+  }
+
+  function printPage() {
+    window.print();
+  }
+
+  return (
+    <div className="space-y-5">
+      <h1 className="text-3xl font-bold tracking-tight text-slate-900">
+        Deliveries List
+      </h1>
+
+      <div className="grid gap-3 rounded-xl border bg-white p-4 shadow-sm md:grid-cols-2 xl:grid-cols-6">
+        <div>
+          <Label>Date From</Label>
+          <Input
+            type="date"
+            value={dateFrom}
+            onChange={(event) => setDateFrom(event.target.value)}
+          />
+        </div>
+
+        <div>
+          <Label>Date To</Label>
+          <Input
+            type="date"
+            value={dateTo}
+            onChange={(event) => setDateTo(event.target.value)}
+          />
+        </div>
+
+        <div>
+          <Label>Code Number</Label>
+          <Input
+            value={deliveryCode}
+            onChange={(event) => setDeliveryCode(event.target.value)}
+            placeholder="Delivery code"
+          />
+        </div>
+
+        <div>
+          <Label>Receipt Number</Label>
+          <Input
+            value={receiptNumber}
+            onChange={(event) => setReceiptNumber(event.target.value)}
+            placeholder="Receipt number"
+          />
+        </div>
+
+        <div>
+          <Label>Show</Label>
+          <Select
+            value={limit}
+            onValueChange={(value) => {
+              setLimit(value);
+              setPage(1);
+            }}
+          >
+            <SelectTrigger>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="10">10</SelectItem>
+              <SelectItem value="25">25</SelectItem>
+              <SelectItem value="50">50</SelectItem>
+              <SelectItem value="100">100</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+
+        <div className="flex items-end gap-2">
+          <Button onClick={applyFilters}>
+            <Search className="mr-2 h-4 w-4" />
+            Filter
+          </Button>
+
+          <Button variant="outline" onClick={resetFilters}>
+            <RefreshCcw className="mr-2 h-4 w-4" />
+            Reset
+          </Button>
+        </div>
+      </div>
+
+      <Card>
+        <CardHeader className="flex flex-row items-center justify-between border-b">
+          <CardTitle>All Deliveries</CardTitle>
+
+          <div className="flex gap-2">
+            <Button variant="secondary" onClick={printPage}>
+              <Printer className="mr-2 h-4 w-4" />
+              Print
+            </Button>
+
+            <Button onClick={openCreateDialog}>
+              <Plus className="mr-2 h-4 w-4" />
+              Add Delivery
+            </Button>
+          </div>
+        </CardHeader>
+
+        <CardContent className="p-4">
+          <div className="overflow-x-auto rounded-lg border">
+            <Table>
+              <TableHeader className="bg-slate-900">
+                <TableRow>
+                  <TableHead className="text-center text-white">Supplier</TableHead>
+                  <TableHead className="text-center text-white">
+                    Delivery Code
+                  </TableHead>
+                  <TableHead className="text-center text-white">Receipt #</TableHead>
+                  <TableHead className="text-center text-white">Total Bags</TableHead>
+                  <TableHead className="text-center text-white">Total Kilos</TableHead>
+                  <TableHead className="text-center text-white">Total Pieces</TableHead>
+                  <TableHead className="text-center text-white">Total Amount</TableHead>
+                  <TableHead className="text-center text-white">Delivery Date</TableHead>
+                  <TableHead className="text-center text-white">Remarks</TableHead>
+                  <TableHead className="text-center text-white">Action</TableHead>
+                </TableRow>
+              </TableHeader>
+
+              <TableBody>
+                {isLoading ? (
+                  <TableRow>
+                    <TableCell colSpan={10} className="h-32 text-center">
+                      <Loader2 className="mx-auto h-5 w-5 animate-spin" />
+                    </TableCell>
+                  </TableRow>
+                ) : deliveries.length === 0 ? (
+                  <TableRow>
+                    <TableCell
+                      colSpan={10}
+                      className="h-32 text-center text-muted-foreground"
+                    >
+                      No deliveries found.
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  deliveries.map((delivery) => (
+                    <TableRow key={delivery._id}>
+                      <TableCell className="text-center">
+                        {delivery.supplierName}
+                      </TableCell>
+                      <TableCell className="text-center">
+                        {delivery.deliveryCode}
+                      </TableCell>
+                      <TableCell className="text-center">
+                        {delivery.receiptNumber}
+                      </TableCell>
+                      <TableCell className="text-center">
+                        {delivery.totalBags.toLocaleString()}
+                      </TableCell>
+                      <TableCell className="text-center">
+                        {delivery.totalKilos.toLocaleString(undefined, {
+                          minimumFractionDigits: 2,
+                          maximumFractionDigits: 2,
+                        })}
+                      </TableCell>
+                      <TableCell className="text-center">
+                        {delivery.totalPieces.toLocaleString()}
+                      </TableCell>
+                      <TableCell className="text-center">
+                        {formatPeso(delivery.totalAmount)}
+                      </TableCell>
+                      <TableCell className="text-center">
+                        {new Date(delivery.deliveryDate).toLocaleDateString(
+                          "en-PH"
+                        )}
+                      </TableCell>
+                      <TableCell className="text-center">
+                        {delivery.remarks || "—"}
+                      </TableCell>
+                      <TableCell className="text-center">
+                        <div className="flex justify-center gap-2">
+                          <Button
+                            size="icon"
+                            variant="secondary"
+                            onClick={() => handleView(delivery)}
+                          >
+                            <Eye className="h-4 w-4" />
+                          </Button>
+
+                          <Button
+                            size="icon"
+                            variant="destructive"
+                            onClick={() => handleDelete(delivery)}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  ))
+                )}
+              </TableBody>
+            </Table>
+          </div>
+
+          <div className="mt-4 flex flex-col gap-3 text-sm text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
+            <p>
+              Showing {deliveries.length} of {meta.total} records
+            </p>
+
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                disabled={page <= 1 || isLoading}
+                onClick={() => setPage((current) => Math.max(current - 1, 1))}
+              >
+                Previous
+              </Button>
+
+              <span className="rounded-md border px-3 py-2">
+                Page {meta.page} of {meta.totalPages}
+              </span>
+
+              <Button
+                variant="outline"
+                disabled={page >= meta.totalPages || isLoading}
+                onClick={() =>
+                  setPage((current) => Math.min(current + 1, meta.totalPages))
+                }
+              >
+                Next
+              </Button>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Dialog open={formDialogOpen} onOpenChange={setFormDialogOpen}>
+        <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-5xl">
+          <DialogHeader>
+            <DialogTitle>Add Delivery</DialogTitle>
+          </DialogHeader>
+
+          <form onSubmit={handleSubmit} className="space-y-5">
+            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+              <div className="space-y-2">
+                <Label>Supplier</Label>
+                <Select
+                  value={form.supplierId}
+                  onValueChange={(value) => updateForm("supplierId", value)}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select supplier" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {suppliers.map((supplier) => (
+                      <SelectItem key={supplier._id} value={supplier._id}>
+                        {supplier.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-2">
+                <Label>Delivery Code</Label>
+                <Input
+                  value={form.deliveryCode}
+                  onChange={(event) =>
+                    updateForm("deliveryCode", event.target.value)
+                  }
+                  required
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label>Receipt Number</Label>
+                <Input
+                  value={form.receiptNumber}
+                  onChange={(event) =>
+                    updateForm("receiptNumber", event.target.value)
+                  }
+                  required
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label>Delivery Date</Label>
+                <Input
+                  type="date"
+                  value={form.deliveryDate}
+                  onChange={(event) =>
+                    updateForm("deliveryDate", event.target.value)
+                  }
+                  required
+                />
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label>Remarks</Label>
+              <Textarea
+                value={form.remarks}
+                onChange={(event) => updateForm("remarks", event.target.value)}
+                placeholder="Optional remarks"
+              />
+            </div>
+
+            <div className="overflow-x-auto rounded-lg border">
+              <Table>
+                <TableHeader className="bg-slate-900">
+                  <TableRow>
+                    <TableHead className="text-center text-white">Product</TableHead>
+                    <TableHead className="text-center text-white">Bags</TableHead>
+                    <TableHead className="text-center text-white">Kilos</TableHead>
+                    <TableHead className="text-center text-white">Pieces</TableHead>
+                    <TableHead className="text-center text-white">
+                      Buying Price
+                    </TableHead>
+                    <TableHead className="text-center text-white">Line Total</TableHead>
+                    <TableHead className="text-center text-white">Action</TableHead>
+                  </TableRow>
+                </TableHeader>
+
+                <TableBody>
+                  {items.map((item, index) => {
+                    const kilos = Number(item.kilos) || 0;
+                    const pieces = Number(item.pieces) || 0;
+                    const buyingPrice = Number(item.buyingPrice) || 0;
+                    const lineTotal =
+                      kilos > 0 ? kilos * buyingPrice : pieces * buyingPrice;
+
+                    return (
+                      <TableRow key={index}>
+                        <TableCell className="min-w-56">
+                          <Select
+                            value={item.productId}
+                            onValueChange={(value) =>
+                              updateItem(index, "productId", value)
+                            }
+                          >
+                            <SelectTrigger>
+                              <SelectValue placeholder="Select product" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {products.map((product) => (
+                                <SelectItem
+                                  key={product._id}
+                                  value={product._id}
+                                >
+                                  {product.name}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </TableCell>
+
+                        <TableCell>
+                          <Input
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            value={item.bags}
+                            onChange={(event) =>
+                              updateItem(index, "bags", event.target.value)
+                            }
+                          />
+                        </TableCell>
+
+                        <TableCell>
+                          <Input
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            value={item.kilos}
+                            onChange={(event) =>
+                              updateItem(index, "kilos", event.target.value)
+                            }
+                          />
+                        </TableCell>
+
+                        <TableCell>
+                          <Input
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            value={item.pieces}
+                            onChange={(event) =>
+                              updateItem(index, "pieces", event.target.value)
+                            }
+                          />
+                        </TableCell>
+
+                        <TableCell>
+                          <Input
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            value={item.buyingPrice}
+                            onChange={(event) =>
+                              updateItem(index, "buyingPrice", event.target.value)
+                            }
+                          />
+                        </TableCell>
+
+                        <TableCell className="text-center font-semibold">
+                          {formatPeso(lineTotal)}
+                        </TableCell>
+
+                        <TableCell className="text-center">
+                          <Button
+                            type="button"
+                            variant="destructive"
+                            size="sm"
+                            onClick={() => removeItemRow(index)}
+                          >
+                            Remove
+                          </Button>
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+            </div>
+
+            <Button type="button" variant="secondary" onClick={addItemRow}>
+              <Plus className="mr-2 h-4 w-4" />
+              Add Item Row
+            </Button>
+
+            <div className="grid gap-3 rounded-lg bg-slate-100 p-4 text-sm font-semibold md:grid-cols-4">
+              <p>Total Bags: {totals.bags.toLocaleString()}</p>
+              <p>
+                Total Kilos:{" "}
+                {totals.kilos.toLocaleString(undefined, {
+                  minimumFractionDigits: 2,
+                  maximumFractionDigits: 2,
+                })}
+              </p>
+              <p>Total Pieces: {totals.pieces.toLocaleString()}</p>
+              <p>Total Amount: {formatPeso(totals.amount)}</p>
+            </div>
+
+            <DialogFooter>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setFormDialogOpen(false)}
+                disabled={isSaving}
+              >
+                Cancel
+              </Button>
+
+              <Button type="submit" disabled={isSaving}>
+                {isSaving ? "Saving..." : "Save Delivery"}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={viewDialogOpen} onOpenChange={setViewDialogOpen}>
+        <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-4xl">
+          <DialogHeader>
+            <DialogTitle>Delivery Details</DialogTitle>
+          </DialogHeader>
+
+          {viewData ? (
+            <div className="space-y-4">
+              <div className="grid gap-3 rounded-lg bg-slate-100 p-4 text-sm md:grid-cols-2">
+                <p>
+                  <strong>Supplier:</strong> {viewData.supplierName}
+                </p>
+                <p>
+                  <strong>Delivery Code:</strong> {viewData.deliveryCode}
+                </p>
+                <p>
+                  <strong>Receipt #:</strong> {viewData.receiptNumber}
+                </p>
+                <p>
+                  <strong>Date:</strong>{" "}
+                  {new Date(viewData.deliveryDate).toLocaleDateString("en-PH")}
+                </p>
+                <p>
+                  <strong>Remarks:</strong> {viewData.remarks || "—"}
+                </p>
+                <p>
+                  <strong>Total Amount:</strong>{" "}
+                  {formatPeso(viewData.totalAmount)}
+                </p>
+              </div>
+
+              <div className="overflow-x-auto rounded-lg border">
+                <Table>
+                  <TableHeader className="bg-slate-900">
+                    <TableRow>
+                      <TableHead className="text-center text-white">
+                        Product
+                      </TableHead>
+                      <TableHead className="text-center text-white">Bags</TableHead>
+                      <TableHead className="text-center text-white">Kilos</TableHead>
+                      <TableHead className="text-center text-white">Pieces</TableHead>
+                      <TableHead className="text-center text-white">
+                        Buying Price
+                      </TableHead>
+                      <TableHead className="text-center text-white">
+                        Line Total
+                      </TableHead>
+                    </TableRow>
+                  </TableHeader>
+
+                  <TableBody>
+                    {viewData.items?.map((item: any) => (
+                      <TableRow key={item._id}>
+                        <TableCell className="text-center">
+                          {item.productName}
+                        </TableCell>
+                        <TableCell className="text-center">{item.bags}</TableCell>
+                        <TableCell className="text-center">{item.kilos}</TableCell>
+                        <TableCell className="text-center">{item.pieces}</TableCell>
+                        <TableCell className="text-center">
+                          {formatPeso(item.buyingPrice)}
+                        </TableCell>
+                        <TableCell className="text-center">
+                          {formatPeso(item.lineTotal)}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            </div>
+          ) : null}
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}

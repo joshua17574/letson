@@ -1,0 +1,109 @@
+// app/api/customers/route.ts
+import { NextRequest, NextResponse } from "next/server";
+import type { QueryFilter } from "mongoose";
+
+import dbConnect from "@/lib/mongodb";
+import { requireApiAuth } from "@/lib/require-auth";
+import {
+  cleanString,
+  escapeRegex,
+  getPagination,
+  serializeDocuments,
+  serializeDocument,
+} from "@/lib/crud-utils";
+import CustomerModel, { CustomerType, ICustomer } from "@/models/Customer";
+
+const customerTypes: CustomerType[] = ["SALE", "DELIVERY", "BOTH"];
+
+function isCustomerType(value: string): value is CustomerType {
+  return customerTypes.includes(value as CustomerType);
+}
+
+export async function GET(req: NextRequest) {
+  const { response } = await requireApiAuth();
+
+  if (response) return response;
+
+  await dbConnect();
+
+  const { searchParams } = new URL(req.url);
+  const { page, limit, skip } = getPagination(searchParams);
+
+  const search = cleanString(searchParams.get("search"));
+  const type = cleanString(searchParams.get("type")).toUpperCase();
+
+  const filter: QueryFilter<ICustomer> = {
+    isActive: true,
+  };
+
+  if (search) {
+    filter.name = {
+      $regex: escapeRegex(search),
+      $options: "i",
+    };
+  }
+
+  if (isCustomerType(type)) {
+    filter.type = type;
+  }
+
+  const [items, total] = await Promise.all([
+    CustomerModel.find(filter).sort({ name: 1 }).skip(skip).limit(limit).lean(),
+    CustomerModel.countDocuments(filter),
+  ]);
+
+  return NextResponse.json({
+    success: true,
+    data: serializeDocuments(items),
+    meta: {
+      page,
+      limit,
+      total,
+      totalPages: Math.max(Math.ceil(total / limit), 1),
+    },
+  });
+}
+
+export async function POST(req: NextRequest) {
+  const { response, session } = await requireApiAuth();
+
+  if (response) return response;
+
+  await dbConnect();
+
+  const body = await req.json();
+
+  const name = cleanString(body.name);
+  const email = cleanString(body.email);
+  const phone = cleanString(body.phone);
+  const address = cleanString(body.address);
+  const typeInput = cleanString(body.type).toUpperCase();
+
+  if (!name) {
+    return NextResponse.json(
+      {
+        success: false,
+        message: "Customer name is required.",
+      },
+      { status: 400 }
+    );
+  }
+
+  const customer = await CustomerModel.create({
+    name,
+    email,
+    phone,
+    address,
+    type: isCustomerType(typeInput) ? typeInput : "SALE",
+    createdBy: session?.user?.id,
+  });
+
+  return NextResponse.json(
+    {
+      success: true,
+      message: "Customer created successfully.",
+      data: serializeDocument(customer.toObject()),
+    },
+    { status: 201 }
+  );
+}
