@@ -54,6 +54,14 @@ const navigationItems = [
     href: "/bodega-products",
     icon: Boxes,
   },
+
+    {
+    title: "Purchase Items",
+    href: "/purchase-items",
+    icon: ReceiptText,
+  },
+
+
   {
     title: "Deliveries",
     href: "/deliveries",

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Loader2, Printer, RefreshCcw, Search } from "lucide-react";
 import { toast } from "sonner";
 
@@ -32,6 +32,7 @@ type CategoryOption = {
 type ProductOption = {
   _id: string;
   name: string;
+  categoryName: string;
 };
 
 type SaleLineItem = {
@@ -100,6 +101,16 @@ export function SalesLinesPageClient() {
 
   const [isLoading, setIsLoading] = useState(true);
 
+  const filteredProducts = useMemo(() => {
+    if (selectedCategories.length === 0) {
+      return products;
+    }
+
+    return products.filter((product) =>
+      selectedCategories.includes(product.categoryName)
+    );
+  }, [products, selectedCategories]);
+
   async function loadFilterOptions() {
     try {
       const [categoriesRes, productsRes, bodegaProductsRes] = await Promise.all([
@@ -123,26 +134,36 @@ export function SalesLinesPageClient() {
 
       if (productsRes.ok && productsJson.success) {
         for (const item of productsJson.data || []) {
-          productMap.set(item.name, {
+          const key = `${item.name}-${item.categoryName || "NO_CATEGORY"}`;
+
+          productMap.set(key, {
             _id: item._id,
             name: item.name,
+            categoryName: item.categoryName || "NO CATEGORY",
           });
         }
       }
 
       if (bodegaProductsRes.ok && bodegaProductsJson.success) {
         for (const item of bodegaProductsJson.data || []) {
-          productMap.set(item.name, {
+          const key = `${item.name}-${item.categoryName || "NO_CATEGORY"}`;
+
+          productMap.set(key, {
             _id: item._id,
             name: item.name,
+            categoryName: item.categoryName || "NO CATEGORY",
           });
         }
       }
 
       setProducts(
-        Array.from(productMap.values()).sort((a, b) =>
-          a.name.localeCompare(b.name)
-        )
+        Array.from(productMap.values()).sort((a, b) => {
+          if (a.categoryName === b.categoryName) {
+            return a.name.localeCompare(b.name);
+          }
+
+          return a.categoryName.localeCompare(b.categoryName);
+        })
       );
     } catch {
       toast.error("Failed to load filter options.");
@@ -159,13 +180,19 @@ export function SalesLinesPageClient() {
 
     if (appliedFilters.dateFrom) params.set("dateFrom", appliedFilters.dateFrom);
     if (appliedFilters.dateTo) params.set("dateTo", appliedFilters.dateTo);
+
     if (appliedFilters.receiptNumber) {
       params.set("receiptNumber", appliedFilters.receiptNumber);
     }
-    if (appliedFilters.customer) params.set("customer", appliedFilters.customer);
+
+    if (appliedFilters.customer) {
+      params.set("customer", appliedFilters.customer);
+    }
+
     if (appliedFilters.categoryNames) {
       params.set("categoryNames", appliedFilters.categoryNames);
     }
+
     if (appliedFilters.productNames) {
       params.set("productNames", appliedFilters.productNames);
     }
@@ -210,11 +237,27 @@ export function SalesLinesPageClient() {
   }, [page, appliedFilters]);
 
   function toggleCategory(name: string) {
-    setSelectedCategories((current) =>
-      current.includes(name)
+    setSelectedCategories((current) => {
+      const nextCategories = current.includes(name)
         ? current.filter((item) => item !== name)
-        : [...current, name]
-    );
+        : [...current, name];
+
+      setSelectedProducts((currentProducts) => {
+        if (nextCategories.length === 0) {
+          return currentProducts;
+        }
+
+        const allowedProductNames = products
+          .filter((product) => nextCategories.includes(product.categoryName))
+          .map((product) => product.name);
+
+        return currentProducts.filter((productName) =>
+          allowedProductNames.includes(productName)
+        );
+      });
+
+      return nextCategories;
+    });
   }
 
   function toggleProduct(name: string) {
@@ -234,6 +277,7 @@ export function SalesLinesPageClient() {
       categoryNames: selectedCategories.join(","),
       productNames: selectedProducts.join(","),
     });
+
     setPage(1);
   }
 
@@ -244,6 +288,7 @@ export function SalesLinesPageClient() {
     setCustomer("");
     setSelectedCategories([]);
     setSelectedProducts([]);
+
     setAppliedFilters({
       dateFrom: "",
       dateTo: "",
@@ -252,6 +297,7 @@ export function SalesLinesPageClient() {
       categoryNames: "",
       productNames: "",
     });
+
     setPage(1);
   }
 
@@ -275,7 +321,10 @@ export function SalesLinesPageClient() {
               Reset
             </Button>
 
-            <Button className="bg-emerald-600 hover:bg-emerald-700" onClick={() => window.print()}>
+            <Button
+              className="bg-emerald-600 hover:bg-emerald-700"
+              onClick={() => window.print()}
+            >
               <Printer className="mr-2 h-4 w-4" />
               Print
             </Button>
@@ -323,7 +372,8 @@ export function SalesLinesPageClient() {
 
           <div className="space-y-2">
             <Label>Category</Label>
-            <div className="max-h-24 overflow-auto rounded-lg border p-3">
+
+            <div className="max-h-32 overflow-auto rounded-lg border p-3">
               <div className="grid gap-3 md:grid-cols-3 xl:grid-cols-4">
                 {categories.map((category) => (
                   <label
@@ -339,31 +389,61 @@ export function SalesLinesPageClient() {
                 ))}
               </div>
             </div>
+
             <p className="text-xs text-muted-foreground">
-              Leave all unchecked to include every category.
+              Select a category to show only products under that category. Leave
+              all unchecked to include every category.
             </p>
           </div>
 
           <div className="space-y-2">
-            <Label>Product Name</Label>
+            <Label>
+              Product Name{" "}
+              {selectedCategories.length > 0 ? (
+                <span className="text-xs font-normal text-muted-foreground">
+                  ({filteredProducts.length} products under selected category)
+                </span>
+              ) : (
+                <span className="text-xs font-normal text-muted-foreground">
+                  ({filteredProducts.length} products)
+                </span>
+              )}
+            </Label>
+
             <div className="max-h-64 overflow-auto rounded-lg border p-3">
-              <div className="grid gap-3 md:grid-cols-3 xl:grid-cols-4">
-                {products.map((product) => (
-                  <label
-                    key={`${product._id}-${product.name}`}
-                    className="flex items-center gap-2 text-sm"
-                  >
-                    <Checkbox
-                      checked={selectedProducts.includes(product.name)}
-                      onCheckedChange={() => toggleProduct(product.name)}
-                    />
-                    {product.name}
-                  </label>
-                ))}
-              </div>
+              {filteredProducts.length === 0 ? (
+                <p className="py-6 text-center text-sm text-muted-foreground">
+                  No products found under the selected category.
+                </p>
+              ) : (
+                <div className="grid gap-3 md:grid-cols-3 xl:grid-cols-4">
+                  {filteredProducts.map((product) => (
+                    <label
+                      key={`${product._id}-${product.name}-${product.categoryName}`}
+                      className="flex items-start gap-2 text-sm"
+                    >
+                      <Checkbox
+                        checked={selectedProducts.includes(product.name)}
+                        onCheckedChange={() => toggleProduct(product.name)}
+                      />
+
+                      <span className="leading-tight">
+                        <span className="block font-medium">
+                          {product.name}
+                        </span>
+                        <span className="text-xs text-muted-foreground">
+                          {product.categoryName}
+                        </span>
+                      </span>
+                    </label>
+                  ))}
+                </div>
+              )}
             </div>
+
             <p className="text-xs text-muted-foreground">
-              Leave all unchecked to include every product.
+              Leave all unchecked to include every product under the selected
+              category.
             </p>
           </div>
 
@@ -376,6 +456,7 @@ export function SalesLinesPageClient() {
             <span className="rounded-md bg-blue-600 px-3 py-2 font-bold text-white">
               Rows: {summary.rows.toLocaleString()}
             </span>
+
             <span className="rounded-md bg-emerald-700 px-3 py-2 font-bold text-white">
               Total: {formatPeso(summary.totalAmount)}
             </span>
