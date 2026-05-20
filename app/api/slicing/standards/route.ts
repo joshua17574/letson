@@ -1,0 +1,61 @@
+// app/api/slicing/standards/route.ts
+import { NextRequest, NextResponse } from "next/server";
+
+import dbConnect from "@/lib/mongodb";
+import { requireApiAuth } from "@/lib/require-auth";
+import ProductModel from "@/models/Product";
+import StandardPackingModel from "@/models/StandardPacking";
+
+function cleanLabel(value: string) {
+  return value.replace(/\s+/g, " ").trim();
+}
+
+export async function GET(_req: NextRequest) {
+  const { response } = await requireApiAuth();
+
+  if (response) return response;
+
+  await dbConnect();
+
+  // Fix for MissingSchemaError:
+  // This forces Mongoose to register the Product model before populate().
+  void ProductModel;
+
+  const standards = await StandardPackingModel.find({
+    isActive: true,
+  })
+    .populate("wholeChickenId", "name")
+    .populate("productId", "name")
+    .sort({ createdAt: -1 })
+    .lean();
+
+  return NextResponse.json({
+    success: true,
+    data: standards.map((standard: any) => {
+      const wholeChickenName = cleanLabel(standard.wholeChickenId?.name || "");
+      const productName = cleanLabel(standard.productId?.name || "");
+
+      return {
+        _id: standard._id.toString(),
+
+        wholeChickenId:
+          standard.wholeChickenId?._id?.toString?.() ||
+          standard.wholeChickenId?.toString?.() ||
+          "",
+        wholeChickenName,
+
+        productId:
+          standard.productId?._id?.toString?.() ||
+          standard.productId?.toString?.() ||
+          "",
+        productName,
+
+        standardPacking: Number(standard.standardPacking || 0),
+        standardSlice: Number(standard.standardSlice || 0),
+        chickenSizeType: standard.chickenSizeType || "",
+
+        label: `${wholeChickenName} → ${productName}`,
+      };
+    }),
+  });
+}

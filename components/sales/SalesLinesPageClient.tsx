@@ -62,6 +62,23 @@ type Summary = {
   totalAmount: number;
 };
 
+
+
+function getCategoryName(item: any) {
+  return (
+    item.categoryName ||
+    item.categoryId?.name ||
+    item.category?.name ||
+    "NO CATEGORY"
+  );
+}
+
+function getProductName(item: any) {
+  return item.name || item.productName || "Unnamed Product";
+}
+
+
+
 export function SalesLinesPageClient() {
   const [categories, setCategories] = useState<CategoryOption[]>([]);
   const [products, setProducts] = useState<ProductOption[]>([]);
@@ -111,64 +128,96 @@ export function SalesLinesPageClient() {
     );
   }, [products, selectedCategories]);
 
-  async function loadFilterOptions() {
-    try {
-      const [categoriesRes, productsRes, bodegaProductsRes] = await Promise.all([
-        fetch("/api/categories?limit=100", { cache: "no-store" }),
-        fetch("/api/products?limit=100", { cache: "no-store" }),
-        fetch("/api/bodega-products?limit=100", { cache: "no-store" }),
+ 
+async function loadFilterOptions() {
+  try {
+    const [categoriesRes, productsRes, bodegaProductsRes] = await Promise.all([
+      fetch("/api/categories?limit=1000", { cache: "no-store" }),
+      fetch("/api/products?limit=1000", { cache: "no-store" }),
+      fetch("/api/bodega-products?limit=1000", { cache: "no-store" }),
+    ]);
+
+    const [categoriesJson, productsJson, bodegaProductsJson] =
+      await Promise.all([
+        categoriesRes.json(),
+        productsRes.json(),
+        bodegaProductsRes.json(),
       ]);
 
-      const [categoriesJson, productsJson, bodegaProductsJson] =
-        await Promise.all([
-          categoriesRes.json(),
-          productsRes.json(),
-          bodegaProductsRes.json(),
-        ]);
+    const categoryMap = new Map<string, CategoryOption>();
+    const productMap = new Map<string, ProductOption>();
 
-      if (categoriesRes.ok && categoriesJson.success) {
-        setCategories(categoriesJson.data || []);
+    if (categoriesRes.ok && categoriesJson.success) {
+      for (const item of categoriesJson.data || []) {
+        categoryMap.set(item.name, {
+          _id: item._id,
+          name: item.name,
+        });
       }
-
-      const productMap = new Map<string, ProductOption>();
-
-      if (productsRes.ok && productsJson.success) {
-        for (const item of productsJson.data || []) {
-          const key = `${item.name}-${item.categoryName || "NO_CATEGORY"}`;
-
-          productMap.set(key, {
-            _id: item._id,
-            name: item.name,
-            categoryName: item.categoryName || "NO CATEGORY",
-          });
-        }
-      }
-
-      if (bodegaProductsRes.ok && bodegaProductsJson.success) {
-        for (const item of bodegaProductsJson.data || []) {
-          const key = `${item.name}-${item.categoryName || "NO_CATEGORY"}`;
-
-          productMap.set(key, {
-            _id: item._id,
-            name: item.name,
-            categoryName: item.categoryName || "NO CATEGORY",
-          });
-        }
-      }
-
-      setProducts(
-        Array.from(productMap.values()).sort((a, b) => {
-          if (a.categoryName === b.categoryName) {
-            return a.name.localeCompare(b.name);
-          }
-
-          return a.categoryName.localeCompare(b.categoryName);
-        })
-      );
-    } catch {
-      toast.error("Failed to load filter options.");
     }
+
+    if (productsRes.ok && productsJson.success) {
+      for (const item of productsJson.data || []) {
+        const name = getProductName(item);
+        const categoryName = getCategoryName(item);
+
+        categoryMap.set(categoryName, {
+          _id: categoryName,
+          name: categoryName,
+        });
+
+        productMap.set(`PRODUCT-${item._id}`, {
+          _id: item._id,
+          name,
+          categoryName,
+        });
+      }
+    }
+
+    if (bodegaProductsRes.ok && bodegaProductsJson.success) {
+      for (const item of bodegaProductsJson.data || []) {
+        const name = getProductName(item);
+        const categoryName = getCategoryName(item);
+
+        categoryMap.set(categoryName, {
+          _id: categoryName,
+          name: categoryName,
+        });
+
+        productMap.set(`BODEGA-${item._id}`, {
+          _id: item._id,
+          name,
+          categoryName,
+        });
+      }
+    }
+
+    setCategories(
+      Array.from(categoryMap.values()).sort((a, b) =>
+        a.name.localeCompare(b.name)
+      )
+    );
+
+    setProducts(
+      Array.from(productMap.values()).sort((a, b) => {
+        if (a.categoryName === b.categoryName) {
+          return a.name.localeCompare(b.name);
+        }
+
+        return a.categoryName.localeCompare(b.categoryName);
+      })
+    );
+  } catch {
+    toast.error("Failed to load filter options.");
   }
+}
+
+
+
+
+
+
+
 
   async function loadLines() {
     setIsLoading(true);
@@ -501,7 +550,7 @@ export function SalesLinesPageClient() {
                 ) : (
                   lines.map((line) => (
                     <TableRow key={line._id}>
-                      <TableCell>{line.saleId.slice(-6)}</TableCell>
+                      <TableCell>{line.saleId.slice(-6)}</TableCell> {line.saleId ? line.saleId.slice(-6) : "—"}
                       <TableCell>{line.receiptNumber}</TableCell>
                       <TableCell>{formatDate(line.saleDate)}</TableCell>
                       <TableCell>{line.customerName}</TableCell>

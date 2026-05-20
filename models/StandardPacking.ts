@@ -1,50 +1,50 @@
+// models/StandardPacking.ts
 import mongoose, { Document, Model, Schema, Types } from "mongoose";
 
-export interface ISlicingStandard extends Document {
+export interface IStandardPacking extends Document {
   _id: Types.ObjectId;
   wholeChickenId: Types.ObjectId;
   productId: Types.ObjectId;
   standardPacking: number;
   standardSlice: number;
-  chickenSizeType: string;
+  chickenSizeType?: string;
   isActive: boolean;
   createdAt: Date;
   updatedAt: Date;
 }
 
-const SlicingStandardSchema = new Schema<ISlicingStandard>(
+const StandardPackingSchema = new Schema<IStandardPacking>(
   {
     wholeChickenId: {
       type: Schema.Types.ObjectId,
-      ref: "Product",
+      ref: "BodegaProduct",
       required: true,
     },
 
     productId: {
       type: Schema.Types.ObjectId,
-      ref: "Product",
+      ref: "BodegaProduct",
       required: true,
     },
-
-    
 
     standardPacking: {
       type: Number,
       required: true,
+      default: 0,
       min: 0,
     },
 
     standardSlice: {
       type: Number,
       required: true,
+      default: 0,
       min: 0,
     },
 
     chickenSizeType: {
       type: String,
-      default: "-",
+      default: "",
       trim: true,
-      uppercase: true,
     },
 
     isActive: {
@@ -57,15 +57,12 @@ const SlicingStandardSchema = new Schema<ISlicingStandard>(
   }
 );
 
+StandardPackingSchema.index({ wholeChickenId: 1 });
+StandardPackingSchema.index({ productId: 1 });
+StandardPackingSchema.index({ isActive: 1 });
 
+const StandardPackingModel: Model<IStandardPacking> =
+  mongoose.models.StandardPacking ||
+  mongoose.model<IStandardPacking>("StandardPacking", StandardPackingSchema);
 
-SlicingStandardSchema.index({ wholeChickenId: 1 });
-SlicingStandardSchema.index({ productId: 1 });
-SlicingStandardSchema.index({ chickenSizeType: 1 });
-SlicingStandardSchema.index({ isActive: 1 });
-
-const SlicingStandardModel: Model<ISlicingStandard> =
-  mongoose.models.SlicingStandard ||
-  mongoose.model<ISlicingStandard>("SlicingStandard", SlicingStandardSchema);
-
-export default SlicingStandardModel;
+export default StandardPackingModel;

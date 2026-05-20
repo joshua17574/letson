@@ -10,14 +10,21 @@ import {
   escapeRegex,
   getPagination,
 } from "@/lib/crud-utils";
+import BodegaProductModel from "@/models/BodegaProduct";
+import BodegaStockTransactionModel from "@/models/BodegaStockTransaction";
 import DeliveryModel, { IDelivery } from "@/models/Delivery";
 import DeliveryItemModel from "@/models/DeliveryItem";
-import InventoryTransactionModel from "@/models/InventoryTransaction";
-import ProductModel from "@/models/Product";
 import SupplierModel from "@/models/Supplier";
 
 type DeliveryItemInput = {
-  productId: string;
+  categoryId?: string;
+
+  // New frontend sends this
+  bodegaProductId?: string;
+
+  // Fallback because your frontend also sends productId
+  productId?: string;
+
   bags: number;
   kilos: number;
   pieces: number;
@@ -28,7 +35,8 @@ function serializeDelivery(delivery: any) {
   return {
     _id: delivery._id.toString(),
     supplierId:
-      delivery.supplierId?._id?.toString?.() || delivery.supplierId?.toString?.(),
+      delivery.supplierId?._id?.toString?.() ||
+      delivery.supplierId?.toString?.(),
     supplierName: delivery.supplierId?.name || "",
     deliveryCode: delivery.deliveryCode,
     receiptNumber: delivery.receiptNumber,
@@ -47,6 +55,23 @@ function serializeDelivery(delivery: any) {
       ? new Date(delivery.updatedAt).toISOString()
       : undefined,
   };
+}
+
+function getStockQtyToAdd(item: {
+  bags: number;
+  kilos: number;
+  pieces: number;
+}) {
+  // BodegaProduct only has stockQty.
+  // Priority:
+  // 1. pieces if provided
+  // 2. kilos if provided
+  // 3. bags if provided
+  if (item.pieces > 0) return item.pieces;
+  if (item.kilos > 0) return item.kilos;
+  if (item.bags > 0) return item.bags;
+
+  return 0;
 }
 
 export async function GET(req: NextRequest) {
@@ -101,6 +126,7 @@ export async function GET(req: NextRequest) {
       .skip(skip)
       .limit(limit)
       .lean(),
+
     DeliveryModel.countDocuments(filter),
   ]);
 
@@ -133,7 +159,9 @@ export async function POST(req: NextRequest) {
 
   const items: DeliveryItemInput[] = Array.isArray(body.items)
     ? body.items
-    : [];
+    : Array.isArray(body.deliveryItems)
+      ? body.deliveryItems
+      : [];
 
   if (!supplierId || !isValidObjectId(supplierId)) {
     return NextResponse.json(
@@ -198,20 +226,24 @@ export async function POST(req: NextRequest) {
   const preparedItems = [];
 
   for (const item of items) {
-    const productId = cleanString(item.productId);
+    const bodegaProductId = cleanString(
+      item.bodegaProductId || item.productId || ""
+    );
 
-    if (!productId || !isValidObjectId(productId)) {
+    const categoryId = cleanString(item.categoryId || "");
+
+    if (!bodegaProductId || !isValidObjectId(bodegaProductId)) {
       return NextResponse.json(
         {
           success: false,
-          message: "Invalid product in delivery item.",
+          message: "Invalid bodega product in delivery item.",
         },
         { status: 400 }
       );
     }
 
-    const product = await ProductModel.findOne({
-      _id: productId,
+    const product = await BodegaProductModel.findOne({
+      _id: bodegaProductId,
       isActive: true,
     });
 
@@ -219,7 +251,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json(
         {
           success: false,
-          message: "One of the selected products was not found.",
+          message: "One of the selected bodega products was not found.",
         },
         { status: 404 }
       );
@@ -241,6 +273,11 @@ export async function POST(req: NextRequest) {
     }
 
     const lineTotal = kilos > 0 ? kilos * buyingPrice : pieces * buyingPrice;
+    const stockQtyToAdd = getStockQtyToAdd({
+      bags,
+      kilos,
+      pieces,
+    });
 
     totalBags += bags;
     totalKilos += kilos;
@@ -249,13 +286,15 @@ export async function POST(req: NextRequest) {
 
     preparedItems.push({
       product,
-      productId: product._id,
+      categoryId,
+      bodegaProductId: product._id,
       productName: product.name,
       bags,
       kilos,
       pieces,
       buyingPrice,
       lineTotal,
+      stockQtyToAdd,
     });
   }
 
@@ -273,14 +312,23 @@ export async function POST(req: NextRequest) {
   });
 
   const deliveryItemsToInsert = [];
-  const inventoryTransactions = [];
+  const bodegaStockTransactions = [];
 
   for (const item of preparedItems) {
     const product = item.product;
 
     deliveryItemsToInsert.push({
       deliveryId: delivery._id,
-      productId: item.productId,
+
+      // Keep productId for compatibility with your current DeliveryItem model.
+      // This now stores the BodegaProduct _id.
+      productId: item.bodegaProductId,
+
+      // Add these too. If your schema supports them, they will be saved.
+      // If strict schema does not support them, Mongoose will ignore them.
+      bodegaProductId: item.bodegaProductId,
+      categoryId: item.categoryId,
+
       productName: item.productName,
       bags: item.bags,
       kilos: item.kilos,
@@ -289,67 +337,30 @@ export async function POST(req: NextRequest) {
       lineTotal: item.lineTotal,
     });
 
-    if (item.pieces > 0) {
-      const previousStock = product.stockPcs;
-      product.stockPcs += item.pieces;
-
-      inventoryTransactions.push({
-        productId: product._id,
-        type: "DELIVERY",
-        unit: "PCS",
-        quantity: item.pieces,
-        previousStock,
-        newStock: product.stockPcs,
-        remarks: `DELIVERY ${deliveryCode}`,
-        referenceType: "DELIVERY",
-        referenceId: delivery._id,
-        createdBy: session?.user?.id,
-      });
-    }
-
-    if (item.bags > 0) {
-      const previousStock = product.stockBags;
-      product.stockBags += item.bags;
-
-      inventoryTransactions.push({
-        productId: product._id,
-        type: "DELIVERY",
-        unit: "BAGS",
-        quantity: item.bags,
-        previousStock,
-        newStock: product.stockBags,
-        remarks: `DELIVERY ${deliveryCode}`,
-        referenceType: "DELIVERY",
-        referenceId: delivery._id,
-        createdBy: session?.user?.id,
-      });
-    }
-
-    if (item.kilos > 0) {
-      const previousStock = product.stockKilos;
-      product.stockKilos += item.kilos;
-
-      inventoryTransactions.push({
-        productId: product._id,
-        type: "DELIVERY",
-        unit: "KILOS",
-        quantity: item.kilos,
-        previousStock,
-        newStock: product.stockKilos,
-        remarks: `DELIVERY ${deliveryCode}`,
-        referenceType: "DELIVERY",
-        referenceId: delivery._id,
-        createdBy: session?.user?.id,
-      });
-    }
+    const previousStock = Number(product.stockQty || 0);
+    product.stockQty = previousStock + item.stockQtyToAdd;
+    product.buyingPrice = item.buyingPrice;
 
     await product.save();
+
+    bodegaStockTransactions.push({
+  bodegaProductId: product._id,
+  type: "STOCK_IN",
+  quantity: item.stockQtyToAdd,
+  previousStock,
+  newStock: product.stockQty,
+  remarks: `DELIVERY ${deliveryCode}`,
+  referenceType: "DELIVERY",
+  referenceId: delivery._id,
+  createdBy: session?.user?.id,
+});
+
   }
 
   await DeliveryItemModel.insertMany(deliveryItemsToInsert);
 
-  if (inventoryTransactions.length > 0) {
-    await InventoryTransactionModel.insertMany(inventoryTransactions);
+  if (bodegaStockTransactions.length > 0) {
+    await BodegaStockTransactionModel.insertMany(bodegaStockTransactions);
   }
 
   const populatedDelivery = await DeliveryModel.findById(delivery._id)

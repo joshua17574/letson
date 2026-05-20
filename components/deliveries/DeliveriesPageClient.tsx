@@ -1,7 +1,7 @@
 // components/deliveries/DeliveriesPageClient.tsx
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type FormEvent } from "react";
 import {
   Eye,
   Loader2,
@@ -52,14 +52,23 @@ type SupplierOption = {
   name: string;
 };
 
+type CategoryOption = {
+  _id: string;
+  name: string;
+};
+
 type ProductOption = {
   _id: string;
   name: string;
   buyingPrice: number;
+  categoryId: string;
+  categoryName: string;
+  stockQty?: number;
 };
 
 type DeliveryItemForm = {
-  productId: string;
+  categoryId: string;
+  bodegaProductId: string;
   bags: string;
   kilos: string;
   pieces: string;
@@ -95,16 +104,37 @@ const emptyForm = {
 };
 
 const emptyItem: DeliveryItemForm = {
-  productId: "",
+  categoryId: "",
+  bodegaProductId: "",
   bags: "0",
   kilos: "0",
   pieces: "0",
   buyingPrice: "0",
 };
 
+function getCategoryId(item: any) {
+  if (typeof item.categoryId === "string") return item.categoryId;
+
+  return (
+    item.categoryId?._id?.toString?.() ||
+    item.category?._id?.toString?.() ||
+    ""
+  );
+}
+
+function getCategoryName(item: any) {
+  return (
+    item.categoryName ||
+    item.categoryId?.name ||
+    item.category?.name ||
+    "Uncategorized"
+  );
+}
+
 export function DeliveriesPageClient() {
   const [deliveries, setDeliveries] = useState<DeliveryItem[]>([]);
   const [suppliers, setSuppliers] = useState<SupplierOption[]>([]);
+  const [categories, setCategories] = useState<CategoryOption[]>([]);
   const [products, setProducts] = useState<ProductOption[]>([]);
 
   const [meta, setMeta] = useState<ApiMeta>({
@@ -176,15 +206,38 @@ export function DeliveriesPageClient() {
     }
   }
 
-  async function loadProducts() {
-    const res = await fetch("/api/products?limit=100", {
+  async function loadCategories() {
+    const res = await fetch("/api/categories?limit=1000", {
       cache: "no-store",
     });
 
     const json = await res.json();
 
     if (res.ok && json.success) {
-      setProducts(json.data || []);
+      setCategories(json.data || []);
+    }
+  }
+
+  async function loadProducts() {
+    const res = await fetch("/api/bodega-products?limit=1000", {
+      cache: "no-store",
+    });
+
+    const json = await res.json();
+
+    if (res.ok && json.success) {
+      const normalizedProducts: ProductOption[] = (json.data || []).map(
+        (item: any) => ({
+          _id: item._id,
+          name: item.name,
+          buyingPrice: Number(item.buyingPrice || 0),
+          categoryId: getCategoryId(item),
+          categoryName: getCategoryName(item),
+          stockQty: Number(item.stockQty || 0),
+        })
+      );
+
+      setProducts(normalizedProducts);
     }
   }
 
@@ -243,6 +296,7 @@ export function DeliveriesPageClient() {
 
   useEffect(() => {
     void loadSuppliers();
+    void loadCategories();
     void loadProducts();
   }, []);
 
@@ -258,19 +312,47 @@ export function DeliveriesPageClient() {
     }));
   }
 
-  function updateItem(index: number, field: keyof DeliveryItemForm, value: string) {
+  function getProductsByCategory(categoryId: string) {
+    if (!categoryId) return products;
+
+    const selectedCategory = categories.find(
+      (category) => category._id === categoryId
+    );
+
+    return products.filter(
+      (product) =>
+        product.categoryId === categoryId ||
+        product.categoryName === selectedCategory?.name
+    );
+  }
+
+  function updateItem(
+    index: number,
+    field: keyof DeliveryItemForm,
+    value: string
+  ) {
     setItems((current) => {
       const next = [...current];
+
       next[index] = {
         ...next[index],
         [field]: value,
       };
 
-      if (field === "productId") {
+      if (field === "categoryId") {
+        next[index].bodegaProductId = "";
+        next[index].buyingPrice = "0";
+      }
+
+      if (field === "bodegaProductId") {
         const product = products.find((item) => item._id === value);
 
         if (product) {
           next[index].buyingPrice = String(product.buyingPrice || 0);
+
+          if (!next[index].categoryId && product.categoryId) {
+            next[index].categoryId = product.categoryId;
+          }
         }
       }
 
@@ -319,16 +401,41 @@ export function DeliveriesPageClient() {
     setPage(1);
   }
 
-  async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+
+    if (!form.supplierId) {
+      toast.error("Supplier is required.");
+      return;
+    }
+
+    const validItems = items.filter(
+      (item) =>
+        item.bodegaProductId &&
+        ((Number(item.bags) || 0) > 0 ||
+          (Number(item.kilos) || 0) > 0 ||
+          (Number(item.pieces) || 0) > 0)
+    );
+
+    if (validItems.length === 0) {
+      toast.error("Add at least one product with bags, kilos, or pieces.");
+      return;
+    }
 
     setIsSaving(true);
 
     try {
       const payload = {
         ...form,
-        items: items.map((item) => ({
-          productId: item.productId,
+        items: validItems.map((item) => ({
+          categoryId: item.categoryId,
+
+          // for updated bodega delivery backend
+          bodegaProductId: item.bodegaProductId,
+
+          // fallback if your current backend still uses productId
+          productId: item.bodegaProductId,
+
           bags: Number(item.bags) || 0,
           kilos: Number(item.kilos) || 0,
           pieces: Number(item.pieces) || 0,
@@ -353,6 +460,7 @@ export function DeliveriesPageClient() {
       toast.success(json.message || "Delivery saved successfully.");
       setFormDialogOpen(false);
       await loadDeliveries();
+      await loadProducts();
     } catch (error) {
       toast.error(
         error instanceof Error ? error.message : "Failed to save delivery."
@@ -405,6 +513,7 @@ export function DeliveriesPageClient() {
 
       toast.success(json.message || "Delivery voided successfully.");
       await loadDeliveries();
+      await loadProducts();
     } catch (error) {
       toast.error(
         error instanceof Error ? error.message : "Failed to void delivery."
@@ -414,6 +523,11 @@ export function DeliveriesPageClient() {
 
   function printPage() {
     window.print();
+  }
+
+  function formatDate(value?: string) {
+    if (!value) return "—";
+    return new Date(value).toISOString().slice(0, 10);
   }
 
   return (
@@ -515,18 +629,36 @@ export function DeliveriesPageClient() {
             <Table>
               <TableHeader className="bg-slate-900">
                 <TableRow>
-                  <TableHead className="text-center text-white">Supplier</TableHead>
+                  <TableHead className="text-center text-white">
+                    Supplier
+                  </TableHead>
                   <TableHead className="text-center text-white">
                     Delivery Code
                   </TableHead>
-                  <TableHead className="text-center text-white">Receipt #</TableHead>
-                  <TableHead className="text-center text-white">Total Bags</TableHead>
-                  <TableHead className="text-center text-white">Total Kilos</TableHead>
-                  <TableHead className="text-center text-white">Total Pieces</TableHead>
-                  <TableHead className="text-center text-white">Total Amount</TableHead>
-                  <TableHead className="text-center text-white">Delivery Date</TableHead>
-                  <TableHead className="text-center text-white">Remarks</TableHead>
-                  <TableHead className="text-center text-white">Action</TableHead>
+                  <TableHead className="text-center text-white">
+                    Receipt #
+                  </TableHead>
+                  <TableHead className="text-center text-white">
+                    Total Bags
+                  </TableHead>
+                  <TableHead className="text-center text-white">
+                    Total Kilos
+                  </TableHead>
+                  <TableHead className="text-center text-white">
+                    Total Pieces
+                  </TableHead>
+                  <TableHead className="text-center text-white">
+                    Total Amount
+                  </TableHead>
+                  <TableHead className="text-center text-white">
+                    Delivery Date
+                  </TableHead>
+                  <TableHead className="text-center text-white">
+                    Remarks
+                  </TableHead>
+                  <TableHead className="text-center text-white">
+                    Action
+                  </TableHead>
                 </TableRow>
               </TableHeader>
 
@@ -559,24 +691,19 @@ export function DeliveriesPageClient() {
                         {delivery.receiptNumber}
                       </TableCell>
                       <TableCell className="text-center">
-                        {delivery.totalBags.toLocaleString()}
+                        {delivery.totalBags}
                       </TableCell>
                       <TableCell className="text-center">
-                        {delivery.totalKilos.toLocaleString(undefined, {
-                          minimumFractionDigits: 2,
-                          maximumFractionDigits: 2,
-                        })}
+                        {delivery.totalKilos}
                       </TableCell>
                       <TableCell className="text-center">
-                        {delivery.totalPieces.toLocaleString()}
+                        {delivery.totalPieces}
                       </TableCell>
                       <TableCell className="text-center">
                         {formatPeso(delivery.totalAmount)}
                       </TableCell>
                       <TableCell className="text-center">
-                        {new Date(delivery.deliveryDate).toLocaleDateString(
-                          "en-PH"
-                        )}
+                        {formatDate(delivery.deliveryDate)}
                       </TableCell>
                       <TableCell className="text-center">
                         {delivery.remarks || "—"}
@@ -584,19 +711,21 @@ export function DeliveriesPageClient() {
                       <TableCell className="text-center">
                         <div className="flex justify-center gap-2">
                           <Button
-                            size="icon"
-                            variant="secondary"
+                            size="sm"
+                            variant="outline"
                             onClick={() => handleView(delivery)}
                           >
-                            <Eye className="h-4 w-4" />
+                            <Eye className="mr-1 h-4 w-4" />
+                            View
                           </Button>
 
                           <Button
-                            size="icon"
+                            size="sm"
                             variant="destructive"
                             onClick={() => handleDelete(delivery)}
                           >
-                            <Trash2 className="h-4 w-4" />
+                            <Trash2 className="mr-1 h-4 w-4" />
+                            Void
                           </Button>
                         </div>
                       </TableCell>
@@ -640,13 +769,13 @@ export function DeliveriesPageClient() {
       </Card>
 
       <Dialog open={formDialogOpen} onOpenChange={setFormDialogOpen}>
-        <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-5xl">
+        <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-6xl">
           <DialogHeader>
             <DialogTitle>Add Delivery</DialogTitle>
           </DialogHeader>
 
           <form onSubmit={handleSubmit} className="space-y-5">
-            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
               <div className="space-y-2">
                 <Label>Supplier</Label>
                 <Select
@@ -673,7 +802,7 @@ export function DeliveriesPageClient() {
                   onChange={(event) =>
                     updateForm("deliveryCode", event.target.value)
                   }
-                  required
+                  placeholder="Delivery code"
                 />
               </div>
 
@@ -684,7 +813,7 @@ export function DeliveriesPageClient() {
                   onChange={(event) =>
                     updateForm("receiptNumber", event.target.value)
                   }
-                  required
+                  placeholder="Receipt number"
                 />
               </div>
 
@@ -696,7 +825,6 @@ export function DeliveriesPageClient() {
                   onChange={(event) =>
                     updateForm("deliveryDate", event.target.value)
                   }
-                  required
                 />
               </div>
             </div>
@@ -710,148 +838,192 @@ export function DeliveriesPageClient() {
               />
             </div>
 
-            <div className="overflow-x-auto rounded-lg border">
-              <Table>
-                <TableHeader className="bg-slate-900">
-                  <TableRow>
-                    <TableHead className="text-center text-white">Product</TableHead>
-                    <TableHead className="text-center text-white">Bags</TableHead>
-                    <TableHead className="text-center text-white">Kilos</TableHead>
-                    <TableHead className="text-center text-white">Pieces</TableHead>
-                    <TableHead className="text-center text-white">
-                      Buying Price
-                    </TableHead>
-                    <TableHead className="text-center text-white">Line Total</TableHead>
-                    <TableHead className="text-center text-white">Action</TableHead>
-                  </TableRow>
-                </TableHeader>
+            <div className="space-y-3">
+              {items.map((item, index) => {
+                const categoryProducts = getProductsByCategory(item.categoryId);
+                const selectedProduct = products.find(
+                  (product) => product._id === item.bodegaProductId
+                );
 
-                <TableBody>
-                  {items.map((item, index) => {
-                    const kilos = Number(item.kilos) || 0;
-                    const pieces = Number(item.pieces) || 0;
-                    const buyingPrice = Number(item.buyingPrice) || 0;
-                    const lineTotal =
-                      kilos > 0 ? kilos * buyingPrice : pieces * buyingPrice;
+                const kilos = Number(item.kilos) || 0;
+                const pieces = Number(item.pieces) || 0;
+                const buyingPrice = Number(item.buyingPrice) || 0;
+                const subtotal =
+                  kilos > 0 ? kilos * buyingPrice : pieces * buyingPrice;
 
-                    return (
-                      <TableRow key={index}>
-                        <TableCell className="min-w-56">
-                          <Select
-                            value={item.productId}
-                            onValueChange={(value) =>
-                              updateItem(index, "productId", value)
-                            }
-                          >
-                            <SelectTrigger>
-                              <SelectValue placeholder="Select product" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {products.map((product) => (
-                                <SelectItem
-                                  key={product._id}
-                                  value={product._id}
-                                >
-                                  {product.name}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                        </TableCell>
+                return (
+                  <div
+                    key={index}
+                    className="rounded-2xl border bg-slate-50 p-4"
+                  >
+                    <div className="grid gap-3 xl:grid-cols-[1.4fr_1.8fr_0.8fr_0.8fr_0.8fr_1fr_1fr_auto]">
+                      <div className="space-y-1">
+                        <Label>Category</Label>
+                        <Select
+                          value={item.categoryId}
+                          onValueChange={(value) =>
+                            updateItem(index, "categoryId", value)
+                          }
+                        >
+                          <SelectTrigger className="bg-white">
+                            <SelectValue placeholder="Select category" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {categories.map((category) => (
+                              <SelectItem
+                                key={category._id}
+                                value={category._id}
+                              >
+                                {category.name}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
 
-                        <TableCell>
-                          <Input
-                            type="number"
-                            min="0"
-                            step="0.01"
-                            value={item.bags}
-                            onChange={(event) =>
-                              updateItem(index, "bags", event.target.value)
-                            }
-                          />
-                        </TableCell>
+                      <div className="space-y-1">
+                        <Label>Bodega Product</Label>
+                        <Select
+                          value={item.bodegaProductId}
+                          onValueChange={(value) =>
+                            updateItem(index, "bodegaProductId", value)
+                          }
+                        >
+                          <SelectTrigger className="bg-white">
+                            <SelectValue placeholder="Select product" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {categoryProducts.map((product) => (
+                              <SelectItem key={product._id} value={product._id}>
+                                {product.name}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
 
-                        <TableCell>
-                          <Input
-                            type="number"
-                            min="0"
-                            step="0.01"
-                            value={item.kilos}
-                            onChange={(event) =>
-                              updateItem(index, "kilos", event.target.value)
-                            }
-                          />
-                        </TableCell>
+                        {selectedProduct ? (
+                          <p className="text-xs text-muted-foreground">
+                            Current stock:{" "}
+                            {Number(
+                              selectedProduct.stockQty || 0
+                            ).toLocaleString()}
+                          </p>
+                        ) : null}
+                      </div>
 
-                        <TableCell>
-                          <Input
-                            type="number"
-                            min="0"
-                            step="0.01"
-                            value={item.pieces}
-                            onChange={(event) =>
-                              updateItem(index, "pieces", event.target.value)
-                            }
-                          />
-                        </TableCell>
+                      <div className="space-y-1">
+                        <Label>Bags</Label>
+                        <Input
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          value={item.bags}
+                          onChange={(event) =>
+                            updateItem(index, "bags", event.target.value)
+                          }
+                          className="bg-white"
+                        />
+                      </div>
 
-                        <TableCell>
-                          <Input
-                            type="number"
-                            min="0"
-                            step="0.01"
-                            value={item.buyingPrice}
-                            onChange={(event) =>
-                              updateItem(index, "buyingPrice", event.target.value)
-                            }
-                          />
-                        </TableCell>
+                      <div className="space-y-1">
+                        <Label>Kilos</Label>
+                        <Input
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          value={item.kilos}
+                          onChange={(event) =>
+                            updateItem(index, "kilos", event.target.value)
+                          }
+                          className="bg-white"
+                        />
+                      </div>
 
-                        <TableCell className="text-center font-semibold">
-                          {formatPeso(lineTotal)}
-                        </TableCell>
+                      <div className="space-y-1">
+                        <Label>Pieces</Label>
+                        <Input
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          value={item.pieces}
+                          onChange={(event) =>
+                            updateItem(index, "pieces", event.target.value)
+                          }
+                          className="bg-white"
+                        />
+                      </div>
 
-                        <TableCell className="text-center">
-                          <Button
-                            type="button"
-                            variant="destructive"
-                            size="sm"
-                            onClick={() => removeItemRow(index)}
-                          >
-                            Remove
-                          </Button>
-                        </TableCell>
-                      </TableRow>
-                    );
-                  })}
-                </TableBody>
-              </Table>
+                      <div className="space-y-1">
+                        <Label>Buying Price</Label>
+                        <Input
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          value={item.buyingPrice}
+                          onChange={(event) =>
+                            updateItem(index, "buyingPrice", event.target.value)
+                          }
+                          className="bg-white"
+                        />
+                      </div>
+
+                      <div className="space-y-1">
+                        <Label>Subtotal</Label>
+                        <Input
+                          value={subtotal.toFixed(2)}
+                          disabled
+                          className="bg-white"
+                        />
+                      </div>
+
+                      <div className="flex items-end">
+                        <Button
+                          type="button"
+                          variant="destructive"
+                          onClick={() => removeItemRow(index)}
+                        >
+                          X
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
 
             <Button type="button" variant="secondary" onClick={addItemRow}>
               <Plus className="mr-2 h-4 w-4" />
-              Add Item Row
+              Add Item
             </Button>
 
-            <div className="grid gap-3 rounded-lg bg-slate-100 p-4 text-sm font-semibold md:grid-cols-4">
-              <p>Total Bags: {totals.bags.toLocaleString()}</p>
-              <p>
-                Total Kilos:{" "}
-                {totals.kilos.toLocaleString(undefined, {
-                  minimumFractionDigits: 2,
-                  maximumFractionDigits: 2,
-                })}
-              </p>
-              <p>Total Pieces: {totals.pieces.toLocaleString()}</p>
-              <p>Total Amount: {formatPeso(totals.amount)}</p>
+            <div className="grid gap-3 rounded-xl bg-slate-900 p-4 text-white md:grid-cols-4">
+              <div>
+                <p className="text-xs text-white/70">Total Bags</p>
+                <p className="text-xl font-bold">{totals.bags}</p>
+              </div>
+
+              <div>
+                <p className="text-xs text-white/70">Total Kilos</p>
+                <p className="text-xl font-bold">{totals.kilos}</p>
+              </div>
+
+              <div>
+                <p className="text-xs text-white/70">Total Pieces</p>
+                <p className="text-xl font-bold">{totals.pieces}</p>
+              </div>
+
+              <div>
+                <p className="text-xs text-white/70">Total Amount</p>
+                <p className="text-xl font-bold">{formatPeso(totals.amount)}</p>
+              </div>
             </div>
 
             <DialogFooter>
               <Button
                 type="button"
                 variant="outline"
-                onClick={() => setFormDialogOpen(false)}
                 disabled={isSaving}
+                onClick={() => setFormDialogOpen(false)}
               >
                 Cancel
               </Button>
@@ -865,7 +1037,7 @@ export function DeliveriesPageClient() {
       </Dialog>
 
       <Dialog open={viewDialogOpen} onOpenChange={setViewDialogOpen}>
-        <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-4xl">
+        <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-5xl">
           <DialogHeader>
             <DialogTitle>Delivery Details</DialogTitle>
           </DialogHeader>
@@ -874,24 +1046,25 @@ export function DeliveriesPageClient() {
             <div className="space-y-4">
               <div className="grid gap-3 rounded-lg bg-slate-100 p-4 text-sm md:grid-cols-2">
                 <p>
-                  <strong>Supplier:</strong> {viewData.supplierName}
+                  <strong>Supplier:</strong> {viewData.supplierName || "—"}
                 </p>
                 <p>
-                  <strong>Delivery Code:</strong> {viewData.deliveryCode}
+                  <strong>Delivery Code:</strong>{" "}
+                  {viewData.deliveryCode || "—"}
                 </p>
                 <p>
-                  <strong>Receipt #:</strong> {viewData.receiptNumber}
+                  <strong>Receipt #:</strong>{" "}
+                  {viewData.receiptNumber || "—"}
                 </p>
                 <p>
-                  <strong>Date:</strong>{" "}
-                  {new Date(viewData.deliveryDate).toLocaleDateString("en-PH")}
-                </p>
-                <p>
-                  <strong>Remarks:</strong> {viewData.remarks || "—"}
+                  <strong>Date:</strong> {formatDate(viewData.deliveryDate)}
                 </p>
                 <p>
                   <strong>Total Amount:</strong>{" "}
-                  {formatPeso(viewData.totalAmount)}
+                  {formatPeso(Number(viewData.totalAmount || 0))}
+                </p>
+                <p>
+                  <strong>Remarks:</strong> {viewData.remarks || "—"}
                 </p>
               </div>
 
@@ -899,38 +1072,66 @@ export function DeliveriesPageClient() {
                 <Table>
                   <TableHeader className="bg-slate-900">
                     <TableRow>
-                      <TableHead className="text-center text-white">
-                        Product
+                      <TableHead className="text-white">Product</TableHead>
+                      <TableHead className="text-right text-white">
+                        Bags
                       </TableHead>
-                      <TableHead className="text-center text-white">Bags</TableHead>
-                      <TableHead className="text-center text-white">Kilos</TableHead>
-                      <TableHead className="text-center text-white">Pieces</TableHead>
-                      <TableHead className="text-center text-white">
+                      <TableHead className="text-right text-white">
+                        Kilos
+                      </TableHead>
+                      <TableHead className="text-right text-white">
+                        Pieces
+                      </TableHead>
+                      <TableHead className="text-right text-white">
                         Buying Price
                       </TableHead>
-                      <TableHead className="text-center text-white">
-                        Line Total
+                      <TableHead className="text-right text-white">
+                        Amount
                       </TableHead>
                     </TableRow>
                   </TableHeader>
 
                   <TableBody>
-                    {viewData.items?.map((item: any) => (
-                      <TableRow key={item._id}>
-                        <TableCell className="text-center">
-                          {item.productName}
-                        </TableCell>
-                        <TableCell className="text-center">{item.bags}</TableCell>
-                        <TableCell className="text-center">{item.kilos}</TableCell>
-                        <TableCell className="text-center">{item.pieces}</TableCell>
-                        <TableCell className="text-center">
-                          {formatPeso(item.buyingPrice)}
-                        </TableCell>
-                        <TableCell className="text-center">
-                          {formatPeso(item.lineTotal)}
+                    {(viewData.items || viewData.lines || []).length === 0 ? (
+                      <TableRow>
+                        <TableCell
+                          colSpan={6}
+                          className="h-24 text-center text-muted-foreground"
+                        >
+                          No delivery item details found.
                         </TableCell>
                       </TableRow>
-                    ))}
+                    ) : (
+                      (viewData.items || viewData.lines || []).map(
+                        (line: any, index: number) => (
+                          <TableRow key={line._id || index}>
+                            <TableCell>
+                              {line.productName ||
+                                line.bodegaProductName ||
+                                line.name ||
+                                "—"}
+                            </TableCell>
+                            <TableCell className="text-right">
+                              {Number(line.bags || 0)}
+                            </TableCell>
+                            <TableCell className="text-right">
+                              {Number(line.kilos || 0)}
+                            </TableCell>
+                            <TableCell className="text-right">
+                              {Number(line.pieces || 0)}
+                            </TableCell>
+                            <TableCell className="text-right">
+                              {formatPeso(Number(line.buyingPrice || 0))}
+                            </TableCell>
+                            <TableCell className="text-right">
+                              {formatPeso(
+                                Number(line.totalAmount || line.lineTotal || 0)
+                              )}
+                            </TableCell>
+                          </TableRow>
+                        )
+                      )
+                    )}
                   </TableBody>
                 </Table>
               </div>

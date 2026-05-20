@@ -1,23 +1,12 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import {
-  Loader2,
-  Pencil,
-  Plus,
-  RefreshCcw,
-  Search,
-  Trash2,
-} from "lucide-react";
+import { Loader2, Pencil, Plus, RefreshCcw, Search, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
+import { ModuleHeader } from "@/components/app-shell/ModuleHeader";
 import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import {
   Dialog,
   DialogContent,
@@ -43,12 +32,14 @@ import {
   TableRow,
 } from "@/components/ui/table";
 
-type ProductOption = {
+type BodegaProductOption = {
   _id: string;
   name: string;
+  categoryName?: string;
+  stockQty?: number;
 };
 
-type StandardPacking = {
+type StandardPackingRow = {
   _id: string;
   wholeChickenId: string;
   wholeChickenName: string;
@@ -59,75 +50,65 @@ type StandardPacking = {
   chickenSizeType: string;
 };
 
-type ApiMeta = {
-  page: number;
-  limit: number;
-  total: number;
-  totalPages: number;
-};
-
 const emptyForm = {
   wholeChickenId: "",
   productId: "",
   standardPacking: "0",
   standardSlice: "0",
-  chickenSizeType: "-",
+  chickenSizeType: "",
 };
 
 export function StandardPackingPageClient() {
-  const [records, setRecords] = useState<StandardPacking[]>([]);
-  const [products, setProducts] = useState<ProductOption[]>([]);
+  const [standards, setStandards] = useState<StandardPackingRow[]>([]);
+  const [bodegaProducts, setBodegaProducts] = useState<BodegaProductOption[]>(
+    []
+  );
 
-  const [meta, setMeta] = useState<ApiMeta>({
-    page: 1,
-    limit: 50,
-    total: 0,
-    totalPages: 1,
-  });
+  const [search, setSearch] = useState("");
+  const [appliedSearch, setAppliedSearch] = useState("");
 
-  const [page, setPage] = useState(1);
-  const [limit, setLimit] = useState("50");
-  const [chickenSizeType, setChickenSizeType] = useState("ALL");
+  const [form, setForm] = useState(emptyForm);
+  const [editingItem, setEditingItem] = useState<StandardPackingRow | null>(
+    null
+  );
+  const [dialogOpen, setDialogOpen] = useState(false);
 
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
 
-  const [dialogOpen, setDialogOpen] = useState(false);
-  const [editingRecord, setEditingRecord] = useState<StandardPacking | null>(
-    null
-  );
-  const [form, setForm] = useState(emptyForm);
+  const filteredStandards = standards.filter((item) => {
+    const value = appliedSearch.toLowerCase();
 
-  async function loadProducts() {
+    if (!value) return true;
+
+    return (
+      item.wholeChickenName.toLowerCase().includes(value) ||
+      item.productName.toLowerCase().includes(value) ||
+      item.chickenSizeType.toLowerCase().includes(value)
+    );
+  });
+
+  async function loadBodegaProducts() {
     try {
-      const res = await fetch("/api/products?limit=100", {
+      const res = await fetch("/api/bodega-products?limit=1000", {
         cache: "no-store",
       });
 
       const json = await res.json();
 
       if (res.ok && json.success) {
-        setProducts(json.data || []);
+        setBodegaProducts(json.data || []);
       }
     } catch {
-      toast.error("Failed to load products.");
+      toast.error("Failed to load bodega products.");
     }
   }
 
-  async function loadRecords() {
+  async function loadStandards() {
     setIsLoading(true);
 
-    const params = new URLSearchParams({
-      page: String(page),
-      limit,
-    });
-
-    if (chickenSizeType !== "ALL") {
-      params.set("chickenSizeType", chickenSizeType);
-    }
-
     try {
-      const res = await fetch(`/api/slicing-standards?${params.toString()}`, {
+      const res = await fetch("/api/slicing/standard-packing", {
         cache: "no-store",
       });
 
@@ -137,15 +118,7 @@ export function StandardPackingPageClient() {
         throw new Error(json.message || "Failed to load standard packing.");
       }
 
-      setRecords(json.data || []);
-      setMeta(
-        json.meta || {
-          page,
-          limit: Number(limit),
-          total: 0,
-          totalPages: 1,
-        }
-      );
+      setStandards(json.data || []);
     } catch (error) {
       toast.error(
         error instanceof Error
@@ -158,13 +131,9 @@ export function StandardPackingPageClient() {
   }
 
   useEffect(() => {
-    void loadProducts();
+    void loadBodegaProducts();
+    void loadStandards();
   }, []);
-
-  useEffect(() => {
-    void loadRecords();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [page, limit, chickenSizeType]);
 
   function updateForm(name: keyof typeof emptyForm, value: string) {
     setForm((current) => ({
@@ -173,35 +142,56 @@ export function StandardPackingPageClient() {
     }));
   }
 
-  function openCreateDialog() {
-    setEditingRecord(null);
+  function openAddDialog() {
+    setEditingItem(null);
     setForm(emptyForm);
     setDialogOpen(true);
   }
 
-  function openEditDialog(record: StandardPacking) {
-    setEditingRecord(record);
+  function openEditDialog(item: StandardPackingRow) {
+    setEditingItem(item);
     setForm({
-      wholeChickenId: record.wholeChickenId,
-      productId: record.productId,
-      standardPacking: String(record.standardPacking),
-      standardSlice: String(record.standardSlice),
-      chickenSizeType: record.chickenSizeType || "-",
+      wholeChickenId: item.wholeChickenId,
+      productId: item.productId,
+      standardPacking: String(item.standardPacking),
+      standardSlice: String(item.standardSlice),
+      chickenSizeType: item.chickenSizeType || "",
     });
     setDialogOpen(true);
   }
 
-  async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
+  async function saveStandard(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
+
+    if (!form.wholeChickenId) {
+      toast.error("Select whole chicken bodega product.");
+      return;
+    }
+
+    if (!form.productId) {
+      toast.error("Select output bodega product.");
+      return;
+    }
+
+    if ((Number(form.standardPacking) || 0) <= 0) {
+      toast.error("Standard packing must be greater than zero.");
+      return;
+    }
+
+    if ((Number(form.standardSlice) || 0) <= 0) {
+      toast.error("Standard slice must be greater than zero.");
+      return;
+    }
+
     setIsSaving(true);
 
     try {
-      const url = editingRecord
-        ? `/api/slicing-standards/${editingRecord._id}`
-        : "/api/slicing-standards";
+      const url = editingItem
+        ? `/api/slicing/standard-packing/${editingItem._id}`
+        : "/api/slicing/standard-packing";
 
       const res = await fetch(url, {
-        method: editingRecord ? "PATCH" : "POST",
+        method: editingItem ? "PATCH" : "POST",
         headers: {
           "Content-Type": "application/json",
         },
@@ -216,7 +206,7 @@ export function StandardPackingPageClient() {
 
       toast.success(json.message || "Standard packing saved successfully.");
       setDialogOpen(false);
-      await loadRecords();
+      await loadStandards();
     } catch (error) {
       toast.error(
         error instanceof Error
@@ -228,15 +218,15 @@ export function StandardPackingPageClient() {
     }
   }
 
-  async function handleDelete(record: StandardPacking) {
+  async function deleteStandard(item: StandardPackingRow) {
     const confirmed = window.confirm(
-      `Delete standard ${record.wholeChickenName} → ${record.productName}?`
+      `Delete standard ${item.wholeChickenName} → ${item.productName}?`
     );
 
     if (!confirmed) return;
 
     try {
-      const res = await fetch(`/api/slicing-standards/${record._id}`, {
+      const res = await fetch(`/api/slicing/standard-packing/${item._id}`, {
         method: "DELETE",
       });
 
@@ -247,7 +237,7 @@ export function StandardPackingPageClient() {
       }
 
       toast.success(json.message || "Standard packing deleted successfully.");
-      await loadRecords();
+      await loadStandards();
     } catch (error) {
       toast.error(
         error instanceof Error
@@ -257,103 +247,68 @@ export function StandardPackingPageClient() {
     }
   }
 
-  function resetFilters() {
-    setChickenSizeType("ALL");
-    setPage(1);
-  }
-
-  const chickenSizeOptions = Array.from(
-    new Set(
-      records
-        .map((record) => record.chickenSizeType)
-        .filter((value) => value && value !== "-")
-    )
-  );
-
   return (
-    <div className="space-y-5">
-      <h1 className="text-3xl font-bold tracking-tight text-slate-900">
-        Standard Packing
-      </h1>
-
-      <div className="flex flex-col gap-3 rounded-xl border bg-white p-4 shadow-sm lg:flex-row lg:items-end">
-        <div className="w-full lg:w-64">
-          <Label>Filter by Chicken Size</Label>
-          <Select
-            value={chickenSizeType}
-            onValueChange={(value) => {
-              setChickenSizeType(value);
-              setPage(1);
-            }}
-          >
-            <SelectTrigger>
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="ALL">All</SelectItem>
-              {chickenSizeOptions.map((size) => (
-                <SelectItem key={size} value={size}>
-                  {size}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-
-        <div className="w-full lg:w-36">
-          <Label>Show entries</Label>
-          <Select
-            value={limit}
-            onValueChange={(value) => {
-              setLimit(value);
-              setPage(1);
-            }}
-          >
-            <SelectTrigger>
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="10">10</SelectItem>
-              <SelectItem value="25">25</SelectItem>
-              <SelectItem value="50">50</SelectItem>
-              <SelectItem value="100">100</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-
-        <Button variant="outline" onClick={resetFilters}>
-          <RefreshCcw className="mr-2 h-4 w-4" />
-          Reset
-        </Button>
-      </div>
-
-      <Card>
-        <CardHeader className="flex flex-row items-center justify-between border-b">
-          <CardTitle>All Standard Packing Records</CardTitle>
-
-          <Button onClick={openCreateDialog}>
+    <div className="space-y-6">
+      <ModuleHeader
+        title="Standard PCS & Packs"
+        description="Create slicing standards using bodega products."
+        actions={
+          <Button onClick={openAddDialog} className="rounded-xl">
             <Plus className="mr-2 h-4 w-4" />
-            Add New
+            Add Standard
           </Button>
-        </CardHeader>
+        }
+      />
 
-        <CardContent className="p-4">
-          <div className="overflow-x-auto rounded-lg border">
+      <Card className="rounded-2xl border-slate-200 shadow-sm">
+        <CardContent className="flex flex-col gap-3 p-5 md:flex-row">
+          <Input
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+            placeholder="Search whole chicken, output product, or size..."
+            onKeyDown={(event) => {
+              if (event.key === "Enter") setAppliedSearch(search.trim());
+            }}
+          />
+
+          <Button onClick={() => setAppliedSearch(search.trim())}>
+            <Search className="mr-2 h-4 w-4" />
+            Search
+          </Button>
+
+          <Button
+            variant="secondary"
+            onClick={() => {
+              setSearch("");
+              setAppliedSearch("");
+            }}
+          >
+            <RefreshCcw className="mr-2 h-4 w-4" />
+            Reset
+          </Button>
+        </CardContent>
+      </Card>
+
+      <Card className="rounded-2xl border-slate-200 shadow-sm">
+        <CardContent className="p-5">
+          <div className="overflow-hidden rounded-2xl border border-slate-200">
             <Table>
-              <TableHeader className="bg-slate-900">
+              <TableHeader className="bg-slate-950">
                 <TableRow>
-                  <TableHead className="text-center text-white">Whole Chicken</TableHead>
-                  <TableHead className="text-center text-white">Product</TableHead>
-                  <TableHead className="text-center text-white">
+                  <TableHead className="text-white">Whole Chicken</TableHead>
+                  <TableHead className="text-white">Output Product</TableHead>
+                  <TableHead className="text-right text-white">
                     Standard Packing
                   </TableHead>
-                  <TableHead className="text-center text-white">
+                  <TableHead className="text-right text-white">
                     Standard Slice
                   </TableHead>
-                  <TableHead className="text-center text-white">
+                  <TableHead className="text-white">
                     Chicken Size Type
                   </TableHead>
-                  <TableHead className="text-center text-white">Action</TableHead>
+                  <TableHead className="text-center text-white">
+                    Action
+                  </TableHead>
                 </TableRow>
               </TableHeader>
 
@@ -364,7 +319,7 @@ export function StandardPackingPageClient() {
                       <Loader2 className="mx-auto h-5 w-5 animate-spin" />
                     </TableCell>
                   </TableRow>
-                ) : records.length === 0 ? (
+                ) : filteredStandards.length === 0 ? (
                   <TableRow>
                     <TableCell
                       colSpan={6}
@@ -374,39 +329,37 @@ export function StandardPackingPageClient() {
                     </TableCell>
                   </TableRow>
                 ) : (
-                  records.map((record) => (
-                    <TableRow key={record._id}>
-                      <TableCell className="text-center">
-                        {record.wholeChickenName}
+                  filteredStandards.map((item) => (
+                    <TableRow key={item._id}>
+                      <TableCell className="font-medium">
+                        {item.wholeChickenName}
                       </TableCell>
-                      <TableCell className="text-center">
-                        {record.productName}
+                      <TableCell>{item.productName}</TableCell>
+                      <TableCell className="text-right">
+                        {item.standardPacking.toLocaleString()}
                       </TableCell>
-                      <TableCell className="text-center">
-                        {record.standardPacking.toFixed(2)}
+                      <TableCell className="text-right">
+                        {item.standardSlice.toLocaleString()}
                       </TableCell>
-                      <TableCell className="text-center">
-                        {record.standardSlice}
-                      </TableCell>
-                      <TableCell className="text-center">
-                        {record.chickenSizeType || "-"}
-                      </TableCell>
+                      <TableCell>{item.chickenSizeType || "-"}</TableCell>
                       <TableCell className="text-center">
                         <div className="flex justify-center gap-2">
                           <Button
-                            size="icon"
-                            className="bg-yellow-500 text-black hover:bg-yellow-600"
-                            onClick={() => openEditDialog(record)}
+                            size="sm"
+                            variant="outline"
+                            onClick={() => openEditDialog(item)}
                           >
-                            <Pencil className="h-4 w-4" />
+                            <Pencil className="mr-1 h-4 w-4" />
+                            Edit
                           </Button>
 
                           <Button
-                            size="icon"
+                            size="sm"
                             variant="destructive"
-                            onClick={() => handleDelete(record)}
+                            onClick={() => deleteStandard(item)}
                           >
-                            <Trash2 className="h-4 w-4" />
+                            <Trash2 className="mr-1 h-4 w-4" />
+                            Delete
                           </Button>
                         </div>
                       </TableCell>
@@ -416,59 +369,29 @@ export function StandardPackingPageClient() {
               </TableBody>
             </Table>
           </div>
-
-          <div className="mt-4 flex flex-col gap-3 text-sm text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
-            <p>
-              Showing {records.length} of {meta.total} records
-            </p>
-
-            <div className="flex items-center gap-2">
-              <Button
-                variant="outline"
-                disabled={page <= 1 || isLoading}
-                onClick={() => setPage((current) => Math.max(current - 1, 1))}
-              >
-                Previous
-              </Button>
-
-              <span className="rounded-md border px-3 py-2">
-                Page {meta.page} of {meta.totalPages}
-              </span>
-
-              <Button
-                variant="outline"
-                disabled={page >= meta.totalPages || isLoading}
-                onClick={() =>
-                  setPage((current) => Math.min(current + 1, meta.totalPages))
-                }
-              >
-                Next
-              </Button>
-            </div>
-          </div>
         </CardContent>
       </Card>
 
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent className="sm:max-w-xl">
+        <DialogContent className="sm:max-w-2xl">
           <DialogHeader>
-            <DialogTitle>
-              {editingRecord ? "Edit Standard Packing" : "Add Standard Packing"}
+            <DialogTitle className="text-2xl font-black">
+              {editingItem ? "Edit Standard Packing" : "Add Standard Packing"}
             </DialogTitle>
           </DialogHeader>
 
-          <form onSubmit={handleSubmit} className="space-y-4">
+          <form onSubmit={saveStandard} className="space-y-4">
             <div className="space-y-2">
-              <Label>Whole Chicken</Label>
+              <Label>Whole Chicken / Bodega Product</Label>
               <Select
                 value={form.wholeChickenId}
                 onValueChange={(value) => updateForm("wholeChickenId", value)}
               >
                 <SelectTrigger>
-                  <SelectValue placeholder="Select whole chicken" />
+                  <SelectValue placeholder="Select whole chicken from bodega" />
                 </SelectTrigger>
                 <SelectContent>
-                  {products.map((product) => (
+                  {bodegaProducts.map((product) => (
                     <SelectItem key={product._id} value={product._id}>
                       {product.name}
                     </SelectItem>
@@ -478,16 +401,16 @@ export function StandardPackingPageClient() {
             </div>
 
             <div className="space-y-2">
-              <Label>Product</Label>
+              <Label>Output Product / Bodega Product</Label>
               <Select
                 value={form.productId}
                 onValueChange={(value) => updateForm("productId", value)}
               >
                 <SelectTrigger>
-                  <SelectValue placeholder="Select product" />
+                  <SelectValue placeholder="Select output product from bodega" />
                 </SelectTrigger>
                 <SelectContent>
-                  {products.map((product) => (
+                  {bodegaProducts.map((product) => (
                     <SelectItem key={product._id} value={product._id}>
                       {product.name}
                     </SelectItem>
@@ -496,51 +419,51 @@ export function StandardPackingPageClient() {
               </Select>
             </div>
 
-            <div className="space-y-2">
-              <Label>Standard Packing</Label>
-              <Input
-                type="number"
-                min="0"
-                step="0.01"
-                value={form.standardPacking}
-                onChange={(event) =>
-                  updateForm("standardPacking", event.target.value)
-                }
-                required
-              />
-            </div>
+            <div className="grid gap-4 md:grid-cols-3">
+              <div className="space-y-2">
+                <Label>Standard Packing</Label>
+                <Input
+                  type="number"
+                  min="0"
+                  step="1"
+                  value={form.standardPacking}
+                  onChange={(event) =>
+                    updateForm("standardPacking", event.target.value)
+                  }
+                />
+              </div>
 
-            <div className="space-y-2">
-              <Label>Standard Slice</Label>
-              <Input
-                type="number"
-                min="0"
-                step="0.01"
-                value={form.standardSlice}
-                onChange={(event) =>
-                  updateForm("standardSlice", event.target.value)
-                }
-                required
-              />
-            </div>
+              <div className="space-y-2">
+                <Label>Standard Slice</Label>
+                <Input
+                  type="number"
+                  min="0"
+                  step="1"
+                  value={form.standardSlice}
+                  onChange={(event) =>
+                    updateForm("standardSlice", event.target.value)
+                  }
+                />
+              </div>
 
-            <div className="space-y-2">
-              <Label>Chicken Size Type</Label>
-              <Input
-                value={form.chickenSizeType}
-                onChange={(event) =>
-                  updateForm("chickenSizeType", event.target.value)
-                }
-                placeholder="e.g. OS1, PS3, C1"
-              />
+              <div className="space-y-2">
+                <Label>Chicken Size Type</Label>
+                <Input
+                  value={form.chickenSizeType}
+                  onChange={(event) =>
+                    updateForm("chickenSizeType", event.target.value)
+                  }
+                  placeholder="e.g. OS1, PS3, C1"
+                />
+              </div>
             </div>
 
             <DialogFooter>
               <Button
                 type="button"
-                variant="outline"
-                onClick={() => setDialogOpen(false)}
+                variant="secondary"
                 disabled={isSaving}
+                onClick={() => setDialogOpen(false)}
               >
                 Cancel
               </Button>

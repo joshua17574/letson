@@ -35,21 +35,36 @@ type CustomerOption = {
   name: string;
 };
 
+type BodegaProductApiItem = {
+  _id: string;
+  name: string;
+  categoryId?: string;
+  categoryName?: string;
+  sellingPrice?: number;
+  price?: number;
+  pricePerPack?: number;
+  packSize?: number;
+  standardPacking?: number;
+  stockQty?: number;
+  stockPcs?: number;
+};
+
 type ChickenProductOption = {
   _id: string;
   productId: string;
-  standardId: string;
+  bodegaProductId: string;
   name: string;
   categoryId: string;
   categoryName: string;
   pricePerPack: number;
   packSize: number;
-  stockPcs: number;
+  stockQty: number;
   availablePacks: number;
 };
 
 type CartItem = {
   productId: string;
+  bodegaProductId: string;
   name: string;
   categoryName: string;
   availablePacks: number;
@@ -97,14 +112,37 @@ export function SellChickenPageClient() {
   }
 
   async function loadProducts() {
-    const res = await fetch("/api/sales/chicken-products", {
+    const res = await fetch("/api/bodega-products?limit=1000", {
       cache: "no-store",
     });
 
     const json = await res.json();
 
     if (res.ok && json.success) {
-      setProducts(json.data || []);
+      const mappedProducts: ChickenProductOption[] = (
+        json.data || []
+      ).map((item: BodegaProductApiItem) => {
+        const stockQty = Number(item.stockQty ?? item.stockPcs ?? 0);
+        const packSize = Number(item.packSize ?? item.standardPacking ?? 1) || 1;
+        const pricePerPack = Number(
+          item.sellingPrice ?? item.pricePerPack ?? item.price ?? 0
+        );
+
+        return {
+          _id: item._id,
+          productId: item._id,
+          bodegaProductId: item._id,
+          name: item.name,
+          categoryId: item.categoryId || "",
+          categoryName: item.categoryName || "Uncategorized",
+          pricePerPack,
+          packSize,
+          stockQty,
+          availablePacks: stockQty,
+        };
+      });
+
+      setProducts(mappedProducts);
     }
   }
 
@@ -137,7 +175,10 @@ export function SellChickenPageClient() {
       return;
     }
 
-    const existing = cart.find((item) => item.productId === selectedProduct.productId);
+    const existing = cart.find(
+      (item) => item.bodegaProductId === selectedProduct.bodegaProductId
+    );
+
     const currentPacks = existing?.packs || 0;
     const newTotalPacks = currentPacks + packsToSell;
 
@@ -151,7 +192,7 @@ export function SellChickenPageClient() {
     if (existing) {
       setCart((current) =>
         current.map((item) =>
-          item.productId === selectedProduct.productId
+          item.bodegaProductId === selectedProduct.bodegaProductId
             ? {
                 ...item,
                 packs: newTotalPacks,
@@ -164,6 +205,7 @@ export function SellChickenPageClient() {
         ...current,
         {
           productId: selectedProduct.productId,
+          bodegaProductId: selectedProduct.bodegaProductId,
           name: selectedProduct.name,
           categoryName: selectedProduct.categoryName,
           availablePacks: selectedProduct.availablePacks,
@@ -178,8 +220,10 @@ export function SellChickenPageClient() {
     setPacks("0");
   }
 
-  function removeCartItem(productId: string) {
-    setCart((current) => current.filter((item) => item.productId !== productId));
+  function removeCartItem(bodegaProductId: string) {
+    setCart((current) =>
+      current.filter((item) => item.bodegaProductId !== bodegaProductId)
+    );
   }
 
   async function submitSale() {
@@ -212,9 +256,12 @@ export function SellChickenPageClient() {
           saleDate,
           receiptNumber,
           items: cart.map((item) => ({
-            productId: item.productId,
+            productId: item.bodegaProductId,
+            bodegaProductId: item.bodegaProductId,
             packs: item.packs,
+            quantity: item.packs,
             pricePerPack: item.pricePerPack,
+            price: item.pricePerPack,
             packSize: item.packSize,
           })),
         }),
@@ -313,15 +360,15 @@ export function SellChickenPageClient() {
                     onValueChange={setSelectedProductId}
                   >
                     <SelectTrigger>
-                      <SelectValue placeholder="-- Select product --" />
+                      <SelectValue placeholder="-- Select bodega product --" />
                     </SelectTrigger>
                     <SelectContent>
                       {products.map((product) => (
                         <SelectItem
-                          key={product.productId}
+                          key={product.bodegaProductId}
                           value={product.productId}
                         >
-                          {product.name} — {product.availablePacks} packs
+                          {product.name} — {product.availablePacks} available
                         </SelectItem>
                       ))}
                     </SelectContent>
@@ -333,17 +380,17 @@ export function SellChickenPageClient() {
                   <Input
                     value={
                       selectedProduct
-                        ? `${selectedProduct.availablePacks} packs (${formatPeso(
+                        ? `${selectedProduct.availablePacks} available (${formatPeso(
                             selectedProduct.pricePerPack
                           )}/pack)`
-                        : "0 packs (₱0.00/pack)"
+                        : `0 available (${formatPeso(0)}/pack)`
                     }
                     disabled
                   />
                 </div>
 
                 <div className="space-y-2">
-                  <Label>Packs</Label>
+                  <Label>Packs / Qty</Label>
                   <Input
                     type="number"
                     min="0"
@@ -372,16 +419,16 @@ export function SellChickenPageClient() {
                         Category
                       </TableHead>
                       <TableHead className="text-center text-white">
-                        Avail (packs)
+                        Available
                       </TableHead>
                       <TableHead className="text-center text-white">
-                        Packs to Sell
+                        Qty to Sell
                       </TableHead>
                       <TableHead className="text-center text-white">
-                        Price/Pack
+                        Price
                       </TableHead>
                       <TableHead className="text-center text-white">
-                        Line Total (₱)
+                        Line Total
                       </TableHead>
                       <TableHead className="text-center text-white">
                         Action
@@ -401,7 +448,7 @@ export function SellChickenPageClient() {
                       </TableRow>
                     ) : (
                       cart.map((item, index) => (
-                        <TableRow key={item.productId}>
+                        <TableRow key={item.bodegaProductId}>
                           <TableCell className="text-center">
                             {index + 1}
                           </TableCell>
@@ -427,7 +474,7 @@ export function SellChickenPageClient() {
                             <Button
                               size="icon"
                               variant="destructive"
-                              onClick={() => removeCartItem(item.productId)}
+                              onClick={() => removeCartItem(item.bodegaProductId)}
                             >
                               <Trash2 className="h-4 w-4" />
                             </Button>

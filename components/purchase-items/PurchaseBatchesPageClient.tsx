@@ -24,13 +24,15 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+
 import {
-  Sheet,
-  SheetContent,
-  SheetFooter,
-  SheetHeader,
-  SheetTitle,
-} from "@/components/ui/sheet";
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+
 import {
   Table,
   TableBody,
@@ -625,145 +627,138 @@ export function PurchaseBatchesPageClient() {
         </CardContent>
       </Card>
 
-      <Sheet open={drawerOpen} onOpenChange={setDrawerOpen}>
-        <SheetContent
-          side="right"
-          className="w-full overflow-y-auto sm:max-w-3xl"
-        >
-          <SheetHeader>
-            <SheetTitle className="text-2xl font-black">
-              Add Purchase Batch
-            </SheetTitle>
-          </SheetHeader>
+<Dialog open={drawerOpen} onOpenChange={setDrawerOpen}>
+  <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-5xl">
+    <DialogHeader>
+      <DialogTitle className="text-2xl font-black">
+        Add Purchase Batch
+      </DialogTitle>
+    </DialogHeader>
 
-          <div className="mt-6 space-y-5">
-            <div className="space-y-2">
-              <Label>Date Purchased</Label>
-              <div className="relative">
-                <CalendarDays className="pointer-events-none absolute left-3 top-3 h-4 w-4 text-slate-400" />
+    <div className="mt-4 space-y-5">
+      <div className="space-y-2">
+        <Label>Date Purchased</Label>
+        <div className="relative">
+          <CalendarDays className="pointer-events-none absolute left-3 top-3 h-4 w-4 text-slate-400" />
+          <Input
+            type="date"
+            value={datePurchased}
+            onChange={(event) => setDatePurchased(event.target.value)}
+            className="pl-9"
+          />
+        </div>
+      </div>
+
+      <div className="space-y-3">
+        {items.map((item, index) => {
+          const subtotal =
+            (Number(item.buyingPrice) || 0) * (Number(item.quantity) || 0);
+
+          return (
+            <div
+              key={index}
+              className="rounded-2xl border border-slate-200 bg-slate-50 p-4"
+            >
+              <div className="grid gap-3 md:grid-cols-[2fr_1fr_1fr_1fr_auto]">
+                <Select
+                  value={item.bodegaProductId}
+                  onValueChange={(value) =>
+                    updateItem(index, "bodegaProductId", value)
+                  }
+                >
+                  <SelectTrigger className="bg-white">
+                    <SelectValue placeholder="Search product..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {products.map((product) => (
+                      <SelectItem key={product._id} value={product._id}>
+                        {product.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+
                 <Input
-                  type="date"
-                  value={datePurchased}
-                  onChange={(event) => setDatePurchased(event.target.value)}
-                  className="pl-9"
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={item.buyingPrice}
+                  onChange={(event) =>
+                    updateItem(index, "buyingPrice", event.target.value)
+                  }
+                  placeholder="Buying Price"
+                  className="bg-white"
                 />
+
+                <Input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={item.quantity}
+                  onChange={(event) =>
+                    updateItem(index, "quantity", event.target.value)
+                  }
+                  placeholder="Qty"
+                  className="bg-white"
+                />
+
+                <Input value={subtotal.toFixed(2)} disabled className="bg-white" />
+
+                <Button
+                  type="button"
+                  variant="destructive"
+                  onClick={() => removeItemRow(index)}
+                  className="rounded-xl"
+                >
+                  X
+                </Button>
               </div>
             </div>
+          );
+        })}
+      </div>
 
-            <div className="space-y-3">
-              {items.map((item, index) => {
-                const subtotal =
-                  (Number(item.buyingPrice) || 0) *
-                  (Number(item.quantity) || 0);
+      <Button
+        type="button"
+        variant="secondary"
+        className="w-full rounded-xl"
+        onClick={addItemRow}
+      >
+        <Plus className="mr-2 h-4 w-4" />
+        Add More
+      </Button>
 
-                return (
-                  <div
-                    key={index}
-                    className="rounded-2xl border border-slate-200 bg-slate-50 p-4"
-                  >
-                    <div className="grid gap-3 md:grid-cols-[2fr_1fr_1fr_1fr_auto]">
-                      <Select
-                        value={item.bodegaProductId}
-                        onValueChange={(value) =>
-                          updateItem(index, "bodegaProductId", value)
-                        }
-                      >
-                        <SelectTrigger className="bg-white">
-                          <SelectValue placeholder="Search product..." />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {products.map((product) => (
-                            <SelectItem key={product._id} value={product._id}>
-                              {product.name}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
+      <div className="rounded-2xl bg-slate-950 p-5 text-white">
+        <p className="text-sm text-white/70">Total</p>
+        <p className="text-3xl font-black">{formatPeso(totalAmount)}</p>
+      </div>
+    </div>
 
-                      <Input
-                        type="number"
-                        min="0"
-                        step="0.01"
-                        value={item.buyingPrice}
-                        onChange={(event) =>
-                          updateItem(index, "buyingPrice", event.target.value)
-                        }
-                        placeholder="Buying Price"
-                        className="bg-white"
-                      />
+    <DialogFooter className="mt-6 gap-2 sm:justify-end">
+      <Button
+        type="button"
+        variant="secondary"
+        disabled={isSaving}
+        className="rounded-xl"
+        onClick={() => setDrawerOpen(false)}
+      >
+        Cancel
+      </Button>
 
-                      <Input
-                        type="number"
-                        min="0"
-                        step="0.01"
-                        value={item.quantity}
-                        onChange={(event) =>
-                          updateItem(index, "quantity", event.target.value)
-                        }
-                        placeholder="Qty"
-                        className="bg-white"
-                      />
+      <Button
+        onClick={saveBatch}
+        disabled={isSaving}
+        className="rounded-xl bg-emerald-600 hover:bg-emerald-700"
+      >
+        {isSaving ? (
+          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+        ) : null}
+        Save Batch
+      </Button>
+    </DialogFooter>
+  </DialogContent>
+</Dialog>
 
-                      <Input
-                        value={subtotal.toFixed(2)}
-                        disabled
-                        className="bg-white"
-                      />
-
-                      <Button
-                        type="button"
-                        variant="destructive"
-                        onClick={() => removeItemRow(index)}
-                        className="rounded-xl"
-                      >
-                        X
-                      </Button>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-
-            <div className="rounded-2xl bg-slate-950 p-5 text-white">
-              <p className="text-sm text-white/70">Total</p>
-              <p className="text-3xl font-black">{formatPeso(totalAmount)}</p>
-            </div>
-
-            <Button
-              type="button"
-              variant="secondary"
-              className="w-full rounded-xl"
-              onClick={addItemRow}
-            >
-              <Plus className="mr-2 h-4 w-4" />
-              Add More
-            </Button>
-          </div>
-
-          <SheetFooter className="mt-8 flex-col gap-2 sm:flex-col">
-            <Button
-              onClick={saveBatch}
-              disabled={isSaving}
-              className="w-full rounded-xl bg-emerald-600 hover:bg-emerald-700"
-            >
-              {isSaving ? (
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              ) : null}
-              Save Batch
-            </Button>
-
-            <Button
-              type="button"
-              variant="secondary"
-              disabled={isSaving}
-              className="w-full rounded-xl"
-              onClick={() => setDrawerOpen(false)}
-            >
-              Cancel
-            </Button>
-          </SheetFooter>
-        </SheetContent>
-      </Sheet>
     </div>
   );
 }

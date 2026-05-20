@@ -1,19 +1,18 @@
 // app/api/inventory/bodega/route.ts
 import { NextRequest, NextResponse } from "next/server";
-import type { QueryFilter} from "mongoose";
+import { Types } from "mongoose";
 
 import dbConnect from "@/lib/mongodb";
 import { requireApiAuth } from "@/lib/require-auth";
 import { cleanString, escapeRegex } from "@/lib/crud-utils";
-import BodegaProductModel, { IBodegaProduct } from "@/models/BodegaProduct";
+import BodegaProductModel from "@/models/BodegaProduct";
 import BodegaStockTransactionModel from "@/models/BodegaStockTransaction";
 
-function isInMovement(transaction: any) {
-  return Number(transaction.newStock || 0) > Number(transaction.previousStock || 0);
-}
-
-function isOutMovement(transaction: any) {
-  return Number(transaction.newStock || 0) < Number(transaction.previousStock || 0);
+function getTransactionSign(type: string) {
+  if (type === "STOCK_IN") return "IN";
+  if (type === "STOCK_OUT") return "OUT";
+  if (type === "VOID_REVERSAL") return "OUT";
+  return "NONE";
 }
 
 export async function GET(req: NextRequest) {
@@ -29,7 +28,7 @@ export async function GET(req: NextRequest) {
   const dateFrom = cleanString(searchParams.get("dateFrom"));
   const dateTo = cleanString(searchParams.get("dateTo"));
 
-  const productFilter: QueryFilter<IBodegaProduct> = {
+  const productFilter: Record<string, any> = {
     isActive: true,
   };
 
@@ -44,67 +43,108 @@ export async function GET(req: NextRequest) {
     .sort({ name: 1 })
     .lean();
 
-  const data = [];
+  const productIds = products.map((product) => product._id);
 
-  let totalStockIn = 0;
-  let totalStockOut = 0;
-  let totalCurrentStock = 0;
+  const transactionFilter: Record<string, any> = {
+    bodegaProductId: {
+      $in: productIds,
+    },
+  };
 
-  for (const product of products) {
-    const transactionFilter: any = {
-      bodegaProductId: product._id,
+  if (dateFrom || dateTo) {
+    transactionFilter.createdAt = {};
+
+    if (dateFrom) {
+      transactionFilter.createdAt.$gte = new Date(`${dateFrom}T00:00:00.000Z`);
+    }
+
+    if (dateTo) {
+      transactionFilter.createdAt.$lte = new Date(`${dateTo}T23:59:59.999Z`);
+    }
+  }
+
+  const transactions = await BodegaStockTransactionModel.find(transactionFilter)
+    .sort({ createdAt: -1 })
+    .lean();
+
+  const movementMap = new Map<
+    string,
+    {
+      stockIn: number;
+      stockOut: number;
+      latestDate?: Date;
+    }
+  >();
+
+  for (const transaction of transactions) {
+    const productId = transaction.bodegaProductId?.toString?.() || "";
+    const sign = getTransactionSign(transaction.type);
+    const quantity = Number(transaction.quantity || 0);
+
+    const current = movementMap.get(productId) || {
+      stockIn: 0,
+      stockOut: 0,
+      latestDate: undefined,
     };
 
-    if (dateFrom || dateTo) {
-      transactionFilter.createdAt = {};
-
-      if (dateFrom) {
-        transactionFilter.createdAt.$gte = new Date(`${dateFrom}T00:00:00.000Z`);
-      }
-
-      if (dateTo) {
-        transactionFilter.createdAt.$lte = new Date(`${dateTo}T23:59:59.999Z`);
-      }
+    if (sign === "IN") {
+      current.stockIn += quantity;
     }
 
-    const transactions = await BodegaStockTransactionModel.find(transactionFilter)
-      .sort({ createdAt: -1 })
-      .lean();
-
-    let stockIn = 0;
-    let stockOut = 0;
-
-    for (const transaction of transactions) {
-      const qty = Number(transaction.quantity || 0);
-
-      if (isInMovement(transaction)) stockIn += qty;
-      if (isOutMovement(transaction)) stockOut += qty;
+    if (sign === "OUT") {
+      current.stockOut += quantity;
     }
 
-    totalStockIn += stockIn;
-    totalStockOut += stockOut;
-    totalCurrentStock += Number(product.stockQty || 0);
+    if (
+      transaction.createdAt &&
+      (!current.latestDate ||
+        new Date(transaction.createdAt) > new Date(current.latestDate))
+    ) {
+      current.latestDate = transaction.createdAt;
+    }
 
-    data.push({
-      _id: product._id.toString(),
-      product: product.name,
-      stockIn,
-      stockOut,
-      currentStock: Number(product.stockQty || 0),
-      price: Number(product.sellingPrice || 0),
-      dateAdded: product.createdAt
-        ? new Date(product.createdAt).toISOString()
-        : undefined,
-    });
+    movementMap.set(productId, current);
   }
+
+  const data = products.map((product) => {
+    const id = product._id.toString();
+    const movement = movementMap.get(id) || {
+      stockIn: 0,
+      stockOut: 0,
+      latestDate: product.createdAt,
+    };
+
+    return {
+      _id: id,
+      product: product.name,
+      stockIn: movement.stockIn,
+      stockOut: movement.stockOut,
+      currentStock: Number(product.stockQty || 0),
+      price: Number(product.sellingPrice || product.buyingPrice || 0),
+      dateAdded: movement.latestDate
+        ? new Date(movement.latestDate).toISOString()
+        : product.createdAt
+          ? new Date(product.createdAt).toISOString()
+          : undefined,
+    };
+  });
+
+  const totals = data.reduce(
+    (sum, row) => ({
+      stockIn: sum.stockIn + row.stockIn,
+      stockOut: sum.stockOut + row.stockOut,
+      currentStock: sum.currentStock + row.currentStock,
+    }),
+    {
+      stockIn: 0,
+      stockOut: 0,
+      currentStock: 0,
+    }
+  );
 
   return NextResponse.json({
     success: true,
     data,
-    totals: {
-      stockIn: totalStockIn,
-      stockOut: totalStockOut,
-      currentStock: totalCurrentStock,
-    },
+    totals,
   });
 }

@@ -5,10 +5,7 @@ import { Loader2, Plus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-} from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -18,6 +15,14 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import { formatPeso } from "@/lib/utils";
 
 type CustomerOption = {
@@ -25,30 +30,45 @@ type CustomerOption = {
   name: string;
 };
 
-type BodegaProductOption = {
+type ProductOption = {
   _id: string;
   name: string;
-  stockQty: number;
-  sellingPrice: number;
+  categoryName?: string;
+  sellingPrice?: number;
+  price?: number;
+  stockQty?: number;
+  stockPcs?: number;
 };
 
 type SaleRow = {
-  bodegaProductId: string;
+  productId: string;
   price: string;
   quantity: string;
 };
 
 const emptyRow: SaleRow = {
-  bodegaProductId: "",
+  productId: "",
   price: "0",
   quantity: "0",
 };
 
+function getProductStock(product?: ProductOption) {
+  if (!product) return 0;
+  return Number(product.stockQty ?? product.stockPcs ?? 0);
+}
+
+function getProductPrice(product?: ProductOption) {
+  if (!product) return 0;
+  return Number(product.sellingPrice ?? product.price ?? 0);
+}
+
 export function SaleGroceryPageClient() {
   const [customers, setCustomers] = useState<CustomerOption[]>([]);
-  const [products, setProducts] = useState<BodegaProductOption[]>([]);
+  const [products, setProducts] = useState<ProductOption[]>([]);
 
-  const [saleDate, setSaleDate] = useState(new Date().toISOString().slice(0, 10));
+  const [saleDate, setSaleDate] = useState(
+    new Date().toISOString().slice(0, 10)
+  );
   const [customerId, setCustomerId] = useState("");
   const [receiptNumber, setReceiptNumber] = useState("");
 
@@ -68,7 +88,7 @@ export function SaleGroceryPageClient() {
   }, [rows]);
 
   async function loadCustomers() {
-    const res = await fetch("/api/customers?limit=100", {
+    const res = await fetch("/api/customers?limit=1000", {
       cache: "no-store",
     });
 
@@ -80,7 +100,7 @@ export function SaleGroceryPageClient() {
   }
 
   async function loadProducts() {
-    const res = await fetch("/api/bodega-products?limit=100", {
+    const res = await fetch("/api/products?limit=1000", {
       cache: "no-store",
     });
 
@@ -116,11 +136,11 @@ export function SaleGroceryPageClient() {
         [field]: value,
       };
 
-      if (field === "bodegaProductId") {
+      if (field === "productId") {
         const product = products.find((item) => item._id === value);
 
         if (product) {
-          next[index].price = String(product.sellingPrice || 0);
+          next[index].price = String(getProductPrice(product));
         }
       }
 
@@ -156,16 +176,47 @@ export function SaleGroceryPageClient() {
     }
 
     const validRows = rows
-      .filter((row) => row.bodegaProductId && Number(row.quantity) > 0)
-      .map((row) => ({
-        bodegaProductId: row.bodegaProductId,
-        quantity: Number(row.quantity) || 0,
-        price: Number(row.price) || 0,
-      }));
+      .filter((row) => row.productId && Number(row.quantity) > 0)
+      .map((row) => {
+        const product = products.find((item) => item._id === row.productId);
+
+        return {
+          productId: row.productId,
+          quantity: Number(row.quantity) || 0,
+          qty: Number(row.quantity) || 0,
+          price: Number(row.price) || 0,
+          unitPrice: Number(row.price) || 0,
+          productName: product?.name || "",
+          categoryName: product?.categoryName || "",
+        };
+      });
 
     if (validRows.length === 0) {
       toast.error("Add at least one product.");
       return;
+    }
+
+    for (const row of validRows) {
+      const product = products.find((item) => item._id === row.productId);
+
+      if (!product) {
+        toast.error("Selected product was not found.");
+        return;
+      }
+
+      const availableStock = getProductStock(product);
+
+      if (row.quantity > availableStock) {
+        toast.error(
+          `Not enough stock for ${product.name}. Available: ${availableStock}.`
+        );
+        return;
+      }
+
+      if (row.price <= 0) {
+        toast.error(`Price must be greater than zero for ${product.name}.`);
+        return;
+      }
     }
 
     setIsSaving(true);
@@ -199,7 +250,9 @@ export function SaleGroceryPageClient() {
 
       await loadProducts();
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Failed to save sale.");
+      toast.error(
+        error instanceof Error ? error.message : "Failed to save sale."
+      );
     } finally {
       setIsSaving(false);
     }
@@ -208,7 +261,7 @@ export function SaleGroceryPageClient() {
   return (
     <div className="space-y-5">
       <h1 className="text-3xl font-bold tracking-tight text-slate-900">
-        New Sale
+        New Grocery Sale
       </h1>
 
       <Card>
@@ -219,145 +272,160 @@ export function SaleGroceryPageClient() {
             </div>
           ) : (
             <>
-              <div className="space-y-2">
-                <Label>Date of Sale</Label>
-                <Input
-                  type="date"
-                  value={saleDate}
-                  onChange={(event) => setSaleDate(event.target.value)}
-                />
-              </div>
+              <div className="grid gap-4 lg:grid-cols-3">
+                <div className="space-y-2">
+                  <Label>Date of Sale</Label>
+                  <Input
+                    type="date"
+                    value={saleDate}
+                    onChange={(event) => setSaleDate(event.target.value)}
+                  />
+                </div>
 
-              <div className="space-y-2">
-                <Label>Customer</Label>
-                <Select value={customerId} onValueChange={setCustomerId}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select Customer" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {customers.map((customer) => (
-                      <SelectItem key={customer._id} value={customer._id}>
-                        {customer.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
+                <div className="space-y-2">
+                  <Label>Customer</Label>
+                  <Select value={customerId} onValueChange={setCustomerId}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select Customer" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {customers.map((customer) => (
+                        <SelectItem key={customer._id} value={customer._id}>
+                          {customer.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
 
-              <div className="space-y-2">
-                <Label>Receipt Number</Label>
-                <Input
-                  value={receiptNumber}
-                  onChange={(event) => setReceiptNumber(event.target.value)}
-                  placeholder="e.g. 0002318"
-                />
+                <div className="space-y-2">
+                  <Label>Receipt Number</Label>
+                  <Input
+                    value={receiptNumber}
+                    onChange={(event) => setReceiptNumber(event.target.value)}
+                    placeholder="e.g. 0002318"
+                  />
+                </div>
               </div>
 
               <div className="space-y-3">
                 {rows.map((row, index) => {
-                  const product = products.find(
-                    (item) => item._id === row.bodegaProductId
+                  const selectedProduct = products.find(
+                    (product) => product._id === row.productId
                   );
-                  const subtotal =
+
+                  const stock = getProductStock(selectedProduct);
+                  const lineTotal =
                     (Number(row.price) || 0) * (Number(row.quantity) || 0);
 
                   return (
                     <div
                       key={index}
-                      className="grid gap-3 rounded-lg border bg-white p-3 md:grid-cols-[2fr_1fr_1fr_1.5fr_auto]"
+                      className="rounded-2xl border bg-slate-50 p-4"
                     >
-                      <Select
-                        value={row.bodegaProductId}
-                        onValueChange={(value) =>
-                          updateRow(index, "bodegaProductId", value)
-                        }
-                      >
-                        <SelectTrigger>
-                          <SelectValue placeholder="Select Product" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {products.map((item) => (
-                            <SelectItem key={item._id} value={item._id}>
-                              {item.name} — Stock: {item.stockQty}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
+                      <div className="grid gap-3 lg:grid-cols-[2fr_1fr_1fr_1fr_auto]">
+                        <div className="space-y-2">
+                          <Label>Product</Label>
+                          <Select
+                            value={row.productId}
+                            onValueChange={(value) =>
+                              updateRow(index, "productId", value)
+                            }
+                          >
+                            <SelectTrigger className="bg-white">
+                              <SelectValue placeholder="Select product" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {products.map((product) => (
+                                <SelectItem key={product._id} value={product._id}>
+                                  {product.name} — Stock:{" "}
+                                  {getProductStock(product)}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
 
-                      <Input
-                        type="number"
-                        min="0"
-                        step="0.01"
-                        value={row.price}
-                        onChange={(event) =>
-                          updateRow(index, "price", event.target.value)
-                        }
-                        placeholder="Price"
-                      />
+                          {selectedProduct ? (
+                            <p className="text-xs text-muted-foreground">
+                              Category:{" "}
+                              {selectedProduct.categoryName || "Uncategorized"}{" "}
+                              | Available: {stock}
+                            </p>
+                          ) : null}
+                        </div>
 
-                      <Input
-                        type="number"
-                        min="0"
-                        step="0.01"
-                        value={row.quantity}
-                        onChange={(event) =>
-                          updateRow(index, "quantity", event.target.value)
-                        }
-                        placeholder="Qty"
-                      />
+                        <div className="space-y-2">
+                          <Label>Price</Label>
+                          <Input
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            value={row.price}
+                            onChange={(event) =>
+                              updateRow(index, "price", event.target.value)
+                            }
+                            className="bg-white"
+                          />
+                        </div>
 
-                      <Input value={subtotal.toFixed(2)} disabled />
+                        <div className="space-y-2">
+                          <Label>Quantity</Label>
+                          <Input
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            value={row.quantity}
+                            onChange={(event) =>
+                              updateRow(index, "quantity", event.target.value)
+                            }
+                            className="bg-white"
+                          />
+                        </div>
 
-                      <Button
-                        type="button"
-                        variant="destructive"
-                        onClick={() => removeRow(index)}
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
+                        <div className="space-y-2">
+                          <Label>Line Total</Label>
+                          <Input
+                            value={lineTotal.toFixed(2)}
+                            disabled
+                            className="bg-white"
+                          />
+                        </div>
 
-                      {product ? (
-                        <p className="text-xs text-muted-foreground md:col-span-5">
-                          Available stock: {product.stockQty}
-                        </p>
-                      ) : null}
+                        <div className="flex items-end">
+                          <Button
+                            type="button"
+                            variant="destructive"
+                            onClick={() => removeRow(index)}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      </div>
                     </div>
                   );
                 })}
               </div>
 
-              <p className="text-2xl font-semibold">Total: {formatPeso(total)}</p>
-
-              <Button
-                type="button"
-                variant="secondary"
-                className="w-full"
-                onClick={addRow}
-              >
+              <Button type="button" variant="secondary" onClick={addRow}>
                 <Plus className="mr-2 h-4 w-4" />
-                Add More
+                Add Product
               </Button>
 
-              <div className="space-y-2">
-                <Button
-                  className="w-full bg-emerald-600 hover:bg-emerald-700"
-                  disabled={isSaving}
-                  onClick={saveSale}
-                >
-                  {isSaving ? "Saving..." : "Save Sale"}
-                </Button>
+              <div className="flex flex-col items-end gap-3 rounded-2xl bg-slate-950 p-5 text-white">
+                <p className="text-sm text-white/70">Grand Total</p>
+                <p className="text-3xl font-black">{formatPeso(total)}</p>
+              </div>
 
+              <div className="flex justify-end">
                 <Button
-                  variant="secondary"
-                  className="w-full"
+                  onClick={saveSale}
                   disabled={isSaving}
-                  onClick={() => {
-                    setCustomerId("");
-                    setReceiptNumber("");
-                    setRows([{ ...emptyRow }, { ...emptyRow }, { ...emptyRow }]);
-                  }}
+                  className="bg-emerald-600 hover:bg-emerald-700"
                 >
-                  Cancel
+                  {isSaving ? (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  ) : null}
+                  Save Sale
                 </Button>
               </div>
             </>
