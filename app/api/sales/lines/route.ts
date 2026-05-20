@@ -1,38 +1,16 @@
 // app/api/sales/lines/route.ts
 import { NextRequest, NextResponse } from "next/server";
-import { QueryFilter } from "mongoose";
+import { Types } from "mongoose";
 
 import dbConnect from "@/lib/mongodb";
-import {
-  cleanString,
-  escapeRegex,
-  getPagination,
-} from "@/lib/crud-utils";
+import { cleanString, escapeRegex, getPagination } from "@/lib/crud-utils";
 import { requireApiAuth } from "@/lib/require-auth";
+
+import BodegaProductModel from "@/models/BodegaProduct";
 import CustomerModel from "@/models/Customer";
+import ProductModel from "@/models/Product";
 import SaleModel from "@/models/Sale";
-import SaleLineModel, { ISaleLine } from "@/models/SaleLine";
-
-function serializeLine(line: any) {
-  const sale = line.saleId;
-
-  return {
-    _id: line._id.toString(),
-    saleId: sale?._id?.toString?.() || line.saleId?.toString?.() || "",
-    receiptNumber: sale?.receiptNumber || "",
-    saleDate: sale?.saleDate
-      ? new Date(sale.saleDate).toISOString()
-      : undefined,
-    customerName: sale?.customerId?.name || "",
-    source: line.source || sale?.source || "",
-    categoryName: line.categoryName || "",
-    productName: line.productName || "",
-    qty: Number(line.qty || 0),
-    price: Number(line.price || 0),
-    lineTotal: Number(line.lineTotal || 0),
-    remarks: line.remarks || "",
-  };
-}
+import SaleLineModel from "@/models/SaleLine";
 
 function splitValues(value: string) {
   return value
@@ -41,8 +19,37 @@ function splitValues(value: string) {
     .filter(Boolean);
 }
 
-function makeExactRegexList(values: string[]) {
-  return values.map((value) => new RegExp(`^${escapeRegex(value)}$`, "i"));
+function normalize(value: string) {
+  return cleanString(value).replace(/\s+/g, " ").toLowerCase();
+}
+
+function getId(value: any) {
+  return value?._id?.toString?.() || value?.toString?.() || "";
+}
+
+function getCategoryName(product: any) {
+  return (
+    product?.categoryName ||
+    product?.categoryId?.name ||
+    product?.category?.name ||
+    ""
+  );
+}
+
+function getQty(line: any) {
+  return Number(line.qty ?? line.quantity ?? line.packs ?? 0);
+}
+
+function getPrice(line: any) {
+  return Number(line.price ?? line.unitPrice ?? line.pricePerPack ?? 0);
+}
+
+function getLineTotal(line: any) {
+  const savedTotal = Number(line.lineTotal ?? line.totalAmount ?? 0);
+
+  if (savedTotal > 0) return savedTotal;
+
+  return getQty(line) * getPrice(line);
 }
 
 export async function GET(req: NextRequest) {
@@ -53,13 +60,14 @@ export async function GET(req: NextRequest) {
   await dbConnect();
 
   const { searchParams } = new URL(req.url);
-  const { page, limit, skip } = getPagination(searchParams);
+  const { page, limit } = getPagination(searchParams);
 
   const dateFrom = cleanString(searchParams.get("dateFrom"));
   const dateTo = cleanString(searchParams.get("dateTo"));
   const receiptNumber = cleanString(searchParams.get("receiptNumber"));
   const customer = cleanString(searchParams.get("customer"));
   const source = cleanString(searchParams.get("source")).toUpperCase();
+
   const categoryNames = splitValues(cleanString(searchParams.get("categoryNames")));
   const productNames = splitValues(cleanString(searchParams.get("productNames")));
 
@@ -102,7 +110,12 @@ export async function GET(req: NextRequest) {
     };
   }
 
-  const saleIds = await SaleModel.find(saleFilter).select("_id").lean();
+  const sales = await SaleModel.find(saleFilter)
+    .populate("customerId", "name")
+    .sort({ saleDate: -1, createdAt: -1 })
+    .lean();
+
+  const saleIds = sales.map((sale) => sale._id);
 
   if (saleIds.length === 0) {
     return NextResponse.json({
@@ -121,9 +134,15 @@ export async function GET(req: NextRequest) {
     });
   }
 
-  const lineFilter: QueryFilter<ISaleLine> = {
+  const saleMap = new Map<string, any>();
+
+  for (const sale of sales) {
+    saleMap.set(sale._id.toString(), sale);
+  }
+
+  const lineFilter: Record<string, any> = {
     saleId: {
-      $in: saleIds.map((item) => item._id),
+      $in: saleIds,
     },
   };
 
@@ -131,65 +150,148 @@ export async function GET(req: NextRequest) {
     lineFilter.source = source;
   }
 
-  if (categoryNames.length > 0) {
-    lineFilter.categoryName = {
-      $in: makeExactRegexList(categoryNames),
-    } as any;
-  }
+  const saleLines = await SaleLineModel.find(lineFilter)
+    .sort({ createdAt: -1 })
+    .lean();
 
-  if (productNames.length > 0) {
-    lineFilter.productName = {
-      $in: makeExactRegexList(productNames),
-    } as any;
-  }
+  const productIds = Array.from(
+    new Set(
+      saleLines
+        .map((line: any) => getId(line.bodegaProductId || line.productId))
+        .filter((id) => Types.ObjectId.isValid(id))
+    )
+  );
 
-  const [items, total, summary] = await Promise.all([
-    SaleLineModel.find(lineFilter)
-      .populate({
-        path: "saleId",
-        select: "receiptNumber saleDate customerId source remarks",
-        populate: {
-          path: "customerId",
-          select: "name",
-        },
-      })
-      .sort({ createdAt: -1 })
-      .skip(skip)
-      .limit(limit)
+  const [bodegaProducts, products] = await Promise.all([
+    BodegaProductModel.find({
+      _id: {
+        $in: productIds,
+      },
+    })
+      .populate("categoryId", "name")
       .lean(),
 
-    SaleLineModel.countDocuments(lineFilter),
-
-    SaleLineModel.aggregate([
-      {
-        $match: lineFilter,
+    ProductModel.find({
+      _id: {
+        $in: productIds,
       },
-      {
-        $group: {
-          _id: null,
-          rows: {
-            $sum: 1,
-          },
-          totalAmount: {
-            $sum: "$lineTotal",
-          },
-        },
-      },
-    ]),
+    })
+      .populate("categoryId", "name")
+      .lean(),
   ]);
+
+  const productMap = new Map<
+    string,
+    {
+      name: string;
+      categoryName: string;
+    }
+  >();
+
+  for (const product of bodegaProducts) {
+    productMap.set(product._id.toString(), {
+      name: product.name || "",
+      categoryName: getCategoryName(product),
+    });
+  }
+
+  for (const product of products) {
+    const id = product._id.toString();
+
+    if (!productMap.has(id)) {
+      productMap.set(id, {
+        name: product.name || "",
+        categoryName: getCategoryName(product),
+      });
+    }
+  }
+
+  const categoryFilterSet = new Set(categoryNames.map(normalize));
+  const productFilterSet = new Set(productNames.map(normalize));
+
+  const enrichedLines = saleLines
+    .map((line: any) => {
+      const saleId = getId(line.saleId);
+      const sale = saleMap.get(saleId);
+
+      if (!sale) return null;
+
+      const productId = getId(line.bodegaProductId || line.productId);
+      const productInfo = productMap.get(productId);
+
+      const productName =
+        line.productName || productInfo?.name || "Unknown Product";
+
+      const categoryName =
+        line.categoryName || productInfo?.categoryName || "NO CATEGORY";
+
+      const qty = getQty(line);
+      const price = getPrice(line);
+      const lineTotal = getLineTotal(line);
+
+      return {
+        _id: line._id.toString(),
+        saleId,
+        receiptNumber: sale.receiptNumber || "",
+        saleDate: sale.saleDate
+          ? new Date(sale.saleDate).toISOString()
+          : undefined,
+        customerName: sale.customerId?.name || "",
+        source: line.source || sale.source || "",
+        categoryName,
+        productName,
+        qty,
+        price,
+        lineTotal,
+        remarks: line.remarks || sale.remarks || "",
+      };
+    })
+    .filter(Boolean) as any[];
+
+  const filteredLines = enrichedLines.filter((line) => {
+    const categoryOk =
+      categoryFilterSet.size === 0 ||
+      categoryFilterSet.has(normalize(line.categoryName));
+
+    const productOk =
+      productFilterSet.size === 0 ||
+      productFilterSet.has(normalize(line.productName));
+
+    return categoryOk && productOk;
+  });
+
+  filteredLines.sort((a, b) => {
+    const dateA = a.saleDate ? new Date(a.saleDate).getTime() : 0;
+    const dateB = b.saleDate ? new Date(b.saleDate).getTime() : 0;
+
+    return dateB - dateA;
+  });
+
+  const total = filteredLines.length;
+  const totalPages = Math.max(Math.ceil(total / limit), 1);
+  const skip = (page - 1) * limit;
+  const paginatedLines = filteredLines.slice(skip, skip + limit);
+
+  const summary = filteredLines.reduce(
+    (sum, line) => ({
+      rows: sum.rows + 1,
+      totalAmount: sum.totalAmount + Number(line.lineTotal || 0),
+    }),
+    {
+      rows: 0,
+      totalAmount: 0,
+    }
+  );
 
   return NextResponse.json({
     success: true,
-    data: items.map(serializeLine),
-    summary: {
-      rows: summary[0]?.rows || 0,
-      totalAmount: summary[0]?.totalAmount || 0,
-    },
+    data: paginatedLines,
+    summary,
     meta: {
       page,
       limit,
       total,
-      totalPages: Math.max(Math.ceil(total / limit), 1),
+      totalPages,
     },
   });
 }

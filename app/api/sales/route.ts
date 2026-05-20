@@ -10,13 +10,15 @@ import {
   escapeRegex,
   getPagination,
 } from "@/lib/crud-utils";
+
 import BodegaProductModel from "@/models/BodegaProduct";
 import BodegaStockTransactionModel from "@/models/BodegaStockTransaction";
 import CustomerModel from "@/models/Customer";
+import ProductModel from "@/models/Product";
 import SaleModel from "@/models/Sale";
-// import SaleItemModel from "@/models/SaleItem";
+import SaleLineModel from "@/models/SaleLine";
 
-type SaleSource = "CHICKEN" | "BODEGA";
+type SaleSource = "BODEGA1" | "PRODUCT";
 
 type SaleItemInput = {
   productId?: string;
@@ -31,6 +33,7 @@ type SaleItemInput = {
   pricePerPack?: number;
 
   packSize?: number;
+  remarks?: string;
 };
 
 function serializeSale(sale: any) {
@@ -41,7 +44,7 @@ function serializeSale(sale: any) {
       sale.customerId?._id?.toString?.() || sale.customerId?.toString?.(),
     customerName: sale.customerId?.name || "",
 
-    source: sale.source || "CHICKEN",
+    source: sale.source || "BODEGA1",
     receiptNumber: sale.receiptNumber || "",
 
     saleDate: sale.saleDate
@@ -73,7 +76,7 @@ function getCategoryName(product: any) {
     product.categoryName ||
     product.categoryId?.name ||
     product.category?.name ||
-    ""
+    "NO CATEGORY"
   );
 }
 
@@ -98,7 +101,7 @@ export async function GET(req: NextRequest) {
     isVoided: false,
   };
 
-  if (source === "CHICKEN" || source === "BODEGA") {
+  if (source === "BODEGA1" || source === "PRODUCT") {
     filter.source = source;
   }
 
@@ -174,7 +177,7 @@ export async function POST(req: NextRequest) {
   const body = await req.json();
 
   const sourceInput = cleanString(body.source).toUpperCase();
-  const source: SaleSource = sourceInput === "BODEGA" ? "BODEGA" : "CHICKEN";
+  const source: SaleSource = sourceInput === "BODEGA1" ? "PRODUCT" : "BODEGA1";
 
   const customerId = cleanString(body.customerId);
   const saleDate = cleanString(body.saleDate);
@@ -244,46 +247,18 @@ export async function POST(req: NextRequest) {
   const preparedItems = [];
 
   for (const item of items) {
-    const bodegaProductId = cleanString(
-      item.bodegaProductId || item.productId || ""
-    );
-
-    if (!bodegaProductId || !isValidObjectId(bodegaProductId)) {
-      return NextResponse.json(
-        {
-          success: false,
-          message: "Invalid bodega product in sale item.",
-        },
-        { status: 400 }
-      );
-    }
-
-    const product = await BodegaProductModel.findOne({
-      _id: bodegaProductId,
-      isActive: true,
-    });
-
-    if (!product) {
-      return NextResponse.json(
-        {
-          success: false,
-          message: "Selected bodega product was not found.",
-        },
-        { status: 404 }
-      );
-    }
+    const bodegaProductId = cleanString(item.bodegaProductId || "");
+    const productId = cleanString(item.productId || "");
 
     const qty = cleanNumber(item.quantity || item.packs || item.qty);
-    const price = cleanNumber(
-      item.pricePerPack || item.price || item.unitPrice
-    );
+    const price = cleanNumber(item.pricePerPack || item.price || item.unitPrice);
     const packSize = cleanNumber(item.packSize) || 1;
 
     if (qty <= 0) {
       return NextResponse.json(
         {
           success: false,
-          message: `Quantity must be greater than zero for ${product.name}.`,
+          message: "Quantity must be greater than zero.",
         },
         { status: 400 }
       );
@@ -293,45 +268,105 @@ export async function POST(req: NextRequest) {
       return NextResponse.json(
         {
           success: false,
-          message: `Price must be greater than zero for ${product.name}.`,
+          message: "Price must be greater than zero.",
         },
         { status: 400 }
       );
     }
 
-    const previousStock = Number(product.stockQty || 0);
+    let product: any = null;
+    let productType: "BODEGA1" | "PRODUCT" = "BODEGA1";
 
-    if (previousStock < qty) {
+    if (bodegaProductId && isValidObjectId(bodegaProductId)) {
+      product = await BodegaProductModel.findOne({
+        _id: bodegaProductId,
+        isActive: true,
+      }).populate("categoryId", "name");
+
+      productType = "PRODUCT";
+    } else if (productId && isValidObjectId(productId)) {
+      product = await ProductModel.findOne({
+        _id: productId,
+        isActive: true,
+      }).populate("categoryId", "name");
+
+      productType = "PRODUCT";
+    }
+
+    if (!product) {
       return NextResponse.json(
         {
           success: false,
-          message: `Not enough stock for ${product.name}. Available: ${previousStock}.`,
+          message: "Selected product was not found.",
         },
-        { status: 400 }
+        { status: 404 }
       );
     }
 
+    const categoryName = getCategoryName(product);
     const lineTotal = qty * price;
+
+    let previousStock = 0;
+    let newStock = 0;
+    let stockPcsOut = qty;
+
+    if (productType === "PRODUCT") {
+      previousStock = Number(product.stockQty || 0);
+      stockPcsOut = qty;
+
+      if (previousStock < stockPcsOut) {
+        return NextResponse.json(
+          {
+            success: false,
+            message: `Not enough stock for ${product.name}. Available: ${previousStock}.`,
+          },
+          { status: 400 }
+        );
+      }
+
+      newStock = previousStock - stockPcsOut;
+    } else {
+      previousStock = Number(product.stockPcs || 0);
+      stockPcsOut = source === "BODEGA1" ? qty * packSize : qty;
+
+      if (previousStock < stockPcsOut) {
+        return NextResponse.json(
+          {
+            success: false,
+            message: `Not enough stock for ${product.name}. Available: ${previousStock}.`,
+          },
+          { status: 400 }
+        );
+      }
+
+      newStock = previousStock - stockPcsOut;
+    }
 
     totalQty += qty;
     totalAmount += lineTotal;
 
     preparedItems.push({
       product,
-      productId: product._id,
-      bodegaProductId: product._id,
+      productType,
+
+      productId: productType === "PRODUCT" ? product._id : undefined,
+      bodegaProductId: productType === "PRODUCT" ? product._id : undefined,
+
+      categoryId: product.categoryId?._id || product.categoryId || undefined,
+      categoryName,
       productName: product.name,
-      categoryName: getCategoryName(product),
+
       qty,
-      packs: qty,
-      quantity: qty,
       price,
-      pricePerPack: price,
-      unitPrice: price,
-      packSize,
       lineTotal,
+
+      stockUnit: source === "BODEGA1" ? "PACK" : "QTY",
+      packSize: source === "BODEGA1" ? packSize : 0,
+      stockPcsOut,
+
       previousStock,
-      newStock: previousStock - qty,
+      newStock,
+      remarks: cleanString(item.remarks),
     });
   }
 
@@ -341,7 +376,7 @@ export async function POST(req: NextRequest) {
     saleDate: new Date(saleDate),
     receiptNumber,
 
-    totalPacks: totalQty,
+    totalPacks: source === "BODEGA1" ? totalQty : 0,
     totalQty,
     totalAmount,
 
@@ -354,52 +389,56 @@ export async function POST(req: NextRequest) {
     isVoided: false,
   });
 
-  const saleItemsToInsert = [];
+  const saleLinesToInsert = [];
   const bodegaStockTransactions = [];
 
   for (const item of preparedItems) {
-    const product = item.product;
-
-    saleItemsToInsert.push({
+    saleLinesToInsert.push({
       saleId: sale._id,
-
-      productId: item.bodegaProductId,
-      bodegaProductId: item.bodegaProductId,
-
-      productName: item.productName,
-      categoryName: item.categoryName,
-
       source,
 
+      productId: item.productId,
+      bodegaProductId: item.bodegaProductId,
+
+      categoryId: item.categoryId,
+      categoryName: item.categoryName,
+      productName: item.productName,
+
       qty: item.qty,
-      packs: item.packs,
-      quantity: item.quantity,
-
       price: item.price,
-      pricePerPack: item.pricePerPack,
-      unitPrice: item.unitPrice,
-
-      packSize: item.packSize,
       lineTotal: item.lineTotal,
+
+      stockUnit: item.stockUnit,
+      packSize: item.packSize,
+      stockPcsOut: item.stockPcsOut,
+
+      remarks: item.remarks,
     });
 
-    product.stockQty = item.newStock;
-    await product.save();
+    if (item.productType === "PRODUCT") {
+      item.product.stockQty = item.newStock;
+      await item.product.save();
 
-    bodegaStockTransactions.push({
-      bodegaProductId: product._id,
-      type: "STOCK_OUT",
-      quantity: item.qty,
-      previousStock: item.previousStock,
-      newStock: item.newStock,
-      remarks: `SALE ${receiptNumber}`,
-      referenceType: "SALE",
-      referenceId: sale._id,
-      createdBy: session?.user?.id,
-    });
+      bodegaStockTransactions.push({
+        bodegaProductId: item.product._id,
+        type: "STOCK_OUT",
+        quantity: item.stockPcsOut,
+        previousStock: item.previousStock,
+        newStock: item.newStock,
+        remarks: `SALE ${receiptNumber}`,
+        referenceType: "SALE",
+        referenceId: sale._id,
+        createdBy: session?.user?.id,
+      });
+    }
+
+    if (item.productType === "PRODUCT") {
+      item.product.stockPcs = item.newStock;
+      await item.product.save();
+    }
   }
 
-  // await SaleItemModel.insertMany(saleItemsToInsert);
+  await SaleLineModel.insertMany(saleLinesToInsert);
 
   if (bodegaStockTransactions.length > 0) {
     await BodegaStockTransactionModel.insertMany(bodegaStockTransactions);
