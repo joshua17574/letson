@@ -103,6 +103,54 @@ function MetricLine({
   );
 }
 
+function SummaryBlock({
+  title,
+  icon: Icon,
+  items,
+  tone,
+}: {
+  title: string;
+  icon: any;
+  items: {
+    label: string;
+    value: string;
+  }[];
+  tone: "emerald" | "blue" | "rose" | "cyan";
+}) {
+  const toneMap = {
+    emerald: "bg-emerald-50 text-emerald-700",
+    blue: "bg-blue-50 text-blue-700",
+    rose: "bg-rose-50 text-rose-700",
+    cyan: "bg-cyan-50 text-cyan-700",
+  };
+
+  return (
+    <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+      <div className="mb-4 flex items-center gap-3">
+        <div className={`rounded-2xl p-3 ${toneMap[tone]}`}>
+          <Icon className="h-5 w-5" />
+        </div>
+
+        <p className="font-black text-slate-950">{title}</p>
+      </div>
+
+      <div className="space-y-3">
+        {items.map((item) => (
+          <div
+            key={item.label}
+            className="flex items-center justify-between rounded-2xl bg-slate-50 px-4 py-3"
+          >
+            <span className="text-sm font-medium text-slate-600">
+              {item.label}
+            </span>
+            <span className="font-black text-slate-950">{item.value}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function QuickAction({
   title,
   description,
@@ -144,13 +192,13 @@ export default async function DashboardPage() {
     summary.totalSales
   );
 
-  const todayTotal =
-    summary.today.sales + summary.today.deliveries + summary.today.payments;
-
-  const monthTotal =
-    summary.thisMonth.sales +
-    summary.thisMonth.deliveries +
-    summary.thisMonth.payments;
+  const financialMax = Math.max(
+    summary.totalSales,
+    summary.totalPayments,
+    summary.outstandingReceivables,
+    summary.totalStockInPurchases,
+    1
+  );
 
   const currentDate = new Date().toLocaleDateString("en-PH", {
     weekday: "long",
@@ -173,8 +221,8 @@ export default async function DashboardPage() {
           </h1>
 
           <p className="mt-1 text-sm text-slate-500">
-            Real-time overview of customers, sales, deliveries, payments, and
-            receivables.
+            Accounting-based overview of sales revenue, collections,
+            receivables, and inventory received.
           </p>
         </div>
 
@@ -245,15 +293,15 @@ export default async function DashboardPage() {
         <KpiCard
           title="Total Sales"
           value={formatPeso(summary.totalSales)}
-          subtitle="All recorded sales"
+          subtitle="All recorded customer sales"
           icon={ShoppingCart}
           tone="emerald"
         />
 
         <KpiCard
-          title="Total Payments"
+          title="Total Payments Collected"
           value={formatPeso(summary.totalPayments)}
-          subtitle={`${formatPercent(collectionRate)} collection rate`}
+          subtitle="Cash collected from customers"
           icon={WalletCards}
           tone="blue"
         />
@@ -261,17 +309,33 @@ export default async function DashboardPage() {
         <KpiCard
           title="Receivables"
           value={formatPeso(summary.outstandingReceivables)}
-          subtitle={`${formatPercent(receivableRate)} of total sales`}
+          subtitle="Unpaid customer balances"
           icon={AlertTriangle}
           tone="rose"
         />
 
         <KpiCard
-          title="Deliveries"
-          value={formatPeso(summary.totalDeliveries)}
-          subtitle="Total delivery value"
-          icon={Package}
+          title="Stock In / Purchases"
+          value={formatPeso(summary.totalStockInPurchases)}
+          subtitle="Supplier-delivered inventory value"
+          icon={Boxes}
           tone="cyan"
+        />
+
+        <KpiCard
+          title="Today Sales"
+          value={formatPeso(summary.today.sales)}
+          subtitle="Sales created today"
+          icon={TrendingUp}
+          tone="emerald"
+        />
+
+        <KpiCard
+          title="Today Payments"
+          value={formatPeso(summary.today.payments)}
+          subtitle="Payments created today"
+          icon={CreditCard}
+          tone="blue"
         />
 
         <KpiCard
@@ -289,22 +353,6 @@ export default async function DashboardPage() {
           icon={Truck}
           tone="amber"
         />
-
-        <KpiCard
-          title="Today Sales"
-          value={formatPeso(summary.today.sales)}
-          subtitle="Sales generated today"
-          icon={TrendingUp}
-          tone="emerald"
-        />
-
-        <KpiCard
-          title="Today Payments"
-          value={formatPeso(summary.today.payments)}
-          subtitle="Cash collected today"
-          icon={CreditCard}
-          tone="blue"
-        />
       </div>
 
       <div className="grid gap-6 xl:grid-cols-[1.2fr_0.8fr]">
@@ -312,88 +360,93 @@ export default async function DashboardPage() {
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-lg font-black">
               <BarChart3 className="h-5 w-5 text-red-600" />
-              Business Performance
+              Financial Summary
             </CardTitle>
           </CardHeader>
 
           <CardContent className="space-y-6">
-            <div className="rounded-3xl bg-slate-50 p-5">
-              <div className="mb-4 flex items-center justify-between">
-                <div>
-                  <p className="text-sm font-semibold text-slate-500">
-                    Today
-                  </p>
-                  <p className="text-2xl font-black text-slate-950">
-                    {formatPeso(todayTotal)}
-                  </p>
-                </div>
+            <div className="rounded-3xl border border-slate-200 bg-slate-50 p-5">
+              <p className="text-sm font-semibold text-slate-500">
+                Accounting view
+              </p>
 
-                <span className="rounded-full bg-slate-900 px-3 py-1 text-xs font-bold text-white">
-                  Daily activity
-                </span>
-              </div>
-
-              <div className="space-y-4">
-                <MetricLine
-                  label="Sales"
-                  value={formatPeso(summary.today.sales)}
-                  percent={safePercent(summary.today.sales, todayTotal)}
-                  tone="bg-emerald-600"
-                />
-
-                <MetricLine
-                  label="Deliveries"
-                  value={formatPeso(summary.today.deliveries)}
-                  percent={safePercent(summary.today.deliveries, todayTotal)}
-                  tone="bg-cyan-600"
-                />
-
-                <MetricLine
-                  label="Payments"
-                  value={formatPeso(summary.today.payments)}
-                  percent={safePercent(summary.today.payments, todayTotal)}
-                  tone="bg-blue-600"
-                />
-              </div>
+              <p className="mt-2 text-sm text-slate-600">
+                Sales, collections, receivables, and stock-in values are shown
+                separately. They are not added together to avoid double-counting.
+              </p>
             </div>
 
-            <div className="rounded-3xl bg-slate-50 p-5">
-              <div className="mb-4 flex items-center justify-between">
-                <div>
-                  <p className="text-sm font-semibold text-slate-500">
-                    This Month
-                  </p>
-                  <p className="text-2xl font-black text-slate-950">
-                    {formatPeso(monthTotal)}
-                  </p>
-                </div>
+            <div className="space-y-4">
+              <MetricLine
+                label="Sales Revenue"
+                value={formatPeso(summary.totalSales)}
+                percent={safePercent(summary.totalSales, financialMax)}
+                tone="bg-emerald-600"
+              />
 
-                <span className="rounded-full bg-red-600 px-3 py-1 text-xs font-bold text-white">
-                  Monthly activity
-                </span>
+              <MetricLine
+                label="Cash Collected"
+                value={formatPeso(summary.totalPayments)}
+                percent={safePercent(summary.totalPayments, financialMax)}
+                tone="bg-blue-600"
+              />
+
+              <MetricLine
+                label="Unpaid Receivables"
+                value={formatPeso(summary.outstandingReceivables)}
+                percent={safePercent(
+                  summary.outstandingReceivables,
+                  financialMax
+                )}
+                tone="bg-rose-600"
+              />
+
+              <MetricLine
+                label="Inventory Received"
+                value={formatPeso(summary.totalStockInPurchases)}
+                percent={safePercent(
+                  summary.totalStockInPurchases,
+                  financialMax
+                )}
+                tone="bg-cyan-600"
+              />
+            </div>
+
+            <div className="grid gap-4 md:grid-cols-3">
+              <div className="rounded-3xl bg-emerald-50 p-5">
+                <p className="text-sm font-semibold text-emerald-700">
+                  Collection Rate
+                </p>
+                <p className="mt-2 text-2xl font-black text-emerald-900">
+                  {formatPercent(collectionRate)}
+                </p>
+                <p className="mt-1 text-xs text-emerald-700">
+                  Payments collected against total sales
+                </p>
               </div>
 
-              <div className="space-y-4">
-                <MetricLine
-                  label="Sales"
-                  value={formatPeso(summary.thisMonth.sales)}
-                  percent={safePercent(summary.thisMonth.sales, monthTotal)}
-                  tone="bg-emerald-600"
-                />
+              <div className="rounded-3xl bg-rose-50 p-5">
+                <p className="text-sm font-semibold text-rose-700">
+                  Receivable Rate
+                </p>
+                <p className="mt-2 text-2xl font-black text-rose-900">
+                  {formatPercent(receivableRate)}
+                </p>
+                <p className="mt-1 text-xs text-rose-700">
+                  Unpaid balance against total sales
+                </p>
+              </div>
 
-                <MetricLine
-                  label="Deliveries"
-                  value={formatPeso(summary.thisMonth.deliveries)}
-                  percent={safePercent(summary.thisMonth.deliveries, monthTotal)}
-                  tone="bg-cyan-600"
-                />
-
-                <MetricLine
-                  label="Payments"
-                  value={formatPeso(summary.thisMonth.payments)}
-                  percent={safePercent(summary.thisMonth.payments, monthTotal)}
-                  tone="bg-blue-600"
-                />
+              <div className="rounded-3xl bg-cyan-50 p-5">
+                <p className="text-sm font-semibold text-cyan-700">
+                  Stock In / Purchases
+                </p>
+                <p className="mt-2 text-2xl font-black text-cyan-900">
+                  {formatPeso(summary.totalStockInPurchases)}
+                </p>
+                <p className="mt-1 text-xs text-cyan-700">
+                  Inventory received, not revenue
+                </p>
               </div>
             </div>
           </CardContent>
@@ -409,41 +462,107 @@ export default async function DashboardPage() {
 
           <CardContent className="space-y-3">
             <QuickAction
-              title="Create Chicken Sale"
-              description="Sell packed chicken products"
+              title="Sell Chicken"
+              description="Create chicken sale"
               href="/sales"
               icon={ShoppingCart}
             />
 
             <QuickAction
-              title="Create Grocery Sale"
-              description="Sell bodega grocery products"
+              title="Sale Grocery"
+              description="Create grocery sale"
               href="/sales/grocery"
               icon={ReceiptText}
             />
 
             <QuickAction
               title="Record Payment"
-              description="Apply payment to customer balance"
+              description="Collect customer payment"
               href="/payments/add"
-              icon={WalletCards}
+              icon={CreditCard}
             />
 
             <QuickAction
-              title="Add Purchase Batch"
-              description="Stock-in purchased grocery items"
+              title="Purchase Items"
+              description="Add purchased product stock"
               href="/purchase-items"
               icon={PackagePlus}
             />
 
             <QuickAction
-              title="Inventory Movement"
-              description="Review stock in and stock out"
-              href="/inventory/whole-chicken"
-              icon={Boxes}
+              title="Supplier Deliveries"
+              description="Record supplier stock-in"
+              href="/deliveries"
+              icon={Package}
             />
           </CardContent>
         </Card>
+      </div>
+
+      <div className="grid gap-4 xl:grid-cols-4">
+        <SummaryBlock
+          title="Revenue"
+          icon={ShoppingCart}
+          tone="emerald"
+          items={[
+            {
+              label: "Today Sales",
+              value: formatPeso(summary.today.sales),
+            },
+            {
+              label: "This Month Sales",
+              value: formatPeso(summary.thisMonth.sales),
+            },
+          ]}
+        />
+
+        <SummaryBlock
+          title="Collections"
+          icon={WalletCards}
+          tone="blue"
+          items={[
+            {
+              label: "Today Payments Collected",
+              value: formatPeso(summary.today.payments),
+            },
+            {
+              label: "This Month Payments Collected",
+              value: formatPeso(summary.thisMonth.payments),
+            },
+          ]}
+        />
+
+        <SummaryBlock
+          title="Receivables"
+          icon={AlertTriangle}
+          tone="rose"
+          items={[
+            {
+              label: "Current Unpaid Balance",
+              value: formatPeso(summary.outstandingReceivables),
+            },
+            {
+              label: "Receivable Rate",
+              value: formatPercent(receivableRate),
+            },
+          ]}
+        />
+
+        <SummaryBlock
+          title="Inventory Activity"
+          icon={Boxes}
+          tone="cyan"
+          items={[
+            {
+              label: "Stock In / Purchases",
+              value: formatPeso(summary.totalStockInPurchases),
+            },
+            {
+              label: "Supplier Deliveries Value",
+              value: formatPeso(summary.totalSupplierDeliveries),
+            },
+          ]}
+        />
       </div>
     </div>
   );

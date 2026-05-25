@@ -1,34 +1,23 @@
 // models/User.ts
-import bcrypt from "bcryptjs";
 import mongoose, { Document, Model, Schema, Types } from "mongoose";
 
-export type UserRole = "ADMIN" | "MANAGER" | "STAFF" | "CASHIER";
+export type UserRole = "ADMIN" | "MANAGER" | "CASHIER" | "STAFF" | "USER";
 
 export interface IUser extends Document {
   _id: Types.ObjectId;
-  username: string;
   name: string;
-  contact?: string;
-  email?: string;
+  username: string;
+  email: string;
   password: string;
   role: UserRole;
-  position: string;
+  roleId?: Types.ObjectId;
   isActive: boolean;
-  joinedDate: Date;
   createdAt: Date;
   updatedAt: Date;
 }
 
-const UserSchema = new Schema<IUser, Model<IUser>>(
+const UserSchema = new Schema<IUser>(
   {
-    username: {
-      type: String,
-      required: true,
-      unique: true,
-      trim: true,
-      lowercase: true,
-    },
-
     name: {
       type: String,
       required: true,
@@ -36,14 +25,17 @@ const UserSchema = new Schema<IUser, Model<IUser>>(
       uppercase: true,
     },
 
-    contact: {
+    username: {
       type: String,
+      required: true,
       trim: true,
-      default: "",
+      lowercase: true,
+      unique: true,
     },
 
     email: {
       type: String,
+      required: false,
       trim: true,
       lowercase: true,
       default: "",
@@ -52,30 +44,23 @@ const UserSchema = new Schema<IUser, Model<IUser>>(
     password: {
       type: String,
       required: true,
-      select: false,
     },
 
     role: {
       type: String,
-      enum: ["ADMIN", "MANAGER", "STAFF", "CASHIER"],
-      default: "STAFF",
+      enum: ["ADMIN", "MANAGER", "CASHIER", "STAFF", "USER"],
+      default: "USER",
+      required: true,
     },
 
-    position: {
-      type: String,
-      required: true,
-      trim: true,
-      default: "Staff",
+    roleId: {
+      type: Schema.Types.ObjectId,
+      ref: "Role",
     },
 
     isActive: {
       type: Boolean,
       default: true,
-    },
-
-    joinedDate: {
-      type: Date,
-      default: Date.now,
     },
   },
   {
@@ -83,16 +68,11 @@ const UserSchema = new Schema<IUser, Model<IUser>>(
   }
 );
 
-// UserSchema.index({ username: 1 });
+UserSchema.index({ username: 1 }, { unique: true });
+UserSchema.index({ email: 1 });
 UserSchema.index({ role: 1 });
-UserSchema.index({ position: 1 });
-
-UserSchema.pre("save", async function () {
-  if (!this.isModified("password")) return;
-
-  const salt = await bcrypt.genSalt(10);
-  this.password = await bcrypt.hash(this.password, salt);
-});
+UserSchema.index({ roleId: 1 });
+UserSchema.index({ isActive: 1 });
 
 const UserModel: Model<IUser> =
   mongoose.models.User || mongoose.model<IUser>("User", UserSchema);

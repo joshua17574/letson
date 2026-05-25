@@ -1,7 +1,7 @@
 // models/SaleLine.ts
 import mongoose, { Document, Model, Schema, Types } from "mongoose";
 
-export type SaleLineSource = "BODEGA1" | "PRODUCT";
+export type SaleLineSource = "CHICKEN" | "BODEGA";
 export type SaleStockUnit = "PACK" | "QTY";
 
 export interface ISaleLine extends Document {
@@ -21,7 +21,6 @@ export interface ISaleLine extends Document {
   lineTotal: number;
 
   stockUnit: SaleStockUnit;
-
   packSize: number;
   stockPcsOut: number;
 
@@ -41,7 +40,7 @@ const SaleLineSchema = new Schema<ISaleLine>(
 
     source: {
       type: String,
-      enum: ["BODEGA1", "PRODUCT"],
+      enum: ["CHICKEN", "BODEGA"],
       required: true,
     },
 

@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState, type FormEvent } from "react";
 import {
   Eye,
   Loader2,
+  Pencil,
   Plus,
   Printer,
   RefreshCcw,
@@ -23,6 +24,7 @@ import {
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
@@ -112,6 +114,10 @@ const emptyItem: DeliveryItemForm = {
   buyingPrice: "0",
 };
 
+function getObjectId(value: any) {
+  return value?._id?.toString?.() || value?.toString?.() || "";
+}
+
 function getCategoryId(item: any) {
   if (typeof item.categoryId === "string") return item.categoryId;
 
@@ -129,6 +135,11 @@ function getCategoryName(item: any) {
     item.category?.name ||
     "Uncategorized"
   );
+}
+
+function formatDate(value?: string) {
+  if (!value) return "—";
+  return new Date(value).toISOString().slice(0, 10);
 }
 
 export function DeliveriesPageClient() {
@@ -161,6 +172,7 @@ export function DeliveriesPageClient() {
 
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
+  const [isDetailsLoading, setIsDetailsLoading] = useState(false);
 
   const [formDialogOpen, setFormDialogOpen] = useState(false);
   const [viewDialogOpen, setViewDialogOpen] = useState(false);
@@ -168,6 +180,8 @@ export function DeliveriesPageClient() {
   const [form, setForm] = useState(emptyForm);
   const [items, setItems] = useState<DeliveryItemForm[]>([{ ...emptyItem }]);
   const [viewData, setViewData] = useState<any>(null);
+
+  const [editingId, setEditingId] = useState<string | null>(null);
 
   const totals = useMemo(() => {
     return items.reduce(
@@ -371,9 +385,14 @@ export function DeliveriesPageClient() {
     });
   }
 
-  function openCreateDialog() {
+  function resetForm() {
+    setEditingId(null);
     setForm(emptyForm);
     setItems([{ ...emptyItem }]);
+  }
+
+  function openCreateDialog() {
+    resetForm();
     setFormDialogOpen(true);
   }
 
@@ -409,6 +428,16 @@ export function DeliveriesPageClient() {
       return;
     }
 
+    if (!form.deliveryCode.trim()) {
+      toast.error("Delivery code is required.");
+      return;
+    }
+
+    if (!form.receiptNumber.trim()) {
+      toast.error("Receipt number is required.");
+      return;
+    }
+
     const validItems = items.filter(
       (item) =>
         item.bodegaProductId &&
@@ -430,10 +459,9 @@ export function DeliveriesPageClient() {
         items: validItems.map((item) => ({
           categoryId: item.categoryId,
 
-          // for updated bodega delivery backend
           bodegaProductId: item.bodegaProductId,
 
-          // fallback if your current backend still uses productId
+          // fallback if your backend still accepts productId
           productId: item.bodegaProductId,
 
           bags: Number(item.bags) || 0,
@@ -443,8 +471,12 @@ export function DeliveriesPageClient() {
         })),
       };
 
-      const res = await fetch("/api/deliveries", {
-        method: "POST",
+      const url = editingId
+        ? `/api/deliveries/${editingId}`
+        : "/api/deliveries";
+
+      const res = await fetch(url, {
+        method: editingId ? "PATCH" : "POST",
         headers: {
           "Content-Type": "application/json",
         },
@@ -457,8 +489,16 @@ export function DeliveriesPageClient() {
         throw new Error(json.message || "Failed to save delivery.");
       }
 
-      toast.success(json.message || "Delivery saved successfully.");
+      toast.success(
+        json.message ||
+          (editingId
+            ? "Delivery updated successfully."
+            : "Delivery saved successfully.")
+      );
+
       setFormDialogOpen(false);
+      resetForm();
+
       await loadDeliveries();
       await loadProducts();
     } catch (error) {
@@ -493,6 +533,70 @@ export function DeliveriesPageClient() {
     }
   }
 
+  async function handleEdit(delivery: DeliveryItem) {
+    setIsDetailsLoading(true);
+
+    try {
+      const res = await fetch(`/api/deliveries/${delivery._id}`, {
+        cache: "no-store",
+      });
+
+      const json = await res.json();
+
+      if (!res.ok || !json.success) {
+        throw new Error(json.message || "Failed to load delivery details.");
+      }
+
+      const data = json.data;
+      const detailItems = data.items || data.lines || [];
+
+      setEditingId(delivery._id);
+
+      setForm({
+        supplierId: getObjectId(data.supplierId),
+        deliveryCode: data.deliveryCode || "",
+        receiptNumber: data.receiptNumber || "",
+        deliveryDate: data.deliveryDate
+          ? new Date(data.deliveryDate).toISOString().slice(0, 10)
+          : new Date().toISOString().slice(0, 10),
+        remarks: data.remarks || "",
+      });
+
+      setItems(
+        detailItems.length > 0
+          ? detailItems.map((line: any) => {
+              const productId =
+                getObjectId(line.bodegaProductId) || getObjectId(line.productId);
+
+              const product = products.find((item) => item._id === productId);
+
+              return {
+                categoryId:
+                  getObjectId(line.categoryId) ||
+                  product?.categoryId ||
+                  "",
+                bodegaProductId: productId,
+                bags: String(line.bags || 0),
+                kilos: String(line.kilos || 0),
+                pieces: String(line.pieces || 0),
+                buyingPrice: String(line.buyingPrice || 0),
+              };
+            })
+          : [{ ...emptyItem }]
+      );
+
+      setFormDialogOpen(true);
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "Failed to load delivery details."
+      );
+    } finally {
+      setIsDetailsLoading(false);
+    }
+  }
+
   async function handleDelete(delivery: DeliveryItem) {
     const confirmed = window.confirm(
       `Void delivery ${delivery.deliveryCode}? This will reverse the stock added.`
@@ -512,6 +616,7 @@ export function DeliveriesPageClient() {
       }
 
       toast.success(json.message || "Delivery voided successfully.");
+
       await loadDeliveries();
       await loadProducts();
     } catch (error) {
@@ -523,11 +628,6 @@ export function DeliveriesPageClient() {
 
   function printPage() {
     window.print();
-  }
-
-  function formatDate(value?: string) {
-    if (!value) return "—";
-    return new Date(value).toISOString().slice(0, 10);
   }
 
   return (
@@ -585,6 +685,7 @@ export function DeliveriesPageClient() {
             <SelectTrigger>
               <SelectValue />
             </SelectTrigger>
+
             <SelectContent>
               <SelectItem value="10">10</SelectItem>
               <SelectItem value="25">25</SelectItem>
@@ -684,30 +785,39 @@ export function DeliveriesPageClient() {
                       <TableCell className="text-center">
                         {delivery.supplierName}
                       </TableCell>
+
                       <TableCell className="text-center">
                         {delivery.deliveryCode}
                       </TableCell>
+
                       <TableCell className="text-center">
                         {delivery.receiptNumber}
                       </TableCell>
+
                       <TableCell className="text-center">
                         {delivery.totalBags}
                       </TableCell>
+
                       <TableCell className="text-center">
                         {delivery.totalKilos}
                       </TableCell>
+
                       <TableCell className="text-center">
                         {delivery.totalPieces}
                       </TableCell>
+
                       <TableCell className="text-center">
                         {formatPeso(delivery.totalAmount)}
                       </TableCell>
+
                       <TableCell className="text-center">
                         {formatDate(delivery.deliveryDate)}
                       </TableCell>
+
                       <TableCell className="text-center">
                         {delivery.remarks || "—"}
                       </TableCell>
+
                       <TableCell className="text-center">
                         <div className="flex justify-center gap-2">
                           <Button
@@ -717,6 +827,16 @@ export function DeliveriesPageClient() {
                           >
                             <Eye className="mr-1 h-4 w-4" />
                             View
+                          </Button>
+
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            disabled={isDetailsLoading}
+                            onClick={() => handleEdit(delivery)}
+                          >
+                            <Pencil className="mr-1 h-4 w-4" />
+                            Edit
                           </Button>
 
                           <Button
@@ -768,10 +888,27 @@ export function DeliveriesPageClient() {
         </CardContent>
       </Card>
 
-      <Dialog open={formDialogOpen} onOpenChange={setFormDialogOpen}>
+      <Dialog
+        open={formDialogOpen}
+        onOpenChange={(open) => {
+          setFormDialogOpen(open);
+
+          if (!open) {
+            resetForm();
+          }
+        }}
+      >
         <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-6xl">
           <DialogHeader>
-            <DialogTitle>Add Delivery</DialogTitle>
+            <DialogTitle>
+              {editingId ? "Edit Delivery" : "Add Delivery"}
+            </DialogTitle>
+
+            <DialogDescription>
+              {editingId
+                ? "Update delivery details. Saving will recalculate totals and stock through the backend."
+                : "Create a supplier delivery and add stock to bodega products."}
+            </DialogDescription>
           </DialogHeader>
 
           <form onSubmit={handleSubmit} className="space-y-5">
@@ -785,6 +922,7 @@ export function DeliveriesPageClient() {
                   <SelectTrigger>
                     <SelectValue placeholder="Select supplier" />
                   </SelectTrigger>
+
                   <SelectContent>
                     {suppliers.map((supplier) => (
                       <SelectItem key={supplier._id} value={supplier._id}>
@@ -841,6 +979,7 @@ export function DeliveriesPageClient() {
             <div className="space-y-3">
               {items.map((item, index) => {
                 const categoryProducts = getProductsByCategory(item.categoryId);
+
                 const selectedProduct = products.find(
                   (product) => product._id === item.bodegaProductId
                 );
@@ -868,6 +1007,7 @@ export function DeliveriesPageClient() {
                           <SelectTrigger className="bg-white">
                             <SelectValue placeholder="Select category" />
                           </SelectTrigger>
+
                           <SelectContent>
                             {categories.map((category) => (
                               <SelectItem
@@ -892,6 +1032,7 @@ export function DeliveriesPageClient() {
                           <SelectTrigger className="bg-white">
                             <SelectValue placeholder="Select product" />
                           </SelectTrigger>
+
                           <SelectContent>
                             {categoryProducts.map((product) => (
                               <SelectItem key={product._id} value={product._id}>
@@ -1029,7 +1170,10 @@ export function DeliveriesPageClient() {
               </Button>
 
               <Button type="submit" disabled={isSaving}>
-                {isSaving ? "Saving..." : "Save Delivery"}
+                {isSaving ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : null}
+                {editingId ? "Update Delivery" : "Save Delivery"}
               </Button>
             </DialogFooter>
           </form>
@@ -1040,6 +1184,9 @@ export function DeliveriesPageClient() {
         <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-5xl">
           <DialogHeader>
             <DialogTitle>Delivery Details</DialogTitle>
+            <DialogDescription>
+              View delivery item details and totals.
+            </DialogDescription>
           </DialogHeader>
 
           {viewData ? (
@@ -1048,21 +1195,26 @@ export function DeliveriesPageClient() {
                 <p>
                   <strong>Supplier:</strong> {viewData.supplierName || "—"}
                 </p>
+
                 <p>
                   <strong>Delivery Code:</strong>{" "}
                   {viewData.deliveryCode || "—"}
                 </p>
+
                 <p>
                   <strong>Receipt #:</strong>{" "}
                   {viewData.receiptNumber || "—"}
                 </p>
+
                 <p>
                   <strong>Date:</strong> {formatDate(viewData.deliveryDate)}
                 </p>
+
                 <p>
                   <strong>Total Amount:</strong>{" "}
                   {formatPeso(Number(viewData.totalAmount || 0))}
                 </p>
+
                 <p>
                   <strong>Remarks:</strong> {viewData.remarks || "—"}
                 </p>
@@ -1111,18 +1263,23 @@ export function DeliveriesPageClient() {
                                 line.name ||
                                 "—"}
                             </TableCell>
+
                             <TableCell className="text-right">
                               {Number(line.bags || 0)}
                             </TableCell>
+
                             <TableCell className="text-right">
                               {Number(line.kilos || 0)}
                             </TableCell>
+
                             <TableCell className="text-right">
                               {Number(line.pieces || 0)}
                             </TableCell>
+
                             <TableCell className="text-right">
                               {formatPeso(Number(line.buyingPrice || 0))}
                             </TableCell>
+
                             <TableCell className="text-right">
                               {formatPeso(
                                 Number(line.totalAmount || line.lineTotal || 0)

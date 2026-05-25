@@ -1,197 +1,230 @@
 // lib/dashboard.ts
-import type { Document, Filter } from "mongodb";
+import dbConnect from "@/lib/mongodb";
 
-import { getMongoDb } from "@/lib/mongodb";
+import CustomerModel from "@/models/Customer";
+import DeliveryModel from "@/models/Delivery";
+import PaymentModel from "@/models/Payment";
+import PurchaseBatchModel from "@/models/PurchaseBatch";
+import SaleModel from "@/models/Sale";
+import SupplierModel from "@/models/Supplier";
 
-type DashboardSummary = {
-  totalCustomers: number;
-  totalSuppliers: number;
-  totalSales: number;
-  totalDeliveries: number;
-  totalPayments: number;
-  outstandingReceivables: number;
-  today: {
-    sales: number;
-    deliveries: number;
-    payments: number;
-  };
-  thisMonth: {
-    sales: number;
-    deliveries: number;
-    payments: number;
-  };
+const paymentAmountExpression = {
+  $ifNull: [
+    "$amountReceived",
+    {
+      $ifNull: [
+        "$amountPaid",
+        {
+          $ifNull: ["$amount", 0],
+        },
+      ],
+    },
+  ],
 };
 
-function startOfToday() {
-  const date = new Date();
-  date.setHours(0, 0, 0, 0);
-  return date;
-}
-
-function endOfToday() {
-  const date = new Date();
-  date.setHours(23, 59, 59, 999);
-  return date;
-}
-
-function startOfMonth() {
-  const date = new Date();
-  date.setDate(1);
-  date.setHours(0, 0, 0, 0);
-  return date;
-}
-
-function endOfMonth() {
-  const date = new Date();
-  date.setMonth(date.getMonth() + 1);
-  date.setDate(0);
-  date.setHours(23, 59, 59, 999);
-  return date;
-}
-
-async function safeCount(
-  collectionName: string,
-  filter: Filter<Document> = {}
-): Promise<number> {
-  try {
-    const db = await getMongoDb();
-
-    return await db
-      .collection<Document>(collectionName)
-      .countDocuments(filter);
-  } catch (error) {
-    console.error(`safeCount error in ${collectionName}:`, error);
-    return 0;
-  }
-}
-
-async function safeSum(
-  collectionName: string,
-  field: string,
-  filter: Filter<Document> = {}
-): Promise<number> {
-  try {
-    const db = await getMongoDb();
-
-    const result = await db
-      .collection<Document>(collectionName)
-      .aggregate<{ total: number }>([
-        {
-          $match: filter,
+function notVoidedFilter() {
+  return {
+    $or: [
+      {
+        isVoided: {
+          $exists: false,
         },
-        {
-          $group: {
-            _id: null,
-            total: {
-              $sum: `$${field}`,
-            },
-          },
-        },
-      ])
-      .toArray();
-
-    return Number(result[0]?.total ?? 0);
-  } catch (error) {
-    console.error(`safeSum error in ${collectionName}.${field}:`, error);
-    return 0;
-  }
+      },
+      {
+        isVoided: false,
+      },
+    ],
+  };
 }
 
-export async function getDashboardSummary(): Promise<DashboardSummary> {
-  const todayStart = startOfToday();
-  const todayEnd = endOfToday();
-  const monthStart = startOfMonth();
-  const monthEnd = endOfMonth();
+function getDateRanges() {
+  const now = new Date();
 
-  const totalCustomers = await safeCount("customers", {
-    isActive: { $ne: false },
-  });
+  const todayStart = new Date(
+    now.getFullYear(),
+    now.getMonth(),
+    now.getDate()
+  );
 
-  const totalSuppliers = await safeCount("suppliers", {
-    isActive: { $ne: false },
-  });
+  const tomorrowStart = new Date(todayStart);
+  tomorrowStart.setDate(tomorrowStart.getDate() + 1);
 
-  const totalSales = await safeSum("sales", "totalAmount", {
-    status: { $ne: "VOIDED" },
-  });
+  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
 
-  const totalDeliveries = await safeSum("deliveries", "totalAmount", {
-    isVoided: { $ne: true },
-  });
+  const nextMonthStart = new Date(now.getFullYear(), now.getMonth() + 1, 1);
 
-  const totalPayments = await safeSum("payments", "amount");
+  return {
+    todayStart,
+    tomorrowStart,
+    monthStart,
+    nextMonthStart,
+  };
+}
 
-  const balanceFromSales = await safeSum("sales", "balance", {
-    status: { $ne: "VOIDED" },
-  });
-
-  const outstandingReceivables =
-    balanceFromSales > 0
-      ? balanceFromSales
-      : Math.max(totalSales - totalPayments, 0);
-
-  const todaySales = await safeSum("sales", "totalAmount", {
-    status: { $ne: "VOIDED" },
-    saleDate: {
-      $gte: todayStart,
-      $lte: todayEnd,
+function withDateRange(
+  baseFilter: Record<string, any>,
+  dateField: string,
+  startDate: Date,
+  endDate: Date
+) {
+  return {
+    ...baseFilter,
+    [dateField]: {
+      $gte: startDate,
+      $lt: endDate,
     },
-  });
+  };
+}
 
-  const todayDeliveries = await safeSum("deliveries", "totalAmount", {
-    isVoided: { $ne: true },
-    deliveryDate: {
-      $gte: todayStart,
-      $lte: todayEnd,
+async function sumAmount(
+  model: any,
+  match: Record<string, any>,
+  amountExpression: any
+) {
+  const result = await model.aggregate([
+    {
+      $match: match,
     },
-  });
+    {
+      $group: {
+        _id: null,
+        total: {
+          $sum: amountExpression,
+        },
+      },
+    },
+  ]);
 
-  const todayPayments = await safeSum("payments", "amount", {
-    paymentDate: {
-      $gte: todayStart,
-      $lte: todayEnd,
-    },
-  });
+  return Number(result[0]?.total || 0);
+}
 
-  const monthSales = await safeSum("sales", "totalAmount", {
-    status: { $ne: "VOIDED" },
-    saleDate: {
-      $gte: monthStart,
-      $lte: monthEnd,
-    },
-  });
+export async function getDashboardSummary() {
+  await dbConnect();
 
-  const monthDeliveries = await safeSum("deliveries", "totalAmount", {
-    isVoided: { $ne: true },
-    deliveryDate: {
-      $gte: monthStart,
-      $lte: monthEnd,
-    },
-  });
+  const {
+    todayStart,
+    tomorrowStart,
+    monthStart,
+    nextMonthStart,
+  } = getDateRanges();
 
-  const monthPayments = await safeSum("payments", "amount", {
-    paymentDate: {
-      $gte: monthStart,
-      $lte: monthEnd,
-    },
-  });
+  const activeFilter = {
+    isActive: true,
+  };
+
+  const saleFilter = notVoidedFilter();
+  const paymentFilter = notVoidedFilter();
+  const deliveryFilter = notVoidedFilter();
+  const purchaseBatchFilter = notVoidedFilter();
+
+  const [
+    totalCustomers,
+    totalSuppliers,
+
+    totalSales,
+    totalPayments,
+
+    totalSupplierDeliveries,
+    totalPurchaseBatches,
+
+    todaySales,
+    todayPayments,
+    todaySupplierDeliveries,
+    todayPurchaseBatches,
+
+    thisMonthSales,
+    thisMonthPayments,
+    thisMonthSupplierDeliveries,
+    thisMonthPurchaseBatches,
+  ] = await Promise.all([
+    CustomerModel.countDocuments(activeFilter),
+    SupplierModel.countDocuments(activeFilter),
+
+    sumAmount(SaleModel, saleFilter, "$totalAmount"),
+    sumAmount(PaymentModel, paymentFilter, paymentAmountExpression),
+
+    sumAmount(DeliveryModel, deliveryFilter, "$totalAmount"),
+    sumAmount(PurchaseBatchModel, purchaseBatchFilter, "$totalAmount"),
+
+    sumAmount(
+      SaleModel,
+      withDateRange(saleFilter, "createdAt", todayStart, tomorrowStart),
+      "$totalAmount"
+    ),
+    sumAmount(
+      PaymentModel,
+      withDateRange(paymentFilter, "createdAt", todayStart, tomorrowStart),
+      paymentAmountExpression
+    ),
+    sumAmount(
+      DeliveryModel,
+      withDateRange(deliveryFilter, "createdAt", todayStart, tomorrowStart),
+      "$totalAmount"
+    ),
+    sumAmount(
+      PurchaseBatchModel,
+      withDateRange(purchaseBatchFilter, "createdAt", todayStart, tomorrowStart),
+      "$totalAmount"
+    ),
+
+    sumAmount(
+      SaleModel,
+      withDateRange(saleFilter, "createdAt", monthStart, nextMonthStart),
+      "$totalAmount"
+    ),
+    sumAmount(
+      PaymentModel,
+      withDateRange(paymentFilter, "createdAt", monthStart, nextMonthStart),
+      paymentAmountExpression
+    ),
+    sumAmount(
+      DeliveryModel,
+      withDateRange(deliveryFilter, "createdAt", monthStart, nextMonthStart),
+      "$totalAmount"
+    ),
+    sumAmount(
+      PurchaseBatchModel,
+      withDateRange(purchaseBatchFilter, "createdAt", monthStart, nextMonthStart),
+      "$totalAmount"
+    ),
+  ]);
+
+  const totalStockInPurchases = totalSupplierDeliveries + totalPurchaseBatches;
+  const todayStockInPurchases = todaySupplierDeliveries + todayPurchaseBatches;
+  const thisMonthStockInPurchases =
+    thisMonthSupplierDeliveries + thisMonthPurchaseBatches;
+
+  const outstandingReceivables = Math.max(totalSales - totalPayments, 0);
 
   return {
     totalCustomers,
     totalSuppliers,
+
     totalSales,
-    totalDeliveries,
     totalPayments,
     outstandingReceivables,
+
+    totalSupplierDeliveries,
+    totalPurchaseBatches,
+    totalStockInPurchases,
+
+    // Keep this alias if older dashboard parts still use it.
+    totalDeliveries: totalSupplierDeliveries,
+
     today: {
       sales: todaySales,
-      deliveries: todayDeliveries,
       payments: todayPayments,
+      supplierDeliveries: todaySupplierDeliveries,
+      purchaseBatches: todayPurchaseBatches,
+      stockInPurchases: todayStockInPurchases,
     },
+
     thisMonth: {
-      sales: monthSales,
-      deliveries: monthDeliveries,
-      payments: monthPayments,
+      sales: thisMonthSales,
+      payments: thisMonthPayments,
+      supplierDeliveries: thisMonthSupplierDeliveries,
+      purchaseBatches: thisMonthPurchaseBatches,
+      stockInPurchases: thisMonthStockInPurchases,
     },
   };
 }

@@ -13,12 +13,13 @@ import {
 
 import BodegaProductModel from "@/models/BodegaProduct";
 import BodegaStockTransactionModel from "@/models/BodegaStockTransaction";
+import CategoryModel from "@/models/Category";
 import CustomerModel from "@/models/Customer";
 import ProductModel from "@/models/Product";
 import SaleModel from "@/models/Sale";
 import SaleLineModel from "@/models/SaleLine";
 
-type SaleSource = "BODEGA1" | "PRODUCT";
+type SaleSource = "CHICKEN" | "BODEGA";
 
 type SaleItemInput = {
   productId?: string;
@@ -44,15 +45,15 @@ function serializeSale(sale: any) {
       sale.customerId?._id?.toString?.() || sale.customerId?.toString?.(),
     customerName: sale.customerId?.name || "",
 
-    source: sale.source || "BODEGA1",
+    source: sale.source || "BODEGA",
     receiptNumber: sale.receiptNumber || "",
 
     saleDate: sale.saleDate
       ? new Date(sale.saleDate).toISOString()
       : undefined,
 
-    totalPacks: Number(sale.totalPacks || sale.totalQty || 0),
-    totalQty: Number(sale.totalQty || sale.totalPacks || 0),
+    totalPacks: Number(sale.totalPacks || 0),
+    totalQty: Number(sale.totalQty || 0),
     totalAmount: Number(sale.totalAmount || 0),
 
     paidAmount: Number(sale.paidAmount || 0),
@@ -80,6 +81,22 @@ function getCategoryName(product: any) {
   );
 }
 
+function getCategoryId(product: any) {
+  return product.categoryId?._id || product.categoryId || undefined;
+}
+
+function firstPositiveNumber(...values: any[]) {
+  for (const value of values) {
+    const parsed = Number(value);
+
+    if (Number.isFinite(parsed) && parsed > 0) {
+      return parsed;
+    }
+  }
+
+  return 0;
+}
+
 export async function GET(req: NextRequest) {
   const { response } = await requireApiAuth();
 
@@ -101,7 +118,7 @@ export async function GET(req: NextRequest) {
     isVoided: false,
   };
 
-  if (source === "BODEGA1" || source === "PRODUCT") {
+  if (source === "CHICKEN" || source === "BODEGA") {
     filter.source = source;
   }
 
@@ -174,10 +191,16 @@ export async function POST(req: NextRequest) {
 
   await dbConnect();
 
+  // Register Category model for populate("categoryId")
+  void CategoryModel;
+
   const body = await req.json();
 
   const sourceInput = cleanString(body.source).toUpperCase();
-  const source: SaleSource = sourceInput === "BODEGA1" ? "PRODUCT" : "BODEGA1";
+
+  // CHICKEN = Sell Chicken page = BodegaProductModel
+  // BODEGA = Sale Grocery page = ProductModel
+  const source: SaleSource = sourceInput === "CHICKEN" ? "CHICKEN" : "BODEGA";
 
   const customerId = cleanString(body.customerId);
   const saleDate = cleanString(body.saleDate);
@@ -242,17 +265,15 @@ export async function POST(req: NextRequest) {
   }
 
   let totalQty = 0;
+  let totalPacks = 0;
   let totalAmount = 0;
 
-  const preparedItems = [];
+  const preparedItems: Record<string, any>[] = [];
 
   for (const item of items) {
-    const bodegaProductId = cleanString(item.bodegaProductId || "");
-    const productId = cleanString(item.productId || "");
-
     const qty = cleanNumber(item.quantity || item.packs || item.qty);
-    const price = cleanNumber(item.pricePerPack || item.price || item.unitPrice);
     const packSize = cleanNumber(item.packSize) || 1;
+    const itemRemarks = cleanString(item.remarks);
 
     if (qty <= 0) {
       return NextResponse.json(
@@ -264,27 +285,45 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    if (price <= 0) {
-      return NextResponse.json(
-        {
-          success: false,
-          message: "Price must be greater than zero.",
-        },
-        { status: 400 }
-      );
-    }
-
     let product: any = null;
-    let productType: "BODEGA1" | "PRODUCT" = "BODEGA1";
+    let productType: "BODEGA_PRODUCT" | "PRODUCT" = "PRODUCT";
 
-    if (bodegaProductId && isValidObjectId(bodegaProductId)) {
+    if (source === "CHICKEN") {
+      const bodegaProductId = cleanString(
+        item.bodegaProductId || item.productId || ""
+      );
+
+      if (!bodegaProductId || !isValidObjectId(bodegaProductId)) {
+        return NextResponse.json(
+          {
+            success: false,
+            message: "Invalid chicken product.",
+          },
+          { status: 400 }
+        );
+      }
+
       product = await BodegaProductModel.findOne({
         _id: bodegaProductId,
         isActive: true,
       }).populate("categoryId", "name");
 
-      productType = "PRODUCT";
-    } else if (productId && isValidObjectId(productId)) {
+      productType = "BODEGA_PRODUCT";
+    }
+
+    if (source === "BODEGA") {
+      const productId = cleanString(item.productId || "");
+
+      if (!productId || !isValidObjectId(productId)) {
+        return NextResponse.json(
+          {
+            success: false,
+            message: "Invalid grocery product.",
+          },
+          { status: 400 }
+        );
+      }
+
       product = await ProductModel.findOne({
         _id: productId,
         isActive: true,
@@ -303,70 +342,82 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const categoryName = getCategoryName(product);
-    const lineTotal = qty * price;
+    const price =
+      source === "CHICKEN"
+        ? firstPositiveNumber(
+            item.pricePerPack,
+            item.price,
+            item.unitPrice,
+            product.sellingPrice
+          )
+        : firstPositiveNumber(
+            item.price,
+            item.unitPrice,
+            item.pricePerPack,
+            product.unitPrice
+          );
 
-    let previousStock = 0;
-    let newStock = 0;
-    let stockPcsOut = qty;
-
-    if (productType === "PRODUCT") {
-      previousStock = Number(product.stockQty || 0);
-      stockPcsOut = qty;
-
-      if (previousStock < stockPcsOut) {
-        return NextResponse.json(
-          {
-            success: false,
-            message: `Not enough stock for ${product.name}. Available: ${previousStock}.`,
-          },
-          { status: 400 }
-        );
-      }
-
-      newStock = previousStock - stockPcsOut;
-    } else {
-      previousStock = Number(product.stockPcs || 0);
-      stockPcsOut = source === "BODEGA1" ? qty * packSize : qty;
-
-      if (previousStock < stockPcsOut) {
-        return NextResponse.json(
-          {
-            success: false,
-            message: `Not enough stock for ${product.name}. Available: ${previousStock}.`,
-          },
-          { status: 400 }
-        );
-      }
-
-      newStock = previousStock - stockPcsOut;
+    if (price <= 0) {
+      return NextResponse.json(
+        {
+          success: false,
+          message: `Price must be greater than zero for ${product.name}.`,
+        },
+        { status: 400 }
+      );
     }
+
+    const previousStock =
+      productType === "BODEGA_PRODUCT"
+        ? Number(product.stockQty || 0)
+        : Number(product.stockPcs || 0);
+
+    const stockOut = qty;
+
+    if (previousStock < stockOut) {
+      return NextResponse.json(
+        {
+          success: false,
+          message: `Not enough stock for ${product.name}. Available: ${previousStock}.`,
+        },
+        { status: 400 }
+      );
+    }
+
+    const newStock = previousStock - stockOut;
+    const lineTotal = qty * price;
 
     totalQty += qty;
     totalAmount += lineTotal;
+
+    if (source === "CHICKEN") {
+      totalPacks += qty;
+    }
 
     preparedItems.push({
       product,
       productType,
 
       productId: productType === "PRODUCT" ? product._id : undefined,
-      bodegaProductId: productType === "PRODUCT" ? product._id : undefined,
+      bodegaProductId:
+        productType === "BODEGA_PRODUCT" ? product._id : undefined,
 
-      categoryId: product.categoryId?._id || product.categoryId || undefined,
-      categoryName,
+      categoryId: getCategoryId(product),
+      categoryName: getCategoryName(product),
       productName: product.name,
 
       qty,
       price,
       lineTotal,
 
-      stockUnit: source === "BODEGA1" ? "PACK" : "QTY",
-      packSize: source === "BODEGA1" ? packSize : 0,
-      stockPcsOut,
+      stockUnit: source === "CHICKEN" ? "PACK" : "QTY",
+      packSize: source === "CHICKEN" ? packSize : 0,
+      stockPcsOut: stockOut,
 
       previousStock,
       newStock,
-      remarks: cleanString(item.remarks),
+
+      remarks: itemRemarks,
     });
   }
 
@@ -376,7 +427,7 @@ export async function POST(req: NextRequest) {
     saleDate: new Date(saleDate),
     receiptNumber,
 
-    totalPacks: source === "BODEGA1" ? totalQty : 0,
+    totalPacks,
     totalQty,
     totalAmount,
 
@@ -415,7 +466,7 @@ export async function POST(req: NextRequest) {
       remarks: item.remarks,
     });
 
-    if (item.productType === "PRODUCT") {
+    if (item.productType === "BODEGA_PRODUCT") {
       item.product.stockQty = item.newStock;
       await item.product.save();
 

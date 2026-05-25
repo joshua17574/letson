@@ -3,8 +3,10 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   CalendarDays,
+  Eye,
   Loader2,
   PackagePlus,
+  Pencil,
   Plus,
   RefreshCcw,
   Search,
@@ -15,6 +17,14 @@ import { toast } from "sonner";
 import { ModuleHeader } from "@/components/app-shell/ModuleHeader";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -24,15 +34,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-
-import {
-  Dialog,
-  DialogContent,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-
 import {
   Table,
   TableBody,
@@ -43,11 +44,13 @@ import {
 } from "@/components/ui/table";
 import { formatPeso } from "@/lib/utils";
 
-type BodegaProductOption = {
+type ProductOption = {
   _id: string;
   name: string;
+  categoryName?: string;
   buyingPrice: number;
-  stockQty?: number;
+  unitPrice?: number;
+  stockPcs?: number;
 };
 
 type PurchaseBatch = {
@@ -55,10 +58,22 @@ type PurchaseBatch = {
   datePurchased: string;
   totalItems: number;
   totalAmount: number;
+  remarks?: string;
+};
+
+type PurchaseBatchDetail = PurchaseBatch & {
+  items: {
+    _id: string;
+    productId: string;
+    productName: string;
+    buyingPrice: number;
+    quantity: number;
+    subtotal: number;
+  }[];
 };
 
 type PurchaseItemForm = {
-  bodegaProductId: string;
+  productId: string;
   buyingPrice: string;
   quantity: string;
 };
@@ -77,14 +92,29 @@ type Summary = {
 };
 
 const emptyItem: PurchaseItemForm = {
-  bodegaProductId: "",
+  productId: "",
   buyingPrice: "0",
   quantity: "0",
 };
 
+function getProductBuyingPrice(product?: ProductOption) {
+  if (!product) return 0;
+  return Number(product.buyingPrice || 0);
+}
+
+function getProductStock(product?: ProductOption) {
+  if (!product) return 0;
+  return Number(product.stockPcs || 0);
+}
+
+function formatDate(value?: string) {
+  if (!value) return "—";
+  return new Date(value).toISOString().slice(0, 10);
+}
+
 export function PurchaseBatchesPageClient() {
   const [batches, setBatches] = useState<PurchaseBatch[]>([]);
-  const [products, setProducts] = useState<BodegaProductOption[]>([]);
+  const [products, setProducts] = useState<ProductOption[]>([]);
 
   const [summary, setSummary] = useState<Summary>({
     filteredBatches: 0,
@@ -118,15 +148,23 @@ export function PurchaseBatchesPageClient() {
     new Date().toISOString().slice(0, 10)
   );
 
+  const [remarks, setRemarks] = useState("");
+
   const [items, setItems] = useState<PurchaseItemForm[]>([
     { ...emptyItem },
     { ...emptyItem },
     { ...emptyItem },
   ]);
 
-  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [viewItem, setViewItem] = useState<PurchaseBatchDetail | null>(null);
+
+  const [formDialogOpen, setFormDialogOpen] = useState(false);
+  const [viewDialogOpen, setViewDialogOpen] = useState(false);
+
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
+  const [isDetailsLoading, setIsDetailsLoading] = useState(false);
 
   const totalAmount = useMemo(() => {
     return items.reduce((sum, item) => {
@@ -139,7 +177,7 @@ export function PurchaseBatchesPageClient() {
 
   async function loadProducts() {
     try {
-      const res = await fetch("/api/bodega-products?limit=1000", {
+      const res = await fetch("/api/products?limit=1000", {
         cache: "no-store",
       });
 
@@ -165,21 +203,10 @@ export function PurchaseBatchesPageClient() {
       limit,
     });
 
-    if (appliedFilters.dateFrom) {
-      params.set("dateFrom", appliedFilters.dateFrom);
-    }
-
-    if (appliedFilters.dateTo) {
-      params.set("dateTo", appliedFilters.dateTo);
-    }
-
-    if (appliedFilters.minTotal) {
-      params.set("minTotal", appliedFilters.minTotal);
-    }
-
-    if (appliedFilters.maxTotal) {
-      params.set("maxTotal", appliedFilters.maxTotal);
-    }
+    if (appliedFilters.dateFrom) params.set("dateFrom", appliedFilters.dateFrom);
+    if (appliedFilters.dateTo) params.set("dateTo", appliedFilters.dateTo);
+    if (appliedFilters.minTotal) params.set("minTotal", appliedFilters.minTotal);
+    if (appliedFilters.maxTotal) params.set("maxTotal", appliedFilters.maxTotal);
 
     try {
       const res = await fetch(`/api/purchase-batches?${params.toString()}`, {
@@ -193,19 +220,21 @@ export function PurchaseBatchesPageClient() {
       }
 
       setBatches(json.data || []);
-      setSummary(
-        json.summary || {
-          filteredBatches: 0,
-          totalItems: 0,
-          grandTotalAmount: 0,
-        }
-      );
+
       setMeta(
         json.meta || {
           page,
           limit: Number(limit),
           total: 0,
           totalPages: 1,
+        }
+      );
+
+      setSummary(
+        json.summary || {
+          filteredBatches: json.data?.length || 0,
+          totalItems: 0,
+          grandTotalAmount: 0,
         }
       );
     } catch (error) {
@@ -219,6 +248,33 @@ export function PurchaseBatchesPageClient() {
     }
   }
 
+  async function getBatchDetails(id: string) {
+    setIsDetailsLoading(true);
+
+    try {
+      const res = await fetch(`/api/purchase-batches/${id}`, {
+        cache: "no-store",
+      });
+
+      const json = await res.json();
+
+      if (!res.ok || !json.success) {
+        throw new Error(json.message || "Failed to load purchase batch.");
+      }
+
+      return json.data as PurchaseBatchDetail;
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "Failed to load purchase batch."
+      );
+      return null;
+    } finally {
+      setIsDetailsLoading(false);
+    }
+  }
+
   useEffect(() => {
     void loadProducts();
   }, []);
@@ -228,10 +284,47 @@ export function PurchaseBatchesPageClient() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [page, limit, appliedFilters]);
 
-  function openCreateDrawer() {
+  function resetForm() {
+    setEditingId(null);
     setDatePurchased(new Date().toISOString().slice(0, 10));
+    setRemarks("");
     setItems([{ ...emptyItem }, { ...emptyItem }, { ...emptyItem }]);
-    setDrawerOpen(true);
+  }
+
+  function openAddDialog() {
+    resetForm();
+    setFormDialogOpen(true);
+  }
+
+  async function openViewDialog(batch: PurchaseBatch) {
+    const data = await getBatchDetails(batch._id);
+
+    if (!data) return;
+
+    setViewItem(data);
+    setViewDialogOpen(true);
+  }
+
+  async function openEditDialog(batch: PurchaseBatch) {
+    const data = await getBatchDetails(batch._id);
+
+    if (!data) return;
+
+    setEditingId(data._id);
+    setDatePurchased(formatDate(data.datePurchased));
+    setRemarks(data.remarks || "");
+
+    setItems(
+      data.items.length > 0
+        ? data.items.map((item) => ({
+            productId: item.productId,
+            buyingPrice: String(item.buyingPrice || 0),
+            quantity: String(item.quantity || 0),
+          }))
+        : [{ ...emptyItem }]
+    );
+
+    setFormDialogOpen(true);
   }
 
   function updateItem(
@@ -247,11 +340,11 @@ export function PurchaseBatchesPageClient() {
         [field]: value,
       };
 
-      if (field === "bodegaProductId") {
+      if (field === "productId") {
         const product = products.find((item) => item._id === value);
 
         if (product) {
-          next[index].buyingPrice = String(product.buyingPrice || 0);
+          next[index].buyingPrice = String(getProductBuyingPrice(product));
         }
       }
 
@@ -277,6 +370,7 @@ export function PurchaseBatchesPageClient() {
       minTotal,
       maxTotal,
     });
+
     setPage(1);
   }
 
@@ -296,16 +390,16 @@ export function PurchaseBatchesPageClient() {
     setPage(1);
   }
 
-  async function saveBatch() {
+  async function savePurchaseBatch() {
     if (!datePurchased) {
-      toast.error("Date purchased is required.");
+      toast.error("Purchase date is required.");
       return;
     }
 
     const validItems = items
-      .filter((item) => item.bodegaProductId && Number(item.quantity) > 0)
+      .filter((item) => item.productId && Number(item.quantity) > 0)
       .map((item) => ({
-        bodegaProductId: item.bodegaProductId,
+        productId: item.productId,
         buyingPrice: Number(item.buyingPrice) || 0,
         quantity: Number(item.quantity) || 0,
       }));
@@ -315,16 +409,40 @@ export function PurchaseBatchesPageClient() {
       return;
     }
 
+    for (const item of validItems) {
+      const product = products.find((product) => product._id === item.productId);
+
+      if (!product) {
+        toast.error("Selected product was not found.");
+        return;
+      }
+
+      if (item.buyingPrice <= 0) {
+        toast.error(`Buying price must be greater than zero for ${product.name}.`);
+        return;
+      }
+
+      if (item.quantity <= 0) {
+        toast.error(`Quantity must be greater than zero for ${product.name}.`);
+        return;
+      }
+    }
+
     setIsSaving(true);
 
     try {
-      const res = await fetch("/api/purchase-batches", {
-        method: "POST",
+      const url = editingId
+        ? `/api/purchase-batches/${editingId}`
+        : "/api/purchase-batches";
+
+      const res = await fetch(url, {
+        method: editingId ? "PATCH" : "POST",
         headers: {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
           datePurchased,
+          remarks,
           items: validItems,
         }),
       });
@@ -337,7 +455,9 @@ export function PurchaseBatchesPageClient() {
 
       toast.success(json.message || "Purchase batch saved successfully.");
 
-      setDrawerOpen(false);
+      setFormDialogOpen(false);
+      resetForm();
+
       await loadBatches();
       await loadProducts();
     } catch (error) {
@@ -351,11 +471,11 @@ export function PurchaseBatchesPageClient() {
     }
   }
 
-  async function deleteBatch(batch: PurchaseBatch) {
+  async function voidPurchaseBatch(batch: PurchaseBatch) {
     const confirmed = window.confirm(
-      `Delete purchase batch dated ${formatDate(
+      `Void purchase batch dated ${formatDate(
         batch.datePurchased
-      )}? This will reverse the added bodega stock.`
+      )}? This will reverse the added product stock.`
     );
 
     if (!confirmed) return;
@@ -368,10 +488,10 @@ export function PurchaseBatchesPageClient() {
       const json = await res.json();
 
       if (!res.ok || !json.success) {
-        throw new Error(json.message || "Failed to delete purchase batch.");
+        throw new Error(json.message || "Failed to void purchase batch.");
       }
 
-      toast.success(json.message || "Purchase batch deleted successfully.");
+      toast.success(json.message || "Purchase batch voided successfully.");
 
       await loadBatches();
       await loadProducts();
@@ -379,23 +499,18 @@ export function PurchaseBatchesPageClient() {
       toast.error(
         error instanceof Error
           ? error.message
-          : "Failed to delete purchase batch."
+          : "Failed to void purchase batch."
       );
     }
-  }
-
-  function formatDate(value?: string) {
-    if (!value) return "—";
-    return new Date(value).toISOString().slice(0, 10);
   }
 
   return (
     <div className="space-y-6">
       <ModuleHeader
-        title="Purchase Batches"
-        description="Record purchased bodega items and automatically add them to stock."
+        title="Purchase Items"
+        description="Record product purchases and add stock to product inventory."
         actions={
-          <Button onClick={openCreateDrawer} className="rounded-xl">
+          <Button onClick={openAddDialog} className="rounded-xl">
             <PackagePlus className="mr-2 h-4 w-4" />
             Add Purchase Batch
           </Button>
@@ -406,10 +521,10 @@ export function PurchaseBatchesPageClient() {
         <CardContent className="space-y-4 p-5">
           <div className="flex items-center gap-2 text-sm font-bold text-slate-800">
             <Search className="h-4 w-4 text-red-500" />
-            Filter Purchases
+            Filter Purchase Batches
           </div>
 
-          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-[1fr_1fr_1fr_1fr_auto_auto]">
+          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-6">
             <div className="space-y-2">
               <Label>Date From</Label>
               <Input
@@ -429,32 +544,31 @@ export function PurchaseBatchesPageClient() {
             </div>
 
             <div className="space-y-2">
-              <Label>Minimum Total</Label>
+              <Label>Min Total</Label>
               <Input
                 type="number"
                 min="0"
-                step="0.01"
                 value={minTotal}
                 onChange={(event) => setMinTotal(event.target.value)}
-                placeholder="0.00"
+                placeholder="0"
               />
             </div>
 
             <div className="space-y-2">
-              <Label>Maximum Total</Label>
+              <Label>Max Total</Label>
               <Input
                 type="number"
                 min="0"
-                step="0.01"
                 value={maxTotal}
                 onChange={(event) => setMaxTotal(event.target.value)}
-                placeholder="0.00"
+                placeholder="0"
               />
             </div>
 
             <div className="flex items-end">
               <Button onClick={applyFilters} className="w-full rounded-xl">
-                Apply
+                <Search className="mr-2 h-4 w-4" />
+                Search
               </Button>
             </div>
 
@@ -503,7 +617,7 @@ export function PurchaseBatchesPageClient() {
 
       <Card className="rounded-2xl border-slate-200 shadow-sm">
         <CardContent className="p-5">
-          <div className="mb-4 flex items-center justify-between gap-3">
+          <div className="mb-4 flex flex-col justify-between gap-3 md:flex-row md:items-center">
             <div>
               <p className="text-lg font-bold text-slate-950">
                 Purchase Batch Records
@@ -525,6 +639,7 @@ export function PurchaseBatchesPageClient() {
                 <SelectTrigger className="w-24">
                   <SelectValue />
                 </SelectTrigger>
+
                 <SelectContent>
                   <SelectItem value="10">10</SelectItem>
                   <SelectItem value="25">25</SelectItem>
@@ -539,7 +654,7 @@ export function PurchaseBatchesPageClient() {
             <Table>
               <TableHeader className="bg-slate-950">
                 <TableRow>
-                  <TableHead className="text-white">Date</TableHead>
+                  <TableHead className="text-white">Date Purchased</TableHead>
                   <TableHead className="text-right text-white">
                     Total Items
                   </TableHead>
@@ -547,7 +662,7 @@ export function PurchaseBatchesPageClient() {
                     Total Amount
                   </TableHead>
                   <TableHead className="text-center text-white">
-                    Actions
+                    Action
                   </TableHead>
                 </TableRow>
               </TableHeader>
@@ -572,27 +687,51 @@ export function PurchaseBatchesPageClient() {
                   batches.map((batch) => (
                     <TableRow key={batch._id}>
                       <TableCell className="font-medium">
-                        {formatDate(batch.datePurchased)}
+                        <div className="flex items-center gap-2">
+                          <CalendarDays className="h-4 w-4 text-slate-400" />
+                          {formatDate(batch.datePurchased)}
+                        </div>
                       </TableCell>
 
                       <TableCell className="text-right">
-                        {batch.totalItems.toLocaleString()}
+                        {Number(batch.totalItems || 0).toLocaleString()}
                       </TableCell>
 
                       <TableCell className="text-right font-semibold">
-                        {formatPeso(batch.totalAmount)}
+                        {formatPeso(Number(batch.totalAmount || 0))}
                       </TableCell>
 
-                      <TableCell className="text-center">
-                        <Button
-                          size="sm"
-                          variant="destructive"
-                          className="rounded-xl"
-                          onClick={() => deleteBatch(batch)}
-                        >
-                          <Trash2 className="mr-1 h-4 w-4" />
-                          Delete
-                        </Button>
+                      <TableCell>
+                        <div className="flex justify-center gap-2">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => openViewDialog(batch)}
+                            disabled={isDetailsLoading}
+                          >
+                            <Eye className="mr-1 h-4 w-4" />
+                            View
+                          </Button>
+
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => openEditDialog(batch)}
+                            disabled={isDetailsLoading}
+                          >
+                            <Pencil className="mr-1 h-4 w-4" />
+                            Edit
+                          </Button>
+
+                          <Button
+                            size="sm"
+                            variant="destructive"
+                            onClick={() => voidPurchaseBatch(batch)}
+                          >
+                            <Trash2 className="mr-1 h-4 w-4" />
+                            Void
+                          </Button>
+                        </div>
                       </TableCell>
                     </TableRow>
                   ))
@@ -627,138 +766,286 @@ export function PurchaseBatchesPageClient() {
         </CardContent>
       </Card>
 
-<Dialog open={drawerOpen} onOpenChange={setDrawerOpen}>
-  <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-5xl">
-    <DialogHeader>
-      <DialogTitle className="text-2xl font-black">
-        Add Purchase Batch
-      </DialogTitle>
-    </DialogHeader>
+      <Dialog open={formDialogOpen} onOpenChange={setFormDialogOpen}>
+        <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-5xl">
+          <DialogHeader>
+            <DialogTitle className="text-2xl font-black">
+              {editingId ? "Edit Purchase Batch" : "Add Purchase Batch"}
+            </DialogTitle>
+            <DialogDescription>
+              Select products, quantity, and buying price. Saving will update
+              product stock.
+            </DialogDescription>
+          </DialogHeader>
 
-    <div className="mt-4 space-y-5">
-      <div className="space-y-2">
-        <Label>Date Purchased</Label>
-        <div className="relative">
-          <CalendarDays className="pointer-events-none absolute left-3 top-3 h-4 w-4 text-slate-400" />
-          <Input
-            type="date"
-            value={datePurchased}
-            onChange={(event) => setDatePurchased(event.target.value)}
-            className="pl-9"
-          />
-        </div>
-      </div>
-
-      <div className="space-y-3">
-        {items.map((item, index) => {
-          const subtotal =
-            (Number(item.buyingPrice) || 0) * (Number(item.quantity) || 0);
-
-          return (
-            <div
-              key={index}
-              className="rounded-2xl border border-slate-200 bg-slate-50 p-4"
-            >
-              <div className="grid gap-3 md:grid-cols-[2fr_1fr_1fr_1fr_auto]">
-                <Select
-                  value={item.bodegaProductId}
-                  onValueChange={(value) =>
-                    updateItem(index, "bodegaProductId", value)
-                  }
-                >
-                  <SelectTrigger className="bg-white">
-                    <SelectValue placeholder="Search product..." />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {products.map((product) => (
-                      <SelectItem key={product._id} value={product._id}>
-                        {product.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-
+          <div className="space-y-5">
+            <div className="grid gap-4 md:grid-cols-2">
+              <div className="space-y-2">
+                <Label>Date Purchased</Label>
                 <Input
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  value={item.buyingPrice}
-                  onChange={(event) =>
-                    updateItem(index, "buyingPrice", event.target.value)
-                  }
-                  placeholder="Buying Price"
-                  className="bg-white"
+                  type="date"
+                  value={datePurchased}
+                  onChange={(event) => setDatePurchased(event.target.value)}
                 />
+              </div>
 
+              <div className="space-y-2">
+                <Label>Remarks</Label>
                 <Input
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  value={item.quantity}
-                  onChange={(event) =>
-                    updateItem(index, "quantity", event.target.value)
-                  }
-                  placeholder="Qty"
-                  className="bg-white"
+                  value={remarks}
+                  onChange={(event) => setRemarks(event.target.value)}
+                  placeholder="Optional remarks"
                 />
-
-                <Input value={subtotal.toFixed(2)} disabled className="bg-white" />
-
-                <Button
-                  type="button"
-                  variant="destructive"
-                  onClick={() => removeItemRow(index)}
-                  className="rounded-xl"
-                >
-                  X
-                </Button>
               </div>
             </div>
-          );
-        })}
-      </div>
 
-      <Button
-        type="button"
-        variant="secondary"
-        className="w-full rounded-xl"
-        onClick={addItemRow}
-      >
-        <Plus className="mr-2 h-4 w-4" />
-        Add More
-      </Button>
+            <div className="space-y-3">
+              {items.map((item, index) => {
+                const selectedProduct = products.find(
+                  (product) => product._id === item.productId
+                );
 
-      <div className="rounded-2xl bg-slate-950 p-5 text-white">
-        <p className="text-sm text-white/70">Total</p>
-        <p className="text-3xl font-black">{formatPeso(totalAmount)}</p>
-      </div>
-    </div>
+                const subtotal =
+                  (Number(item.buyingPrice) || 0) *
+                  (Number(item.quantity) || 0);
 
-    <DialogFooter className="mt-6 gap-2 sm:justify-end">
-      <Button
-        type="button"
-        variant="secondary"
-        disabled={isSaving}
-        className="rounded-xl"
-        onClick={() => setDrawerOpen(false)}
-      >
-        Cancel
-      </Button>
+                return (
+                  <div
+                    key={index}
+                    className="rounded-2xl border border-slate-200 bg-slate-50 p-4"
+                  >
+                    <div className="grid gap-3 md:grid-cols-[2fr_1fr_1fr_1fr_auto]">
+                      <div className="space-y-1">
+                        <Label>Product</Label>
+                        <Select
+                          value={item.productId}
+                          onValueChange={(value) =>
+                            updateItem(index, "productId", value)
+                          }
+                        >
+                          <SelectTrigger className="bg-white">
+                            <SelectValue placeholder="Select product" />
+                          </SelectTrigger>
 
-      <Button
-        onClick={saveBatch}
-        disabled={isSaving}
-        className="rounded-xl bg-emerald-600 hover:bg-emerald-700"
-      >
-        {isSaving ? (
-          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-        ) : null}
-        Save Batch
-      </Button>
-    </DialogFooter>
-  </DialogContent>
-</Dialog>
+                          <SelectContent>
+                            {products.map((product) => (
+                              <SelectItem key={product._id} value={product._id}>
+                                {product.name} — Stock:{" "}
+                                {getProductStock(product)}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
 
+                        {selectedProduct ? (
+                          <p className="text-xs text-slate-500">
+                            Current stock: {getProductStock(selectedProduct)}
+                          </p>
+                        ) : null}
+                      </div>
+
+                      <div className="space-y-1">
+                        <Label>Buying Price</Label>
+                        <Input
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          value={item.buyingPrice}
+                          onChange={(event) =>
+                            updateItem(index, "buyingPrice", event.target.value)
+                          }
+                          className="bg-white"
+                        />
+                      </div>
+
+                      <div className="space-y-1">
+                        <Label>Quantity</Label>
+                        <Input
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          value={item.quantity}
+                          onChange={(event) =>
+                            updateItem(index, "quantity", event.target.value)
+                          }
+                          className="bg-white"
+                        />
+                      </div>
+
+                      <div className="space-y-1">
+                        <Label>Subtotal</Label>
+                        <Input
+                          value={subtotal.toFixed(2)}
+                          disabled
+                          className="bg-white"
+                        />
+                      </div>
+
+                      <div className="flex items-end">
+                        <Button
+                          type="button"
+                          variant="destructive"
+                          onClick={() => removeItemRow(index)}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            <Button
+              type="button"
+              variant="secondary"
+              className="w-full rounded-xl"
+              onClick={addItemRow}
+            >
+              <Plus className="mr-2 h-4 w-4" />
+              Add More Product
+            </Button>
+
+            <div className="rounded-2xl bg-slate-950 p-5 text-white">
+              <p className="text-sm text-white/70">Total Purchase Amount</p>
+              <p className="text-3xl font-black">{formatPeso(totalAmount)}</p>
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="secondary"
+              disabled={isSaving}
+              onClick={() => setFormDialogOpen(false)}
+            >
+              Cancel
+            </Button>
+
+            <Button
+              type="button"
+              disabled={isSaving}
+              onClick={savePurchaseBatch}
+              className="bg-emerald-600 hover:bg-emerald-700"
+            >
+              {isSaving ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <PackagePlus className="mr-2 h-4 w-4" />
+              )}
+              {editingId ? "Update Purchase Batch" : "Save Purchase Batch"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={viewDialogOpen} onOpenChange={setViewDialogOpen}>
+        <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-4xl">
+          <DialogHeader>
+            <DialogTitle className="text-2xl font-black">
+              Purchase Batch Details
+            </DialogTitle>
+            <DialogDescription>
+              View purchase item lines included in this batch.
+            </DialogDescription>
+          </DialogHeader>
+
+          {!viewItem ? (
+            <div className="flex h-32 items-center justify-center">
+              <Loader2 className="h-5 w-5 animate-spin" />
+            </div>
+          ) : (
+            <div className="space-y-5">
+              <div className="grid gap-4 rounded-2xl border bg-slate-50 p-4 md:grid-cols-3">
+                <div>
+                  <p className="text-sm text-slate-500">Date Purchased</p>
+                  <p className="font-bold">{formatDate(viewItem.datePurchased)}</p>
+                </div>
+
+                <div>
+                  <p className="text-sm text-slate-500">Total Items</p>
+                  <p className="font-bold">
+                    {Number(viewItem.totalItems || 0).toLocaleString()}
+                  </p>
+                </div>
+
+                <div>
+                  <p className="text-sm text-slate-500">Total Amount</p>
+                  <p className="font-bold">
+                    {formatPeso(Number(viewItem.totalAmount || 0))}
+                  </p>
+                </div>
+              </div>
+
+              {viewItem.remarks ? (
+                <div className="rounded-2xl border p-4">
+                  <p className="text-sm text-slate-500">Remarks</p>
+                  <p className="font-medium">{viewItem.remarks}</p>
+                </div>
+              ) : null}
+
+              <div className="overflow-hidden rounded-2xl border border-slate-200">
+                <Table>
+                  <TableHeader className="bg-slate-950">
+                    <TableRow>
+                      <TableHead className="text-white">Product</TableHead>
+                      <TableHead className="text-right text-white">
+                        Buying Price
+                      </TableHead>
+                      <TableHead className="text-right text-white">
+                        Quantity
+                      </TableHead>
+                      <TableHead className="text-right text-white">
+                        Subtotal
+                      </TableHead>
+                    </TableRow>
+                  </TableHeader>
+
+                  <TableBody>
+                    {viewItem.items.length === 0 ? (
+                      <TableRow>
+                        <TableCell
+                          colSpan={4}
+                          className="h-24 text-center text-slate-500"
+                        >
+                          No purchase items found.
+                        </TableCell>
+                      </TableRow>
+                    ) : (
+                      viewItem.items.map((item) => (
+                        <TableRow key={item._id}>
+                          <TableCell className="font-medium">
+                            {item.productName}
+                          </TableCell>
+                          <TableCell className="text-right">
+                            {formatPeso(Number(item.buyingPrice || 0))}
+                          </TableCell>
+                          <TableCell className="text-right">
+                            {Number(item.quantity || 0).toLocaleString()}
+                          </TableCell>
+                          <TableCell className="text-right font-semibold">
+                            {formatPeso(Number(item.subtotal || 0))}
+                          </TableCell>
+                        </TableRow>
+                      ))
+                    )}
+                  </TableBody>
+                </Table>
+              </div>
+            </div>
+          )}
+
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={() => setViewDialogOpen(false)}
+            >
+              Close
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

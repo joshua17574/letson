@@ -1,7 +1,7 @@
 // components/layout/DashboardShell.tsx
 import type { Session } from "next-auth";
 
-import { Sidebar } from "@/components/layout/Sidebar";
+// import { Sidebar } from "@/components/layout/Sidebar";
 import { Topbar } from "@/components/layout/Topbar";
 
 export function DashboardShell({
@@ -13,7 +13,7 @@ export function DashboardShell({
 }) {
   return (
     <div className="min-h-screen bg-slate-50">
-      <Sidebar />
+      {/* <Sidebar /> */}
 
       <div className="min-h-screen lg:pl-72">
         <Topbar user={user} />

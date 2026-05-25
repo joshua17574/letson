@@ -17,6 +17,7 @@ import CustomerModel from "@/models/Customer";
 import PaymentModel, { IPayment } from "@/models/Payment";
 import PaymentAllocationModel from "@/models/PaymentAllocation";
 import SaleModel from "@/models/Sale";
+import { requirePermission } from "@/lib/require-permission";
 
 export const runtime = "nodejs";
 
@@ -73,9 +74,13 @@ async function saveReceiptImage(file: File) {
 }
 
 export async function GET(req: NextRequest) {
-  const { response } = await requireApiAuth();
+
+    const { response } = await requirePermission("payments.view");
 
   if (response) return response;
+  // const { response } = await requireApiAuth();
+
+  // if (response) return response;
 
   await dbConnect();
 

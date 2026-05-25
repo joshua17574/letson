@@ -1,6 +1,6 @@
 // app/api/payments/customer/[id]/route.ts
 import { NextRequest, NextResponse } from "next/server";
-import { isValidObjectId } from "mongoose";
+import { isValidObjectId, Types } from "mongoose";
 
 import dbConnect from "@/lib/mongodb";
 import { requireApiAuth } from "@/lib/require-auth";
@@ -9,33 +9,100 @@ import CustomerModel from "@/models/Customer";
 import PaymentModel from "@/models/Payment";
 import SaleModel from "@/models/Sale";
 
+function notVoidedFilter() {
+  return {
+    $or: [{ isVoided: { $exists: false } }, { isVoided: false }],
+  };
+}
+
+function getDateFilter(dateField: string, dateFrom: string, dateTo: string) {
+  const filter: Record<string, any> = {};
+
+  if (dateFrom || dateTo) {
+    filter[dateField] = {};
+
+    if (dateFrom) {
+      filter[dateField].$gte = new Date(`${dateFrom}T00:00:00.000Z`);
+    }
+
+    if (dateTo) {
+      filter[dateField].$lte = new Date(`${dateTo}T23:59:59.999Z`);
+    }
+  }
+
+  return filter;
+}
+
+function getPaymentAmount(payment: any) {
+  return Number(
+    payment.amount ??
+      payment.amountReceived ??
+      payment.amountPaid ??
+      payment.appliedAmount ??
+      0
+  );
+}
+
+function getAppliedAmount(payment: any) {
+  const amount = getPaymentAmount(payment);
+  return Number(payment.appliedAmount ?? amount ?? 0);
+}
+
 function formatSale(sale: any) {
   return {
     _id: sale._id.toString(),
     saleDate: sale.saleDate ? new Date(sale.saleDate).toISOString() : undefined,
-    receiptNumber: sale.receiptNumber,
-    totalAmount: sale.totalAmount || 0,
-    paidAmount: sale.paidAmount || 0,
-    balance: sale.balance || 0,
-    totalPacks: sale.totalPacks || 0,
+    receiptNumber: sale.receiptNumber || "",
+    totalAmount: Number(sale.totalAmount || 0),
+    paidAmount: Number(sale.paidAmount || 0),
+    balance: Number(sale.balance || 0),
+    totalPacks: Number(sale.totalPacks || sale.totalQty || 0),
     remarks: sale.remarks || "",
-    status: sale.status,
+    status: sale.status || "",
   };
 }
 
 function formatPayment(payment: any) {
+  const amount = getPaymentAmount(payment);
+  const appliedAmount = getAppliedAmount(payment);
+
   return {
     _id: payment._id.toString(),
     paymentDate: payment.paymentDate
       ? new Date(payment.paymentDate).toISOString()
       : undefined,
-    amount: payment.amount || 0,
-    appliedAmount: payment.appliedAmount || 0,
-    unappliedAmount: payment.unappliedAmount || 0,
+    amount,
+    appliedAmount,
+    unappliedAmount: Number(payment.unappliedAmount || 0),
     referenceNumber: payment.referenceNumber || "",
     receiptImageUrl: payment.receiptImageUrl || "",
     remarks: payment.remarks || "",
   };
+}
+
+function summarizeSales(sales: any[]) {
+  return sales.reduce(
+    (sum, sale) => ({
+      totalSales: sum.totalSales + Number(sale.totalAmount || 0),
+      totalPacks:
+        sum.totalPacks + Number(sale.totalPacks || sale.totalQty || 0),
+    }),
+    {
+      totalSales: 0,
+      totalPacks: 0,
+    }
+  );
+}
+
+function summarizePayments(payments: any[]) {
+  return payments.reduce(
+    (sum, payment) => ({
+      totalPaid: sum.totalPaid + getAppliedAmount(payment),
+    }),
+    {
+      totalPaid: 0,
+    }
+  );
 }
 
 export async function GET(
@@ -60,132 +127,53 @@ export async function GET(
 
   await dbConnect();
 
-  const { searchParams } = new URL(req.url);
+  const customerObjectId = new Types.ObjectId(id);
 
+  const { searchParams } = new URL(req.url);
   const dateFrom = cleanString(searchParams.get("dateFrom"));
   const dateTo = cleanString(searchParams.get("dateTo"));
 
-  const customer = await CustomerModel.findOne({
-    _id: id,
-    isActive: true,
-  }).lean();
+  const customer = await CustomerModel.findById(customerObjectId).lean();
 
-  if (!customer) {
-    return NextResponse.json(
-      {
-        success: false,
-        message: "Customer not found.",
-      },
-      { status: 404 }
-    );
-  }
-
-  const baseSaleFilter: any = {
-    customerId: id,
-    isVoided: false,
+  const customerMatch = {
+    customerId: {
+      $in: [customerObjectId, id],
+    },
   };
 
-  const basePaymentFilter: any = {
-    customerId: id,
-    isVoided: false,
+  const overallSaleFilter = {
+    ...customerMatch,
+    ...notVoidedFilter(),
   };
 
-  const filteredSaleFilter: any = {
-    ...baseSaleFilter,
+  const overallPaymentFilter = {
+    ...customerMatch,
+    ...notVoidedFilter(),
   };
 
-  const filteredPaymentFilter: any = {
-    ...basePaymentFilter,
+  const filteredSaleFilter = {
+    ...overallSaleFilter,
+    ...getDateFilter("saleDate", dateFrom, dateTo),
   };
 
-  if (dateFrom || dateTo) {
-    filteredSaleFilter.saleDate = {};
-    filteredPaymentFilter.paymentDate = {};
-
-    if (dateFrom) {
-      filteredSaleFilter.saleDate.$gte = new Date(`${dateFrom}T00:00:00.000Z`);
-      filteredPaymentFilter.paymentDate.$gte = new Date(
-        `${dateFrom}T00:00:00.000Z`
-      );
-    }
-
-    if (dateTo) {
-      filteredSaleFilter.saleDate.$lte = new Date(`${dateTo}T23:59:59.999Z`);
-      filteredPaymentFilter.paymentDate.$lte = new Date(
-        `${dateTo}T23:59:59.999Z`
-      );
-    }
-  }
+  const filteredPaymentFilter = {
+    ...overallPaymentFilter,
+    ...getDateFilter("paymentDate", dateFrom, dateTo),
+  };
 
   const [
-    overallSales,
-    overallPayments,
-    filteredSales,
-    filteredPayments,
+    overallSalesRecords,
+    overallPaymentsRecords,
+    filteredSalesRecords,
+    filteredPaymentsRecords,
     recentSales,
     recentPayments,
   ] = await Promise.all([
-    SaleModel.aggregate([
-      {
-        $match: baseSaleFilter,
-      },
-      {
-        $group: {
-          _id: null,
-          totalSales: {
-            $sum: "$totalAmount",
-          },
-          totalPacks: {
-            $sum: "$totalPacks",
-          },
-        },
-      },
-    ]),
+    SaleModel.find(overallSaleFilter).lean(),
+    PaymentModel.find(overallPaymentFilter).lean(),
 
-    PaymentModel.aggregate([
-      {
-        $match: basePaymentFilter,
-      },
-      {
-        $group: {
-          _id: null,
-          totalPaid: {
-            $sum: "$amount",
-          },
-        },
-      },
-    ]),
-
-    SaleModel.aggregate([
-      {
-        $match: filteredSaleFilter,
-      },
-      {
-        $group: {
-          _id: null,
-          totalSales: {
-            $sum: "$totalAmount",
-          },
-          totalPacks: {
-            $sum: "$totalPacks",
-          },
-        },
-      },
-    ]),
-
-    PaymentModel.aggregate([
-      {
-        $match: filteredPaymentFilter,
-      },
-      {
-        $group: {
-          _id: null,
-          totalPaid: {
-            $sum: "$amount",
-          },
-        },
-      },
-    ]),
+    SaleModel.find(filteredSaleFilter).lean(),
+    PaymentModel.find(filteredPaymentFilter).lean(),
 
     SaleModel.find(filteredSaleFilter)
       .sort({ saleDate: -1, createdAt: -1 })
@@ -198,42 +186,51 @@ export async function GET(
       .lean(),
   ]);
 
-  const os = overallSales[0] || {
-    totalSales: 0,
-    totalPacks: 0,
-  };
+  if (
+    !customer &&
+    overallSalesRecords.length === 0 &&
+    overallPaymentsRecords.length === 0
+  ) {
+    return NextResponse.json(
+      {
+        success: false,
+        message: "Customer not found.",
+      },
+      { status: 404 }
+    );
+  }
 
-  const op = overallPayments[0] || {
-    totalPaid: 0,
-  };
+  const overallSales = summarizeSales(overallSalesRecords);
+  const overallPayments = summarizePayments(overallPaymentsRecords);
 
-  const fs = filteredSales[0] || {
-    totalSales: 0,
-    totalPacks: 0,
-  };
-
-  const fp = filteredPayments[0] || {
-    totalPaid: 0,
-  };
+  const filteredSales = summarizeSales(filteredSalesRecords);
+  const filteredPayments = summarizePayments(filteredPaymentsRecords);
 
   return NextResponse.json({
     success: true,
+
     customer: {
-      _id: customer._id.toString(),
-      name: customer.name,
+      _id: customerObjectId.toString(),
+      name: customer?.name || "Selected Customer",
     },
+
     overall: {
-      totalSales: os.totalSales || 0,
-      totalPaid: op.totalPaid || 0,
-      balance: (os.totalSales || 0) - (op.totalPaid || 0),
-      totalPacks: os.totalPacks || 0,
+      totalSales: overallSales.totalSales,
+      totalPaid: overallPayments.totalPaid,
+      balance: Math.max(overallSales.totalSales - overallPayments.totalPaid, 0),
+      totalPacks: overallSales.totalPacks,
     },
+
     filtered: {
-      totalSales: fs.totalSales || 0,
-      totalPaid: fp.totalPaid || 0,
-      balance: (fs.totalSales || 0) - (fp.totalPaid || 0),
-      totalPacks: fs.totalPacks || 0,
+      totalSales: filteredSales.totalSales,
+      totalPaid: filteredPayments.totalPaid,
+      balance: Math.max(
+        filteredSales.totalSales - filteredPayments.totalPaid,
+        0
+      ),
+      totalPacks: filteredSales.totalPacks,
     },
+
     recentSales: recentSales.map(formatSale),
     recentPayments: recentPayments.map(formatPayment),
   });

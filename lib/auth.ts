@@ -1,10 +1,11 @@
-// lib/auth.ts
-import bcrypt from "bcryptjs";
-import type { NextAuthOptions } from "next-auth";
+// app/api/auth/[...nextauth]/route.ts
+import NextAuth, { type NextAuthOptions } from "next-auth";
 import CredentialsProvider from "next-auth/providers/credentials";
+import bcrypt from "bcryptjs";
 
 import dbConnect from "@/lib/mongodb";
 import UserModel from "@/models/User";
+import RoleModel from "@/models/Role";
 
 export const authOptions: NextAuthOptions = {
   session: {
@@ -17,13 +18,25 @@ export const authOptions: NextAuthOptions = {
 
   providers: [
     CredentialsProvider({
-      name: "Username and Password",
+      name: "Credentials",
 
       credentials: {
+        identifier: {
+          label: "Email or Username",
+          type: "text",
+          placeholder: "cash or cash@email.com",
+        },
+        email: {
+          label: "Email",
+          type: "text",
+        },
         username: {
           label: "Username",
           type: "text",
-          placeholder: "admin",
+        },
+        name: {
+          label: "Name",
+          type: "text",
         },
         password: {
           label: "Password",
@@ -32,41 +45,66 @@ export const authOptions: NextAuthOptions = {
       },
 
       async authorize(credentials) {
-        if (!credentials?.username || !credentials?.password) {
+        await dbConnect();
+
+        // Register Role model for populate("roleId")
+        void RoleModel;
+
+        const identifier = String(
+          credentials?.identifier ||
+            credentials?.email ||
+            credentials?.username ||
+            credentials?.name ||
+            ""
+        )
+          .trim()
+          .toLowerCase();
+
+        const password = String(credentials?.password || "");
+
+        if (!identifier || !password) {
           return null;
         }
 
-        await dbConnect();
-
-        const username = credentials.username.trim().toLowerCase();
-
-        const user = await UserModel.findOne({ username }).select("+password");
+        const user = await UserModel.findOne({
+          isActive: true,
+          $or: [
+            {
+              email: identifier,
+            },
+            {
+              name: identifier.toUpperCase(),
+            },
+              { username: identifier },
+          ],
+        })
+          .populate("roleId", "name permissions")
+          .lean();
 
         if (!user) {
           return null;
         }
 
-        if (!user.isActive) {
-          return null;
-        }
+        const passwordHash = String(user.password || "");
 
-        const isPasswordValid = await bcrypt.compare(
-          credentials.password,
-          user.password
-        );
+        const isPasswordValid = await bcrypt.compare(password, passwordHash);
 
         if (!isPasswordValid) {
           return null;
         }
 
+        const role: any = user.roleId;
+
         return {
           id: user._id.toString(),
-          username: user.username,
           name: user.name,
-          email: user.email || undefined,
-          role: user.role,
-          position: user.position,
-        };
+          email: user.email,
+          role: user.role || "USER",
+
+          roleId: role?._id?.toString?.() || "",
+          roleName: role?.name || "",
+          permissions: role?.permissions || [],
+        } as any;
       },
     }),
   ],
@@ -74,24 +112,32 @@ export const authOptions: NextAuthOptions = {
   callbacks: {
     async jwt({ token, user }) {
       if (user) {
-        token.id = user.id;
-        token.username = user.username;
-        token.role = user.role;
-        token.position = user.position;
+        const authUser = user as any;
+
+        token.id = authUser.id;
+        token.role = authUser.role || "USER";
+        token.roleId = authUser.roleId || "";
+        token.roleName = authUser.roleName || "";
+        token.permissions = authUser.permissions || [];
       }
 
       return token;
     },
 
     async session({ session, token }) {
-      session.user.id = token.id;
-      session.user.username = token.username;
-      session.user.role = token.role;
-      session.user.position = token.position;
+      if (session.user) {
+        (session.user as any).id = token.id;
+        (session.user as any).role = token.role;
+        (session.user as any).roleId = token.roleId;
+        (session.user as any).roleName = token.roleName;
+        (session.user as any).permissions = token.permissions || [];
+      }
 
       return session;
     },
   },
-
-  secret: process.env.NEXTAUTH_SECRET,
 };
+
+const handler = NextAuth(authOptions);
+
+export { handler as GET, handler as POST };

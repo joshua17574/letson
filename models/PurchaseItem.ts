@@ -4,11 +4,14 @@ import mongoose, { Document, Model, Schema, Types } from "mongoose";
 export interface IPurchaseItem extends Document {
   _id: Types.ObjectId;
   purchaseBatchId: Types.ObjectId;
-  bodegaProductId: Types.ObjectId;
+
+  productId: Types.ObjectId;
   productName: string;
+
   buyingPrice: number;
   quantity: number;
   subtotal: number;
+
   createdAt: Date;
   updatedAt: Date;
 }
@@ -21,9 +24,9 @@ const PurchaseItemSchema = new Schema<IPurchaseItem>(
       required: true,
     },
 
-    bodegaProductId: {
+    productId: {
       type: Schema.Types.ObjectId,
-      ref: "BodegaProduct",
+      ref: "Product",
       required: true,
     },
 
@@ -37,18 +40,21 @@ const PurchaseItemSchema = new Schema<IPurchaseItem>(
     buyingPrice: {
       type: Number,
       required: true,
+      default: 0,
       min: 0,
     },
 
     quantity: {
       type: Number,
       required: true,
+      default: 0,
       min: 0,
     },
 
     subtotal: {
       type: Number,
       required: true,
+      default: 0,
       min: 0,
     },
   },
@@ -58,7 +64,8 @@ const PurchaseItemSchema = new Schema<IPurchaseItem>(
 );
 
 PurchaseItemSchema.index({ purchaseBatchId: 1 });
-PurchaseItemSchema.index({ bodegaProductId: 1 });
+PurchaseItemSchema.index({ productId: 1 });
+PurchaseItemSchema.index({ productName: 1 });
 
 const PurchaseItemModel: Model<IPurchaseItem> =
   mongoose.models.PurchaseItem ||

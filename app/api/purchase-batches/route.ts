@@ -1,6 +1,6 @@
 // app/api/purchase-batches/route.ts
 import { NextRequest, NextResponse } from "next/server";
-import { QueryFilter, isValidObjectId } from "mongoose";
+import { isValidObjectId } from "mongoose";
 
 import dbConnect from "@/lib/mongodb";
 import { requireApiAuth } from "@/lib/require-auth";
@@ -9,13 +9,12 @@ import {
   cleanString,
   getPagination,
 } from "@/lib/crud-utils";
-import BodegaProductModel from "@/models/BodegaProduct";
-import BodegaStockTransactionModel from "@/models/BodegaStockTransaction";
-import PurchaseBatchModel, { IPurchaseBatch } from "@/models/PurchaseBatch";
+import ProductModel from "@/models/Product";
+import PurchaseBatchModel from "@/models/PurchaseBatch";
 import PurchaseItemModel from "@/models/PurchaseItem";
 
 type PurchaseItemInput = {
-  bodegaProductId: string;
+  productId: string;
   buyingPrice: number;
   quantity: number;
 };
@@ -23,15 +22,19 @@ type PurchaseItemInput = {
 function serializePurchaseBatch(batch: any) {
   return {
     _id: batch._id.toString(),
+
     datePurchased: batch.datePurchased
       ? new Date(batch.datePurchased).toISOString()
       : undefined,
-    totalItems: batch.totalItems || 0,
-    totalAmount: batch.totalAmount || 0,
+
+    totalItems: Number(batch.totalItems || 0),
+    totalAmount: Number(batch.totalAmount || 0),
     remarks: batch.remarks || "",
+
     createdAt: batch.createdAt
       ? new Date(batch.createdAt).toISOString()
       : undefined,
+
     updatedAt: batch.updatedAt
       ? new Date(batch.updatedAt).toISOString()
       : undefined,
@@ -53,7 +56,7 @@ export async function GET(req: NextRequest) {
   const minTotal = cleanNumber(searchParams.get("minTotal"));
   const maxTotal = cleanNumber(searchParams.get("maxTotal"));
 
-  const filter: QueryFilter<IPurchaseBatch> = {
+  const filter: Record<string, any> = {
     isVoided: false,
   };
 
@@ -121,9 +124,9 @@ export async function GET(req: NextRequest) {
     success: true,
     data: items.map(serializePurchaseBatch),
     summary: {
-      filteredBatches: summaryData.filteredBatches,
-      totalItems: summaryData.totalItems,
-      grandTotalAmount: summaryData.grandTotalAmount,
+      filteredBatches: Number(summaryData.filteredBatches || 0),
+      totalItems: Number(summaryData.totalItems || 0),
+      grandTotalAmount: Number(summaryData.grandTotalAmount || 0),
     },
     meta: {
       page,
@@ -176,9 +179,9 @@ export async function POST(req: NextRequest) {
   const preparedItems = [];
 
   for (const item of items) {
-    const bodegaProductId = cleanString(item.bodegaProductId);
+    const productId = cleanString(item.productId);
 
-    if (!bodegaProductId || !isValidObjectId(bodegaProductId)) {
+    if (!productId || !isValidObjectId(productId)) {
       return NextResponse.json(
         {
           success: false,
@@ -188,8 +191,8 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const product = await BodegaProductModel.findOne({
-      _id: bodegaProductId,
+    const product = await ProductModel.findOne({
+      _id: productId,
       isActive: true,
     });
 
@@ -197,7 +200,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json(
         {
           success: false,
-          message: "One selected bodega product was not found.",
+          message: "One selected product was not found.",
         },
         { status: 404 }
       );
@@ -205,6 +208,16 @@ export async function POST(req: NextRequest) {
 
     const buyingPrice = cleanNumber(item.buyingPrice);
     const quantity = cleanNumber(item.quantity);
+
+    if (buyingPrice <= 0) {
+      return NextResponse.json(
+        {
+          success: false,
+          message: `Buying price must be greater than zero for ${product.name}.`,
+        },
+        { status: 400 }
+      );
+    }
 
     if (quantity <= 0) {
       return NextResponse.json(
@@ -223,7 +236,7 @@ export async function POST(req: NextRequest) {
 
     preparedItems.push({
       product,
-      bodegaProductId: product._id,
+      productId: product._id,
       productName: product.name,
       buyingPrice,
       quantity,
@@ -240,44 +253,30 @@ export async function POST(req: NextRequest) {
   });
 
   const purchaseItemsToInsert = [];
-  const stockTransactions = [];
 
   for (const item of preparedItems) {
     const product = item.product;
 
     purchaseItemsToInsert.push({
       purchaseBatchId: batch._id,
-      bodegaProductId: item.bodegaProductId,
+
+      productId: item.productId,
       productName: item.productName,
+
       buyingPrice: item.buyingPrice,
       quantity: item.quantity,
       subtotal: item.subtotal,
     });
 
-    const previousStock = product.stockQty;
-    product.stockQty += item.quantity;
+    const previousStock = Number(product.stockPcs || 0);
+
+    product.stockPcs = previousStock + item.quantity;
     product.buyingPrice = item.buyingPrice;
 
     await product.save();
-
-    stockTransactions.push({
-      bodegaProductId: product._id,
-      type: "STOCK_IN",
-      quantity: item.quantity,
-      previousStock,
-      newStock: product.stockQty,
-      remarks: `PURCHASE BATCH ${batch._id.toString()}`,
-      referenceType: "PURCHASE_BATCH",
-      referenceId: batch._id,
-      createdBy: session?.user?.id,
-    });
   }
 
   await PurchaseItemModel.insertMany(purchaseItemsToInsert);
-
-  if (stockTransactions.length > 0) {
-    await BodegaStockTransactionModel.insertMany(stockTransactions);
-  }
 
   return NextResponse.json(
     {

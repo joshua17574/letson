@@ -15,14 +15,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
 import { formatPeso } from "@/lib/utils";
 
 type CustomerOption = {
@@ -33,11 +25,18 @@ type CustomerOption = {
 type ProductOption = {
   _id: string;
   name: string;
+  categoryId?:
+    | string
+    | {
+        _id: string;
+        name: string;
+      };
   categoryName?: string;
-  sellingPrice?: number;
-  price?: number;
-  stockQty?: number;
+  buyingPrice?: number;
+  unitPrice?: number;
   stockPcs?: number;
+  stockBags?: number;
+  stockKilos?: number;
 };
 
 type SaleRow = {
@@ -54,12 +53,28 @@ const emptyRow: SaleRow = {
 
 function getProductStock(product?: ProductOption) {
   if (!product) return 0;
-  return Number(product.stockQty ?? product.stockPcs ?? 0);
+  return Number(product.stockPcs || 0);
 }
 
 function getProductPrice(product?: ProductOption) {
   if (!product) return 0;
-  return Number(product.sellingPrice ?? product.price ?? 0);
+  return Number(product.unitPrice || 0);
+}
+
+function getCategoryName(product?: ProductOption) {
+  if (!product) return "NO CATEGORY";
+
+  if (product.categoryName) return product.categoryName;
+
+  if (
+    product.categoryId &&
+    typeof product.categoryId === "object" &&
+    product.categoryId.name
+  ) {
+    return product.categoryId.name;
+  }
+
+  return "NO CATEGORY";
 }
 
 export function SaleGroceryPageClient() {
@@ -108,6 +123,8 @@ export function SaleGroceryPageClient() {
 
     if (res.ok && json.success) {
       setProducts(json.data || []);
+    } else {
+      toast.error(json.message || "Failed to load products.");
     }
   }
 
@@ -187,7 +204,7 @@ export function SaleGroceryPageClient() {
           price: Number(row.price) || 0,
           unitPrice: Number(row.price) || 0,
           productName: product?.name || "",
-          categoryName: product?.categoryName || "",
+          categoryName: getCategoryName(product),
         };
       });
 
@@ -314,7 +331,8 @@ export function SaleGroceryPageClient() {
                     (product) => product._id === row.productId
                   );
 
-                  const stock = getProductStock(selectedProduct);
+                  const availableStock = getProductStock(selectedProduct);
+                  const unitPrice = getProductPrice(selectedProduct);
                   const lineTotal =
                     (Number(row.price) || 0) * (Number(row.quantity) || 0);
 
@@ -333,13 +351,15 @@ export function SaleGroceryPageClient() {
                             }
                           >
                             <SelectTrigger className="bg-white">
-                              <SelectValue placeholder="Select product" />
+                              <SelectValue placeholder="Select grocery product" />
                             </SelectTrigger>
+
                             <SelectContent>
                               {products.map((product) => (
                                 <SelectItem key={product._id} value={product._id}>
                                   {product.name} — Stock:{" "}
-                                  {getProductStock(product)}
+                                  {getProductStock(product)} —{" "}
+                                  {formatPeso(getProductPrice(product))}
                                 </SelectItem>
                               ))}
                             </SelectContent>
@@ -347,9 +367,9 @@ export function SaleGroceryPageClient() {
 
                           {selectedProduct ? (
                             <p className="text-xs text-muted-foreground">
-                              Category:{" "}
-                              {selectedProduct.categoryName || "Uncategorized"}{" "}
-                              | Available: {stock}
+                              Category: {getCategoryName(selectedProduct)} |
+                              Stock: {availableStock} | Unit Price:{" "}
+                              {formatPeso(unitPrice)}
                             </p>
                           ) : null}
                         </div>

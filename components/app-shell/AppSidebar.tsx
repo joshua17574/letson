@@ -3,7 +3,8 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useSession } from "next-auth/react";
+import { useEffect, useMemo, useState } from "react";
 import {
   ChevronDown,
   ChevronLeft,
@@ -43,8 +44,52 @@ function isItemActive(pathname: string, item: AppNavItem) {
   return false;
 }
 
-function getActiveParentTitle(pathname: string) {
-  const activeParent = appNavItems.find((item) => {
+function hasPermission(
+  userPermissions: string[],
+  requiredPermission?: string,
+  isAdmin = false
+) {
+  if (isAdmin) return true;
+  if (!requiredPermission) return true;
+
+  return userPermissions.includes(requiredPermission);
+}
+
+function filterNavItemsByPermissions(
+  navItems: AppNavItem[],
+  userPermissions: string[],
+  isAdmin = false
+) {
+  return navItems
+    .map((item) => {
+      const visibleChildren = item.children?.filter((child) =>
+        hasPermission(userPermissions, child.permission, isAdmin)
+      );
+
+      const canViewParent = hasPermission(
+        userPermissions,
+        item.permission,
+        isAdmin
+      );
+
+      if (visibleChildren && visibleChildren.length > 0) {
+        return {
+          ...item,
+          children: visibleChildren,
+        };
+      }
+
+      if (canViewParent && !item.children) {
+        return item;
+      }
+
+      return null;
+    })
+    .filter(Boolean) as AppNavItem[];
+}
+
+function getActiveParentTitle(pathname: string, navItems: AppNavItem[]) {
+  const activeParent = navItems.find((item) => {
     if (!item.children) return false;
     return item.children.some((child) => isRouteActive(pathname, child.href));
   });
@@ -54,12 +99,31 @@ function getActiveParentTitle(pathname: string) {
 
 export function AppSidebar({ collapsed, onToggle }: Props) {
   const pathname = usePathname();
+  const { data: session, status } = useSession();
+
   const [openGroup, setOpenGroup] = useState<string | null>(null);
 
+  const userPermissions = useMemo(() => {
+    return (((session?.user as any)?.permissions || []) as string[]).filter(
+      Boolean
+    );
+  }, [session]);
+
+  const legacyRole = String((session?.user as any)?.role || "").toUpperCase();
+  const roleName = String((session?.user as any)?.roleName || "").toUpperCase();
+
+  const isAdmin = legacyRole === "ADMIN" || roleName === "ADMIN";
+
+  const visibleNavItems = useMemo(() => {
+    if (status === "loading") return [];
+
+    return filterNavItemsByPermissions(appNavItems, userPermissions, isAdmin);
+  }, [status, userPermissions, isAdmin]);
+
   useEffect(() => {
-    const activeParentTitle = getActiveParentTitle(pathname);
+    const activeParentTitle = getActiveParentTitle(pathname, visibleNavItems);
     setOpenGroup(activeParentTitle);
-  }, [pathname]);
+  }, [pathname, visibleNavItems]);
 
   function handleMainNavClick() {
     setOpenGroup(null);
@@ -126,7 +190,7 @@ export function AppSidebar({ collapsed, onToggle }: Props) {
       ) : null}
 
       <nav className="flex-1 space-y-1 overflow-y-auto px-3 pb-6">
-        {appNavItems.map((item) => {
+        {visibleNavItems.map((item) => {
           const active = isItemActive(pathname, item);
           const Icon = item.icon;
           const isOpen = openGroup === item.title;
