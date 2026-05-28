@@ -24,38 +24,56 @@ export async function GET(_req: NextRequest) {
   const standards = await StandardPackingModel.find({
     isActive: true,
   })
-    .populate("wholeChickenId", "name")
+    .populate("wholeChickenId", "name stockQty")
     .populate("productId", "name")
     .sort({ createdAt: -1 })
     .lean();
 
-  return NextResponse.json({
-    success: true,
-    data: standards.map((standard: any) => {
-      const wholeChickenName = cleanLabel(standard.wholeChickenId?.name || "");
-      const productName = cleanLabel(standard.productId?.name || "");
+ return NextResponse.json({
+  success: true,
+  data: standards.map((standard: any) => {
+    const wholeChickenName = cleanLabel(
+      standard.wholeChickenId?.name || ""
+    );
 
-      return {
-        _id: standard._id.toString(),
+    const productName = cleanLabel(
+      standard.productId?.name || ""
+    );
 
-        wholeChickenId:
-          standard.wholeChickenId?._id?.toString?.() ||
-          standard.wholeChickenId?.toString?.() ||
-          "",
-        wholeChickenName,
+    return {
+      _id: standard._id.toString(),
 
-        productId:
-          standard.productId?._id?.toString?.() ||
-          standard.productId?.toString?.() ||
-          "",
-        productName,
+      wholeChickenId:
+        standard.wholeChickenId?._id?.toString?.() ||
+        standard.wholeChickenId?.toString?.() ||
+        "",
 
-        standardPacking: Number(standard.standardPacking || 0),
-        standardSlice: Number(standard.standardSlice || 0),
-        chickenSizeType: standard.chickenSizeType || "",
+      wholeChickenName,
 
-        label: `${wholeChickenName} → ${productName}`,
-      };
-    }),
-  });
+      productId:
+        standard.productId?._id?.toString?.() ||
+        standard.productId?.toString?.() ||
+        "",
+
+      productName,
+
+      standardPacking: Number(
+        standard.standardPacking || 0
+      ),
+
+      standardSlice: Number(
+        standard.standardSlice || 0
+      ),
+
+      chickenSizeType:
+        standard.chickenSizeType || "",
+
+      availableStock: Number(
+        standard.wholeChickenId?.stockQty || 0
+      ),
+
+      label: `${wholeChickenName} → ${productName}`,
+    };
+  }),
+});
 }

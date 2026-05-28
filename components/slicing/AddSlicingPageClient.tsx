@@ -42,11 +42,16 @@ type SlicingStandardOption = {
   _id: string;
   wholeChickenId: string;
   wholeChickenName: string;
+
   productId: string;
   productName: string;
+
   standardPacking: number;
   standardSlice: number;
+
   chickenSizeType?: string;
+
+  availableStock: number;
 };
 
 type SlicingRow = {
@@ -57,11 +62,14 @@ type SlicingRow = {
   productName: string;
   standardPacking: number;
   standardSlice: number;
+  availableStock: number;
 
   bags: string;
   heads: string;
   kilos: string;
   actualSlicedPcs: string;
+
+  
 };
 
 const emptyRow: SlicingRow = {
@@ -72,6 +80,7 @@ const emptyRow: SlicingRow = {
   productName: "",
   standardPacking: 0,
   standardSlice: 0,
+  availableStock: 0,
 
   bags: "0",
   heads: "0",
@@ -288,6 +297,8 @@ export function AddSlicingPageClient() {
         productName: standard.productName,
         standardPacking: numberValue(standard.standardPacking),
         standardSlice: numberValue(standard.standardSlice),
+        availableStock: numberValue(standard.availableStock
+  ),
       };
 
       return next;
@@ -306,6 +317,8 @@ export function AddSlicingPageClient() {
   }
 
   async function saveAll() {
+
+    
     if (!slicingDate) {
       toast.error("Slicing date is required.");
       return;
@@ -328,10 +341,25 @@ export function AddSlicingPageClient() {
         numberValue(row.actualSlicedPcs) > 0
     );
 
+    
+
     if (validRows.length === 0) {
       toast.error("Add at least one valid slicing row.");
       return;
     }
+
+
+    for (const row of validRows) {
+  const heads = numberValue(row.heads);
+
+  if (heads > row.availableStock) {
+    toast.error(
+      `${row.wholeChickenName} only has ${row.availableStock} available stock.`
+    );
+    return;
+  }
+}
+    
 
     setIsSaving(true);
 
@@ -344,6 +372,8 @@ export function AddSlicingPageClient() {
 
  items: validRows.map((row) => {
     const computed = calculateRow(row);
+
+    
 
     return {
       standardId: row.standardId,
@@ -481,9 +511,14 @@ export function AddSlicingPageClient() {
                         />
 
                         <div className="flex flex-wrap gap-2 pt-1">
+                          <Badge variant="outline">
+                            Available Stock: {row.availableStock}
+                          </Badge>
+
                           <Badge variant="secondary">
                             Std Slice: {row.standardSlice}
                           </Badge>
+
                           <Badge variant="secondary">
                             Std Pack: {row.standardPacking}
                           </Badge>

@@ -229,6 +229,21 @@ export async function POST(req: NextRequest) {
     ]);
 
     if (!mainProduct || !slicedProduct) {
+
+const heads = cleanNumber(item.heads || item.qtyToSlice);
+
+      const availableStock = Number(mainProduct?.stockQty || 0);
+
+      if (heads > availableStock) {
+        return NextResponse.json(
+          {
+            success: false,
+            message: `${mainProduct?.name} has only ${availableStock} available stock. Cannot slice ${heads}.`,
+          },
+          { status: 400 }
+        );
+      }
+
       return NextResponse.json(
         {
           success: false,
@@ -239,6 +254,12 @@ export async function POST(req: NextRequest) {
       );
     }
 
+
+
+
+
+
+    
     const bags = cleanNumber(item.bags);
     const heads = cleanNumber(item.heads || item.qtyToSlice);
     const kilos = cleanNumber(item.kilos);

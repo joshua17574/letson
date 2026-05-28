@@ -8,6 +8,7 @@ import {
   Printer,
   RefreshCcw,
   Search,
+  Trash2,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -103,6 +104,47 @@ export function SliceHistoryPageClient() {
       toast.error("Failed to load products.");
     }
   }
+
+
+
+
+
+  async function handleDelete(batchId: string) {
+  const confirmed = window.confirm(
+    "Are you sure you want to void this slicing batch?"
+  );
+
+  if (!confirmed) {
+    return;
+  }
+
+  try {
+    const res = await fetch(`/api/slicing/${batchId}`, {
+      method: "DELETE",
+    });
+
+    const json = await res.json();
+
+    if (!res.ok || !json.success) {
+      throw new Error(
+        json.message || "Failed to void slicing batch."
+      );
+    }
+
+    toast.success(
+      json.message || "Slicing batch voided successfully."
+    );
+
+    await loadRecords();
+  } catch (error) {
+    toast.error(
+      error instanceof Error
+        ? error.message
+        : "Failed to void slicing batch."
+    );
+  }
+}
+
 
   async function loadRecords() {
     setIsLoading(true);
@@ -314,13 +356,16 @@ export function SliceHistoryPageClient() {
                   <TableHead className="text-center text-white">
                     Slicing Date
                   </TableHead>
+                  <TableHead className="text-center text-white">
+  Action
+</TableHead>
                 </TableRow>
               </TableHeader>
 
               <TableBody>
                 {isLoading ? (
                   <TableRow>
-                    <TableCell colSpan={10} className="h-32 text-center">
+                    <TableCell colSpan={11} className="h-32 text-center">
                       <Loader2 className="mx-auto h-5 w-5 animate-spin" />
                     </TableCell>
                   </TableRow>
@@ -366,6 +411,15 @@ export function SliceHistoryPageClient() {
                       <TableCell className="text-center">
                         {formatDate(record.slicingDate)}
                       </TableCell>
+                      <TableCell className="text-center">
+                      <Button
+                        size="sm"
+                        variant="destructive"
+                        onClick={() => handleDelete(record._id)}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+</TableCell>
                     </TableRow>
                   ))
                 )}
