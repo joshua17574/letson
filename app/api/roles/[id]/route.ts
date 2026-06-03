@@ -1,9 +1,8 @@
-// app/api/roles/[id]/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { isValidObjectId } from "mongoose";
 
 import dbConnect from "@/lib/mongodb";
-import { requireApiAuth } from "@/lib/require-auth";
+import { requirePermission } from "@/lib/require-permission";
 import { cleanString } from "@/lib/crud-utils";
 import { isValidRolePermission } from "@/lib/role-permissions";
 import RoleModel from "@/models/Role";
@@ -17,12 +16,8 @@ function serializeRole(role: any) {
     permissionCount: Number(role.permissions?.length || 0),
     isSystem: Boolean(role.isSystem),
     isActive: Boolean(role.isActive),
-    createdAt: role.createdAt
-      ? new Date(role.createdAt).toISOString()
-      : undefined,
-    updatedAt: role.updatedAt
-      ? new Date(role.updatedAt).toISOString()
-      : undefined,
+    createdAt: role.createdAt ? new Date(role.createdAt).toISOString() : undefined,
+    updatedAt: role.updatedAt ? new Date(role.updatedAt).toISOString() : undefined,
   };
 }
 
@@ -42,122 +37,87 @@ export async function GET(
   _req: NextRequest,
   context: { params: Promise<{ id: string }> }
 ) {
-  const { response } = await requireApiAuth();
-
+  const { response } = await requirePermission("roles.view");
   if (response) return response;
 
   const { id } = await context.params;
 
   if (!isValidObjectId(id)) {
     return NextResponse.json(
-      {
-        success: false,
-        message: "Invalid role ID.",
-      },
+      { success: false, message: "Invalid role ID." },
       { status: 400 }
     );
   }
 
   await dbConnect();
 
-  const role = await RoleModel.findOne({
-    _id: id,
-    isActive: true,
-  }).lean();
+  const role = await RoleModel.findOne({ _id: id, isActive: true }).lean();
 
   if (!role) {
     return NextResponse.json(
-      {
-        success: false,
-        message: "Role not found.",
-      },
+      { success: false, message: "Role not found." },
       { status: 404 }
     );
   }
 
-  return NextResponse.json({
-    success: true,
-    data: serializeRole(role),
-  });
+  return NextResponse.json({ success: true, data: serializeRole(role) });
 }
 
 export async function PATCH(
   req: NextRequest,
   context: { params: Promise<{ id: string }> }
 ) {
-  const { response } = await requireApiAuth();
-
+  const { response } = await requirePermission("roles.manage");
   if (response) return response;
 
   const { id } = await context.params;
 
   if (!isValidObjectId(id)) {
     return NextResponse.json(
-      {
-        success: false,
-        message: "Invalid role ID.",
-      },
+      { success: false, message: "Invalid role ID." },
       { status: 400 }
     );
   }
 
   await dbConnect();
 
-  const role = await RoleModel.findOne({
-    _id: id,
-    isActive: true,
-  });
+  const role = await RoleModel.findOne({ _id: id, isActive: true });
 
   if (!role) {
     return NextResponse.json(
-      {
-        success: false,
-        message: "Role not found.",
-      },
+      { success: false, message: "Role not found." },
       { status: 404 }
     );
   }
 
   if (role.isSystem) {
     return NextResponse.json(
-      {
-        success: false,
-        message: "System role cannot be edited.",
-      },
+      { success: false, message: "System role cannot be edited." },
       { status: 403 }
     );
   }
 
   const body = await req.json();
-
   const name = cleanString(body.name).toUpperCase();
   const description = cleanString(body.description);
   const permissions = cleanPermissions(body.permissions);
 
   if (!name) {
     return NextResponse.json(
-      {
-        success: false,
-        message: "Role name is required.",
-      },
+      { success: false, message: "Role name is required." },
       { status: 400 }
     );
   }
 
   const duplicate = await RoleModel.findOne({
-    _id: {
-      $ne: id,
-    },
+    _id: { $ne: id },
     name,
     isActive: true,
   });
 
   if (duplicate) {
     return NextResponse.json(
-      {
-        success: false,
-        message: "Role name already exists.",
-      },
+      { success: false, message: "Role name already exists." },
       { status: 409 }
     );
   }
@@ -165,7 +125,6 @@ export async function PATCH(
   role.name = name;
   role.description = description;
   role.permissions = permissions;
-
   await role.save();
 
   return NextResponse.json({
@@ -179,45 +138,32 @@ export async function DELETE(
   _req: NextRequest,
   context: { params: Promise<{ id: string }> }
 ) {
-  const { response } = await requireApiAuth();
-
+  const { response } = await requirePermission("roles.manage");
   if (response) return response;
 
   const { id } = await context.params;
 
   if (!isValidObjectId(id)) {
     return NextResponse.json(
-      {
-        success: false,
-        message: "Invalid role ID.",
-      },
+      { success: false, message: "Invalid role ID." },
       { status: 400 }
     );
   }
 
   await dbConnect();
 
-  const role = await RoleModel.findOne({
-    _id: id,
-    isActive: true,
-  });
+  const role = await RoleModel.findOne({ _id: id, isActive: true });
 
   if (!role) {
     return NextResponse.json(
-      {
-        success: false,
-        message: "Role not found.",
-      },
+      { success: false, message: "Role not found." },
       { status: 404 }
     );
   }
 
   if (role.isSystem) {
     return NextResponse.json(
-      {
-        success: false,
-        message: "System role cannot be disabled.",
-      },
+      { success: false, message: "System role cannot be disabled." },
       { status: 403 }
     );
   }

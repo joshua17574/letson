@@ -1,9 +1,8 @@
-// app/api/products/[id]/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { isValidObjectId } from "mongoose";
 
 import dbConnect from "@/lib/mongodb";
-import { requireApiAuth } from "@/lib/require-auth";
+import { requirePermission } from "@/lib/require-permission";
 import { cleanNumber, cleanString } from "@/lib/crud-utils";
 import CategoryModel from "@/models/Category";
 import ProductModel from "@/models/Product";
@@ -27,63 +26,46 @@ export async function GET(
   _req: NextRequest,
   context: { params: Promise<{ id: string }> }
 ) {
-  const { response } = await requireApiAuth();
-
+  const { response } = await requirePermission("products.view");
   if (response) return response;
 
   const { id } = await context.params;
 
   if (!isValidObjectId(id)) {
     return NextResponse.json(
-      {
-        success: false,
-        message: "Invalid product ID.",
-      },
+      { success: false, message: "Invalid product ID." },
       { status: 400 }
     );
   }
 
   await dbConnect();
 
-  const product = await ProductModel.findOne({
-    _id: id,
-    isActive: true,
-  })
+  const product = await ProductModel.findOne({ _id: id, isActive: true })
     .populate("categoryId", "name")
     .lean();
 
   if (!product) {
     return NextResponse.json(
-      {
-        success: false,
-        message: "Product not found.",
-      },
+      { success: false, message: "Product not found." },
       { status: 404 }
     );
   }
 
-  return NextResponse.json({
-    success: true,
-    data: serializeProduct(product),
-  });
+  return NextResponse.json({ success: true, data: serializeProduct(product) });
 }
 
 export async function PATCH(
   req: NextRequest,
   context: { params: Promise<{ id: string }> }
 ) {
-  const { response } = await requireApiAuth();
-
+  const { response } = await requirePermission("products.manage");
   if (response) return response;
 
   const { id } = await context.params;
 
   if (!isValidObjectId(id)) {
     return NextResponse.json(
-      {
-        success: false,
-        message: "Invalid product ID.",
-      },
+      { success: false, message: "Invalid product ID." },
       { status: 400 }
     );
   }
@@ -91,26 +73,19 @@ export async function PATCH(
   await dbConnect();
 
   const body = await req.json();
-
   const name = cleanString(body.name);
   const categoryId = cleanString(body.categoryId);
 
   if (!name) {
     return NextResponse.json(
-      {
-        success: false,
-        message: "Product name is required.",
-      },
+      { success: false, message: "Product name is required." },
       { status: 400 }
     );
   }
 
   if (!categoryId || !isValidObjectId(categoryId)) {
     return NextResponse.json(
-      {
-        success: false,
-        message: "Valid category is required.",
-      },
+      { success: false, message: "Valid category is required." },
       { status: 400 }
     );
   }
@@ -122,19 +97,13 @@ export async function PATCH(
 
   if (!categoryExists) {
     return NextResponse.json(
-      {
-        success: false,
-        message: "Category not found.",
-      },
+      { success: false, message: "Category not found." },
       { status: 404 }
     );
   }
 
   const updatedProduct = await ProductModel.findOneAndUpdate(
-    {
-      _id: id,
-      isActive: true,
-    },
+    { _id: id, isActive: true },
     {
       name,
       categoryId,
@@ -145,19 +114,14 @@ export async function PATCH(
       stockKilos: cleanNumber(body.stockKilos),
       lowStockAlert: cleanNumber(body.lowStockAlert),
     },
-    {
-      new: true,
-    }
+    { new: true }
   )
     .populate("categoryId", "name")
     .lean();
 
   if (!updatedProduct) {
     return NextResponse.json(
-      {
-        success: false,
-        message: "Product not found.",
-      },
+      { success: false, message: "Product not found." },
       { status: 404 }
     );
   }
@@ -173,18 +137,14 @@ export async function DELETE(
   _req: NextRequest,
   context: { params: Promise<{ id: string }> }
 ) {
-  const { response } = await requireApiAuth();
-
+  const { response } = await requirePermission("products.manage");
   if (response) return response;
 
   const { id } = await context.params;
 
   if (!isValidObjectId(id)) {
     return NextResponse.json(
-      {
-        success: false,
-        message: "Invalid product ID.",
-      },
+      { success: false, message: "Invalid product ID." },
       { status: 400 }
     );
   }
@@ -192,24 +152,14 @@ export async function DELETE(
   await dbConnect();
 
   const deletedProduct = await ProductModel.findOneAndUpdate(
-    {
-      _id: id,
-      isActive: true,
-    },
-    {
-      isActive: false,
-    },
-    {
-      new: true,
-    }
+    { _id: id, isActive: true },
+    { isActive: false },
+    { new: true }
   ).lean();
 
   if (!deletedProduct) {
     return NextResponse.json(
-      {
-        success: false,
-        message: "Product not found.",
-      },
+      { success: false, message: "Product not found." },
       { status: 404 }
     );
   }

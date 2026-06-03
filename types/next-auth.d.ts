@@ -1,4 +1,3 @@
-// types/next-auth.d.ts
 import type { DefaultSession } from "next-auth";
 import type { UserRole } from "@/models/User";
 
@@ -8,14 +7,19 @@ declare module "next-auth" {
       id: string;
       username: string;
       role: UserRole;
-      position: string;
+      roleId: string;
+      roleName: string;
+      permissions: string[];
     } & DefaultSession["user"];
   }
 
   interface User {
+    id: string;
     username: string;
     role: UserRole;
-    position: string;
+    roleId: string;
+    roleName: string;
+    permissions: string[];
   }
 }
 
@@ -24,6 +28,8 @@ declare module "next-auth/jwt" {
     id: string;
     username: string;
     role: UserRole;
-    position: string;
+    roleId: string;
+    roleName: string;
+    permissions: string[];
   }
 }

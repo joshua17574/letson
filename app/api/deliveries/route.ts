@@ -1,9 +1,8 @@
-// app/api/deliveries/route.ts
 import { NextRequest, NextResponse } from "next/server";
-import { QueryFilter, isValidObjectId } from "mongoose";
+import mongoose, { isValidObjectId, type QueryFilter } from "mongoose";
 
 import dbConnect from "@/lib/mongodb";
-import { requireApiAuth } from "@/lib/require-auth";
+import { requirePermission } from "@/lib/require-permission";
 import {
   cleanNumber,
   cleanString,
@@ -12,31 +11,34 @@ import {
 } from "@/lib/crud-utils";
 import BodegaProductModel from "@/models/BodegaProduct";
 import BodegaStockTransactionModel from "@/models/BodegaStockTransaction";
-import DeliveryModel, { IDelivery } from "@/models/Delivery";
+import DeliveryModel from "@/models/Delivery";
 import DeliveryItemModel from "@/models/DeliveryItem";
 import SupplierModel from "@/models/Supplier";
 
 type DeliveryItemInput = {
   categoryId?: string;
-
-  // New frontend sends this
   bodegaProductId?: string;
-
-  // Fallback because your frontend also sends productId
   productId?: string;
-
   bags: number;
   kilos: number;
   pieces: number;
   buyingPrice: number;
 };
 
+class ApiError extends Error {
+  constructor(public status: number, message: string) {
+    super(message);
+  }
+}
+
+function fail(status: number, message: string): never {
+  throw new ApiError(status, message);
+}
+
 function serializeDelivery(delivery: any) {
   return {
     _id: delivery._id.toString(),
-    supplierId:
-      delivery.supplierId?._id?.toString?.() ||
-      delivery.supplierId?.toString?.(),
+    supplierId: delivery.supplierId?._id?.toString?.() || delivery.supplierId?.toString?.(),
     supplierName: delivery.supplierId?.name || "",
     deliveryCode: delivery.deliveryCode,
     receiptNumber: delivery.receiptNumber,
@@ -48,48 +50,32 @@ function serializeDelivery(delivery: any) {
       ? new Date(delivery.deliveryDate).toISOString()
       : undefined,
     remarks: delivery.remarks || "",
-    createdAt: delivery.createdAt
-      ? new Date(delivery.createdAt).toISOString()
-      : undefined,
-    updatedAt: delivery.updatedAt
-      ? new Date(delivery.updatedAt).toISOString()
-      : undefined,
+    createdAt: delivery.createdAt ? new Date(delivery.createdAt).toISOString() : undefined,
+    updatedAt: delivery.updatedAt ? new Date(delivery.updatedAt).toISOString() : undefined,
   };
 }
 
-function getStockQtyToAdd(item: {
-  bags: number;
-  kilos: number;
-  pieces: number;
-}) {
-  // BodegaProduct only has stockQty.
-  // Priority:
-  // 1. pieces if provided
-  // 2. kilos if provided
-  // 3. bags if provided
+function getStockQtyToAdd(item: { bags: number; kilos: number; pieces: number }) {
   if (item.pieces > 0) return item.pieces;
   if (item.kilos > 0) return item.kilos;
   if (item.bags > 0) return item.bags;
-
   return 0;
 }
 
 export async function GET(req: NextRequest) {
-  const { response } = await requireApiAuth();
-
+  const { response } = await requirePermission("supplier-deliveries.view");
   if (response) return response;
 
   await dbConnect();
 
   const { searchParams } = new URL(req.url);
   const { page, limit, skip } = getPagination(searchParams);
-
   const deliveryCode = cleanString(searchParams.get("deliveryCode"));
   const receiptNumber = cleanString(searchParams.get("receiptNumber"));
   const dateFrom = cleanString(searchParams.get("dateFrom"));
   const dateTo = cleanString(searchParams.get("dateTo"));
 
-  const filter: QueryFilter<IDelivery> = {
+  const filter: QueryFilter<any> = {
     isVoided: false,
   };
 
@@ -126,7 +112,6 @@ export async function GET(req: NextRequest) {
       .skip(skip)
       .limit(limit)
       .lean(),
-
     DeliveryModel.countDocuments(filter),
   ]);
 
@@ -143,20 +128,19 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-  const { response, session } = await requireApiAuth();
-
+  const { response, session: authSession } = await requirePermission(
+    "supplier-deliveries.manage"
+  );
   if (response) return response;
 
   await dbConnect();
 
   const body = await req.json();
-
   const supplierId = cleanString(body.supplierId);
   const deliveryCode = cleanString(body.deliveryCode);
   const receiptNumber = cleanString(body.receiptNumber);
   const deliveryDate = cleanString(body.deliveryDate);
   const remarks = cleanString(body.remarks);
-
   const items: DeliveryItemInput[] = Array.isArray(body.items)
     ? body.items
     : Array.isArray(body.deliveryItems)
@@ -165,40 +149,28 @@ export async function POST(req: NextRequest) {
 
   if (!supplierId || !isValidObjectId(supplierId)) {
     return NextResponse.json(
-      {
-        success: false,
-        message: "Valid supplier is required.",
-      },
+      { success: false, message: "Valid supplier is required." },
       { status: 400 }
     );
   }
 
   if (!deliveryCode) {
     return NextResponse.json(
-      {
-        success: false,
-        message: "Delivery code is required.",
-      },
+      { success: false, message: "Delivery code is required." },
       { status: 400 }
     );
   }
 
   if (!receiptNumber) {
     return NextResponse.json(
-      {
-        success: false,
-        message: "Receipt number is required.",
-      },
+      { success: false, message: "Receipt number is required." },
       { status: 400 }
     );
   }
 
   if (items.length === 0) {
     return NextResponse.json(
-      {
-        success: false,
-        message: "At least one delivery item is required.",
-      },
+      { success: false, message: "At least one delivery item is required." },
       { status: 400 }
     );
   }
@@ -210,10 +182,7 @@ export async function POST(req: NextRequest) {
 
   if (!supplierExists) {
     return NextResponse.json(
-      {
-        success: false,
-        message: "Supplier not found.",
-      },
+      { success: false, message: "Supplier not found." },
       { status: 404 }
     );
   }
@@ -222,22 +191,15 @@ export async function POST(req: NextRequest) {
   let totalKilos = 0;
   let totalPieces = 0;
   let totalAmount = 0;
-
-  const preparedItems = [];
+  const preparedItems: Record<string, any>[] = [];
 
   for (const item of items) {
-    const bodegaProductId = cleanString(
-      item.bodegaProductId || item.productId || ""
-    );
-
+    const bodegaProductId = cleanString(item.bodegaProductId || item.productId || "");
     const categoryId = cleanString(item.categoryId || "");
 
     if (!bodegaProductId || !isValidObjectId(bodegaProductId)) {
       return NextResponse.json(
-        {
-          success: false,
-          message: "Invalid bodega product in delivery item.",
-        },
+        { success: false, message: "Invalid bodega product in delivery item." },
         { status: 400 }
       );
     }
@@ -264,20 +226,13 @@ export async function POST(req: NextRequest) {
 
     if (bags <= 0 && kilos <= 0 && pieces <= 0) {
       return NextResponse.json(
-        {
-          success: false,
-          message: `Enter bags, kilos, or pieces for ${product.name}.`,
-        },
+        { success: false, message: `Enter bags, kilos, or pieces for ${product.name}.` },
         { status: 400 }
       );
     }
 
     const lineTotal = kilos > 0 ? kilos * buyingPrice : pieces * buyingPrice;
-    const stockQtyToAdd = getStockQtyToAdd({
-      bags,
-      kilos,
-      pieces,
-    });
+    const stockQtyToAdd = getStockQtyToAdd({ bags, kilos, pieces });
 
     totalBags += bags;
     totalKilos += kilos;
@@ -285,7 +240,6 @@ export async function POST(req: NextRequest) {
     totalAmount += lineTotal;
 
     preparedItems.push({
-      product,
       categoryId,
       bodegaProductId: product._id,
       productName: product.name,
@@ -298,81 +252,113 @@ export async function POST(req: NextRequest) {
     });
   }
 
-  const delivery = await DeliveryModel.create({
-    supplierId,
-    deliveryCode,
-    receiptNumber,
-    totalBags,
-    totalKilos,
-    totalPieces,
-    totalAmount,
-    deliveryDate: deliveryDate ? new Date(deliveryDate) : new Date(),
-    remarks,
-    createdBy: session?.user?.id,
-  });
+  const mongoSession = await mongoose.startSession();
 
-  const deliveryItemsToInsert = [];
-  const bodegaStockTransactions = [];
+  try {
+    let deliveryId: any;
 
-  for (const item of preparedItems) {
-    const product = item.product;
+    await mongoSession.withTransaction(async () => {
+      const [delivery] = await DeliveryModel.create(
+        [
+          {
+            supplierId,
+            deliveryCode,
+            receiptNumber,
+            totalBags,
+            totalKilos,
+            totalPieces,
+            totalAmount,
+            deliveryDate: deliveryDate ? new Date(deliveryDate) : new Date(),
+            remarks,
+            createdBy: authSession?.user?.id,
+          },
+        ],
+        { session: mongoSession }
+      );
 
-    deliveryItemsToInsert.push({
-      deliveryId: delivery._id,
+      deliveryId = delivery._id;
 
-      // Keep productId for compatibility with your current DeliveryItem model.
-      // This now stores the BodegaProduct _id.
-      productId: item.bodegaProductId,
+      const deliveryItemsToInsert = [];
+      const bodegaStockTransactions = [];
 
-      // Add these too. If your schema supports them, they will be saved.
-      // If strict schema does not support them, Mongoose will ignore them.
-      bodegaProductId: item.bodegaProductId,
-      categoryId: item.categoryId,
+      for (const item of preparedItems) {
+        deliveryItemsToInsert.push({
+          deliveryId: delivery._id,
+          productId: item.bodegaProductId,
+          productName: item.productName,
+          bags: item.bags,
+          kilos: item.kilos,
+          pieces: item.pieces,
+          buyingPrice: item.buyingPrice,
+          lineTotal: item.lineTotal,
+        });
 
-      productName: item.productName,
-      bags: item.bags,
-      kilos: item.kilos,
-      pieces: item.pieces,
-      buyingPrice: item.buyingPrice,
-      lineTotal: item.lineTotal,
+        const updatedProduct = await BodegaProductModel.findOneAndUpdate(
+          { _id: item.bodegaProductId, isActive: true },
+          {
+            $inc: { stockQty: item.stockQtyToAdd },
+            $set: { buyingPrice: item.buyingPrice },
+          },
+          { new: true, session: mongoSession }
+        );
+
+        if (!updatedProduct) {
+          fail(404, `Bodega product ${item.productName} was not found.`);
+        }
+
+        const newStock = Number(updatedProduct.stockQty || 0);
+        const previousStock = newStock - item.stockQtyToAdd;
+
+        bodegaStockTransactions.push({
+          bodegaProductId: item.bodegaProductId,
+          type: "STOCK_IN",
+          quantity: item.stockQtyToAdd,
+          previousStock,
+          newStock,
+          remarks: `DELIVERY ${deliveryCode}`,
+          referenceType: "DELIVERY",
+          referenceId: delivery._id,
+          createdBy: authSession?.user?.id,
+        });
+      }
+
+      await DeliveryItemModel.insertMany(deliveryItemsToInsert, {
+        session: mongoSession,
+      });
+
+      if (bodegaStockTransactions.length > 0) {
+        await BodegaStockTransactionModel.insertMany(bodegaStockTransactions, {
+          session: mongoSession,
+        });
+      }
     });
 
-    const previousStock = Number(product.stockQty || 0);
-    product.stockQty = previousStock + item.stockQtyToAdd;
-    product.buyingPrice = item.buyingPrice;
+    const populatedDelivery = await DeliveryModel.findById(deliveryId)
+      .populate("supplierId", "name")
+      .lean();
 
-    await product.save();
+    return NextResponse.json(
+      {
+        success: true,
+        message: "Delivery created successfully.",
+        data: serializeDelivery(populatedDelivery),
+      },
+      { status: 201 }
+    );
+  } catch (error) {
+    if (error instanceof ApiError) {
+      return NextResponse.json(
+        { success: false, message: error.message },
+        { status: error.status }
+      );
+    }
 
-    bodegaStockTransactions.push({
-  bodegaProductId: product._id,
-  type: "STOCK_IN",
-  quantity: item.stockQtyToAdd,
-  previousStock,
-  newStock: product.stockQty,
-  remarks: `DELIVERY ${deliveryCode}`,
-  referenceType: "DELIVERY",
-  referenceId: delivery._id,
-  createdBy: session?.user?.id,
-});
-
+    console.error(error);
+    return NextResponse.json(
+      { success: false, message: "Unable to create delivery." },
+      { status: 500 }
+    );
+  } finally {
+    await mongoSession.endSession();
   }
-
-  await DeliveryItemModel.insertMany(deliveryItemsToInsert);
-
-  if (bodegaStockTransactions.length > 0) {
-    await BodegaStockTransactionModel.insertMany(bodegaStockTransactions);
-  }
-
-  const populatedDelivery = await DeliveryModel.findById(delivery._id)
-    .populate("supplierId", "name")
-    .lean();
-
-  return NextResponse.json(
-    {
-      success: true,
-      message: "Delivery created successfully.",
-      data: serializeDelivery(populatedDelivery),
-    },
-    { status: 201 }
-  );
 }

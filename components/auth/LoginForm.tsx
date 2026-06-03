@@ -1,4 +1,3 @@
-// components/auth/LoginForm.tsx
 "use client";
 
 import { useState } from "react";
@@ -8,28 +7,22 @@ import { Loader2, LogIn } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
 export function LoginForm() {
   const router = useRouter();
-
-  const [username, setUsername] = useState("admin");
+  const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [isLoading, setIsLoading] = useState(false);
 
-  async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
+  async function handleSubmit(event: React.FormEvent) {
     event.preventDefault();
-
     setIsLoading(true);
 
     const result = await signIn("credentials", {
+      identifier: username,
       username,
       password,
       redirect: false,
@@ -48,28 +41,26 @@ export function LoginForm() {
   }
 
   return (
-    <Card className="w-full max-w-md border-0 shadow-2xl">
+    <Card className="w-full max-w-md rounded-2xl shadow-sm">
       <CardHeader className="space-y-2 text-center">
-        <div className="mx-auto flex h-20 w-20 items-center justify-center rounded-full bg-yellow-100 text-3xl font-black text-red-600 shadow-inner">
+        <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl border text-lg font-bold">
           ISA
         </div>
-        <CardTitle className="text-2xl font-bold">
-          LETSON Inventory
-        </CardTitle>
+        <CardTitle className="text-2xl">LETSON Inventory</CardTitle>
         <p className="text-sm text-muted-foreground">
           Sign in to manage dashboard, inventory, sales, payments, and users.
         </p>
       </CardHeader>
 
       <CardContent>
-        <form onSubmit={handleSubmit} className="space-y-4">
+        <form className="space-y-4" onSubmit={handleSubmit}>
           <div className="space-y-2">
             <Label htmlFor="username">Username</Label>
             <Input
               id="username"
               value={username}
               onChange={(event) => setUsername(event.target.value)}
-              placeholder="admin"
+              placeholder="Enter username or email"
               autoComplete="username"
               required
             />
@@ -88,7 +79,7 @@ export function LoginForm() {
             />
           </div>
 
-          <Button type="submit" className="w-full" disabled={isLoading}>
+          <Button className="w-full" disabled={isLoading} type="submit">
             {isLoading ? (
               <>
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />

@@ -1,16 +1,11 @@
-// app/api/roles/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import type { QueryFilter } from "mongoose";
 
 import dbConnect from "@/lib/mongodb";
-import { requireApiAuth } from "@/lib/require-auth";
-import {
-  cleanString,
-  escapeRegex,
-  getPagination,
-} from "@/lib/crud-utils";
+import { requirePermission } from "@/lib/require-permission";
+import { cleanString, escapeRegex, getPagination } from "@/lib/crud-utils";
 import { isValidRolePermission } from "@/lib/role-permissions";
-import RoleModel, { IRole } from "@/models/Role";
+import RoleModel from "@/models/Role";
 
 function serializeRole(role: any) {
   return {
@@ -21,12 +16,8 @@ function serializeRole(role: any) {
     permissionCount: Number(role.permissions?.length || 0),
     isSystem: Boolean(role.isSystem),
     isActive: Boolean(role.isActive),
-    createdAt: role.createdAt
-      ? new Date(role.createdAt).toISOString()
-      : undefined,
-    updatedAt: role.updatedAt
-      ? new Date(role.updatedAt).toISOString()
-      : undefined,
+    createdAt: role.createdAt ? new Date(role.createdAt).toISOString() : undefined,
+    updatedAt: role.updatedAt ? new Date(role.updatedAt).toISOString() : undefined,
   };
 }
 
@@ -43,18 +34,16 @@ function cleanPermissions(input: unknown) {
 }
 
 export async function GET(req: NextRequest) {
-  const { response } = await requireApiAuth();
-
+  const { response } = await requirePermission("roles.view");
   if (response) return response;
 
   await dbConnect();
 
   const { searchParams } = new URL(req.url);
   const { page, limit, skip } = getPagination(searchParams);
-
   const search = cleanString(searchParams.get("search"));
 
-  const filter: QueryFilter<IRole> = {
+  const filter: QueryFilter<any> = {
     isActive: true,
   };
 
@@ -66,12 +55,7 @@ export async function GET(req: NextRequest) {
   }
 
   const [items, total] = await Promise.all([
-    RoleModel.find(filter)
-      .sort({ name: 1 })
-      .skip(skip)
-      .limit(limit)
-      .lean(),
-
+    RoleModel.find(filter).sort({ name: 1 }).skip(skip).limit(limit).lean(),
     RoleModel.countDocuments(filter),
   ]);
 
@@ -88,39 +72,28 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-  const { response, session } = await requireApiAuth();
-
+  const { response, session: authSession } = await requirePermission("roles.manage");
   if (response) return response;
 
   await dbConnect();
 
   const body = await req.json();
-
   const name = cleanString(body.name).toUpperCase();
   const description = cleanString(body.description);
   const permissions = cleanPermissions(body.permissions);
 
   if (!name) {
     return NextResponse.json(
-      {
-        success: false,
-        message: "Role name is required.",
-      },
+      { success: false, message: "Role name is required." },
       { status: 400 }
     );
   }
 
-  const existing = await RoleModel.findOne({
-    name,
-    isActive: true,
-  });
+  const existing = await RoleModel.findOne({ name, isActive: true });
 
   if (existing) {
     return NextResponse.json(
-      {
-        success: false,
-        message: "Role name already exists.",
-      },
+      { success: false, message: "Role name already exists." },
       { status: 409 }
     );
   }
@@ -129,7 +102,7 @@ export async function POST(req: NextRequest) {
     name,
     description,
     permissions,
-    createdBy: session?.user?.id,
+    createdBy: authSession?.user?.id,
   });
 
   return NextResponse.json(

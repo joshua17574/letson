@@ -1,12 +1,11 @@
-// app/api/payments/route.ts
 import { NextRequest, NextResponse } from "next/server";
-import { QueryFilter, isValidObjectId } from "mongoose";
+import mongoose, { isValidObjectId, type QueryFilter } from "mongoose";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import crypto from "node:crypto";
 
 import dbConnect from "@/lib/mongodb";
-import { requireApiAuth } from "@/lib/require-auth";
+import { requirePermission } from "@/lib/require-permission";
 import {
   cleanNumber,
   cleanString,
@@ -14,18 +13,22 @@ import {
   getPagination,
 } from "@/lib/crud-utils";
 import CustomerModel from "@/models/Customer";
-import PaymentModel, { IPayment } from "@/models/Payment";
+import PaymentModel from "@/models/Payment";
 import PaymentAllocationModel from "@/models/PaymentAllocation";
 import SaleModel from "@/models/Sale";
-import { requirePermission } from "@/lib/require-permission";
 
 export const runtime = "nodejs";
+
+class ApiError extends Error {
+  constructor(public status: number, message: string) {
+    super(message);
+  }
+}
 
 function serializePayment(payment: any) {
   return {
     _id: payment._id.toString(),
-    customerId:
-      payment.customerId?._id?.toString?.() || payment.customerId?.toString?.(),
+    customerId: payment.customerId?._id?.toString?.() || payment.customerId?.toString?.(),
     customerName: payment.customerId?.name || "",
     paymentDate: payment.paymentDate
       ? new Date(payment.paymentDate).toISOString()
@@ -40,59 +43,55 @@ function serializePayment(payment: any) {
   };
 }
 
-async function saveReceiptImage(file: File) {
-  const allowedTypes = [
-    "image/jpeg",
-    "image/jpg",
-    "image/png",
-    "image/gif",
-    "image/webp",
-  ];
+function getSafeReceiptExtension(file: File) {
+  const allowedTypes: Record<string, string> = {
+    "image/jpeg": "jpg",
+    "image/jpg": "jpg",
+    "image/png": "png",
+    "image/gif": "gif",
+    "image/webp": "webp",
+  };
 
-  if (!allowedTypes.includes(file.type)) {
+  const extension = allowedTypes[file.type];
+
+  if (!extension) {
     throw new Error("Receipt image must be JPG, JPEG, PNG, GIF, or WEBP.");
   }
 
+  return extension;
+}
+
+async function saveReceiptImage(file: File) {
   if (file.size > 5 * 1024 * 1024) {
     throw new Error("Receipt image must not exceed 5MB.");
   }
 
+  const extension = getSafeReceiptExtension(file);
   const bytes = await file.arrayBuffer();
   const buffer = Buffer.from(bytes);
-
-  const extension = file.name.split(".").pop() || "jpg";
   const filename = `${crypto.randomUUID()}.${extension}`;
   const uploadDir = path.join(process.cwd(), "public", "uploads", "payments");
 
   await mkdir(uploadDir, { recursive: true });
-
-  const filePath = path.join(uploadDir, filename);
-
-  await writeFile(filePath, buffer);
+  await writeFile(path.join(uploadDir, filename), buffer);
 
   return `/uploads/payments/${filename}`;
 }
 
 export async function GET(req: NextRequest) {
-
-    const { response } = await requirePermission("payments.view");
-
+  const { response } = await requirePermission("payments.view");
   if (response) return response;
-  // const { response } = await requireApiAuth();
-
-  // if (response) return response;
 
   await dbConnect();
 
   const { searchParams } = new URL(req.url);
   const { page, limit, skip } = getPagination(searchParams);
-
   const customerId = cleanString(searchParams.get("customerId"));
   const search = cleanString(searchParams.get("search"));
   const dateFrom = cleanString(searchParams.get("dateFrom"));
   const dateTo = cleanString(searchParams.get("dateTo"));
 
-  const filter: QueryFilter<IPayment> = {
+  const filter: QueryFilter<any> = {
     isVoided: false,
   };
 
@@ -136,7 +135,6 @@ export async function GET(req: NextRequest) {
       .skip(skip)
       .limit(limit)
       .lean(),
-
     PaymentModel.countDocuments(filter),
   ]);
 
@@ -153,14 +151,12 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-  const { response, session } = await requireApiAuth();
-
+  const { response, session: authSession } = await requirePermission("payments.manage");
   if (response) return response;
 
   await dbConnect();
 
   const formData = await req.formData();
-
   const customerId = cleanString(String(formData.get("customerId") || ""));
   const paymentDate = cleanString(String(formData.get("paymentDate") || ""));
   const amount = cleanNumber(String(formData.get("amount") || "0"));
@@ -169,51 +165,35 @@ export async function POST(req: NextRequest) {
 
   if (!customerId || !isValidObjectId(customerId)) {
     return NextResponse.json(
-      {
-        success: false,
-        message: "Valid customer is required.",
-      },
+      { success: false, message: "Valid customer is required." },
       { status: 400 }
     );
   }
 
   if (!paymentDate) {
     return NextResponse.json(
-      {
-        success: false,
-        message: "Payment date is required.",
-      },
+      { success: false, message: "Payment date is required." },
       { status: 400 }
     );
   }
 
   if (amount <= 0) {
     return NextResponse.json(
-      {
-        success: false,
-        message: "Payment amount must be greater than zero.",
-      },
+      { success: false, message: "Payment amount must be greater than zero." },
       { status: 400 }
     );
   }
 
-  const customer = await CustomerModel.findOne({
-    _id: customerId,
-    isActive: true,
-  });
+  const customer = await CustomerModel.findOne({ _id: customerId, isActive: true });
 
   if (!customer) {
     return NextResponse.json(
-      {
-        success: false,
-        message: "Customer not found.",
-      },
+      { success: false, message: "Customer not found." },
       { status: 404 }
     );
   }
 
   let receiptImageUrl = "";
-
   const receiptImage = formData.get("receiptImage");
 
   if (receiptImage instanceof File && receiptImage.size > 0) {
@@ -223,90 +203,118 @@ export async function POST(req: NextRequest) {
       return NextResponse.json(
         {
           success: false,
-          message:
-            error instanceof Error
-              ? error.message
-              : "Invalid receipt image.",
+          message: error instanceof Error ? error.message : "Invalid receipt image.",
         },
         { status: 400 }
       );
     }
   }
 
-  const payment = await PaymentModel.create({
-    customerId,
-    paymentDate: new Date(paymentDate),
-    amount,
-    appliedAmount: 0,
-    unappliedAmount: amount,
-    referenceNumber,
-    receiptImageUrl,
-    remarks,
-    createdBy: session?.user?.id,
-  });
+  const mongoSession = await mongoose.startSession();
 
-  let remainingAmount = amount;
-  let appliedAmount = 0;
+  try {
+    let paymentId: any;
 
-  const unpaidSales = await SaleModel.find({
-    customerId,
-    isVoided: false,
-    balance: {
-      $gt: 0,
-    },
-  }).sort({ saleDate: 1, createdAt: 1 });
+    await mongoSession.withTransaction(async () => {
+      const [payment] = await PaymentModel.create(
+        [
+          {
+            customerId,
+            paymentDate: new Date(paymentDate),
+            amount,
+            appliedAmount: 0,
+            unappliedAmount: amount,
+            referenceNumber,
+            receiptImageUrl,
+            remarks,
+            createdBy: authSession?.user?.id,
+          },
+        ],
+        { session: mongoSession }
+      );
 
-  const allocations = [];
+      paymentId = payment._id;
 
-  for (const sale of unpaidSales) {
-    if (remainingAmount <= 0) break;
+      let remainingAmount = amount;
+      let appliedAmount = 0;
 
-    const saleBalance = Number(sale.balance || 0);
-    const amountToApply = Math.min(remainingAmount, saleBalance);
+      const unpaidSales = await SaleModel.find({
+        customerId,
+        isVoided: false,
+        balance: { $gt: 0 },
+      })
+        .sort({ saleDate: 1, createdAt: 1 })
+        .session(mongoSession);
 
-    sale.paidAmount = Number(sale.paidAmount || 0) + amountToApply;
-    sale.balance = Math.max(Number(sale.totalAmount || 0) - sale.paidAmount, 0);
+      const allocations = [];
 
-    if (sale.balance <= 0) {
-      sale.status = "PAID";
-    } else if (sale.paidAmount > 0) {
-      sale.status = "PARTIAL";
-    } else {
-      sale.status = "UNPAID";
-    }
+      for (const sale of unpaidSales) {
+        if (remainingAmount <= 0) break;
 
-    await sale.save();
+        const saleBalance = Number(sale.balance || 0);
+        const amountToApply = Math.min(remainingAmount, saleBalance);
 
-    allocations.push({
-      paymentId: payment._id,
-      saleId: sale._id,
-      amount: amountToApply,
+        sale.paidAmount = Number(sale.paidAmount || 0) + amountToApply;
+        sale.balance = Math.max(Number(sale.totalAmount || 0) - sale.paidAmount, 0);
+
+        if (sale.balance <= 0) {
+          sale.status = "PAID";
+        } else if (sale.paidAmount > 0) {
+          sale.status = "PARTIAL";
+        } else {
+          sale.status = "UNPAID";
+        }
+
+        await sale.save({ session: mongoSession });
+
+        allocations.push({
+          paymentId: payment._id,
+          saleId: sale._id,
+          amount: amountToApply,
+        });
+
+        remainingAmount -= amountToApply;
+        appliedAmount += amountToApply;
+      }
+
+      if (allocations.length > 0) {
+        await PaymentAllocationModel.insertMany(allocations, {
+          session: mongoSession,
+        });
+      }
+
+      payment.appliedAmount = appliedAmount;
+      payment.unappliedAmount = Math.max(remainingAmount, 0);
+      await payment.save({ session: mongoSession });
     });
 
-    remainingAmount -= amountToApply;
-    appliedAmount += amountToApply;
+    const populated = await PaymentModel.findById(paymentId)
+      .populate("customerId", "name")
+      .populate("createdBy", "name username")
+      .lean();
+
+    return NextResponse.json(
+      {
+        success: true,
+        message: "Payment saved successfully.",
+        data: serializePayment(populated),
+      },
+      { status: 201 }
+    );
+  } catch (error) {
+    if (error instanceof ApiError) {
+      return NextResponse.json(
+        { success: false, message: error.message },
+        { status: error.status }
+      );
+    }
+
+    console.error(error);
+    return NextResponse.json(
+      { success: false, message: "Unable to save payment." },
+      { status: 500 }
+    );
+  } finally {
+    await mongoSession.endSession();
   }
-
-  if (allocations.length > 0) {
-    await PaymentAllocationModel.insertMany(allocations);
-  }
-
-  payment.appliedAmount = appliedAmount;
-  payment.unappliedAmount = Math.max(remainingAmount, 0);
-
-  await payment.save();
-
-  const populated = await PaymentModel.findById(payment._id)
-    .populate("customerId", "name")
-    .populate("createdBy", "name username")
-    .lean();
-
-  return NextResponse.json(
-    {
-      success: true,
-      message: "Payment saved successfully.",
-      data: serializePayment(populated),
-    },
-    { status: 201 }
-  );
 }

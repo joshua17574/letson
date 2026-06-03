@@ -1,9 +1,8 @@
-// app/api/products/route.ts
 import { NextRequest, NextResponse } from "next/server";
-import { isValidObjectId, QueryFilter } from "mongoose";
+import { isValidObjectId, type QueryFilter } from "mongoose";
 
 import dbConnect from "@/lib/mongodb";
-import { requireApiAuth } from "@/lib/require-auth";
+import { requirePermission } from "@/lib/require-permission";
 import {
   cleanNumber,
   cleanString,
@@ -11,7 +10,7 @@ import {
   getPagination,
 } from "@/lib/crud-utils";
 import CategoryModel from "@/models/Category";
-import ProductModel, { IProduct } from "@/models/Product";
+import ProductModel from "@/models/Product";
 
 function serializeProduct(product: any) {
   return {
@@ -25,29 +24,23 @@ function serializeProduct(product: any) {
     stockBags: product.stockBags || 0,
     stockKilos: product.stockKilos || 0,
     lowStockAlert: product.lowStockAlert || 0,
-    createdAt: product.createdAt
-      ? new Date(product.createdAt).toISOString()
-      : undefined,
-    updatedAt: product.updatedAt
-      ? new Date(product.updatedAt).toISOString()
-      : undefined,
+    createdAt: product.createdAt ? new Date(product.createdAt).toISOString() : undefined,
+    updatedAt: product.updatedAt ? new Date(product.updatedAt).toISOString() : undefined,
   };
 }
 
 export async function GET(req: NextRequest) {
-  const { response } = await requireApiAuth();
-
+  const { response } = await requirePermission("products.view");
   if (response) return response;
 
   await dbConnect();
 
   const { searchParams } = new URL(req.url);
   const { page, limit, skip } = getPagination(searchParams);
-
   const search = cleanString(searchParams.get("search"));
   const categoryId = cleanString(searchParams.get("categoryId"));
 
-  const filter: QueryFilter<IProduct> = {
+  const filter: QueryFilter<any> = {
     isActive: true,
   };
 
@@ -85,33 +78,25 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-  const { response } = await requireApiAuth();
-
+  const { response } = await requirePermission("products.manage");
   if (response) return response;
 
   await dbConnect();
 
   const body = await req.json();
-
   const name = cleanString(body.name);
   const categoryId = cleanString(body.categoryId);
 
   if (!name) {
     return NextResponse.json(
-      {
-        success: false,
-        message: "Product name is required.",
-      },
+      { success: false, message: "Product name is required." },
       { status: 400 }
     );
   }
 
   if (!categoryId || !isValidObjectId(categoryId)) {
     return NextResponse.json(
-      {
-        success: false,
-        message: "Valid category is required.",
-      },
+      { success: false, message: "Valid category is required." },
       { status: 400 }
     );
   }
@@ -123,10 +108,7 @@ export async function POST(req: NextRequest) {
 
   if (!categoryExists) {
     return NextResponse.json(
-      {
-        success: false,
-        message: "Category not found.",
-      },
+      { success: false, message: "Category not found." },
       { status: 404 }
     );
   }
