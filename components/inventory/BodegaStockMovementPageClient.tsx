@@ -6,10 +6,7 @@ import { Eye, Loader2, RefreshCcw, Search } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-} from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -30,6 +27,20 @@ type BodegaMovementRow = {
   currentStock: number;
   price: number;
   dateAdded?: string;
+
+  isPackProduct?: boolean;
+  packSize?: number;
+  stockInPcs?: number;
+  stockInPacks?: number;
+  stockInLoosePcs?: number;
+  stockOutPcs?: number;
+  stockOutPacks?: number;
+  stockOutLoosePcs?: number;
+  currentStockPcs?: number;
+  currentStockPacks?: number;
+  currentStockLoosePcs?: number;
+  pricePerPack?: number;
+  pricePerPcs?: number;
 };
 
 type BodegaTotals = {
@@ -49,7 +60,6 @@ export function BodegaStockMovementPageClient() {
   const [search, setSearch] = useState("");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
-
   const [appliedFilters, setAppliedFilters] = useState({
     search: "",
     dateFrom: "",
@@ -83,9 +93,7 @@ export function BodegaStockMovementPageClient() {
       const json = await res.json();
 
       if (!res.ok || !json.success) {
-        throw new Error(
-          json.message || "Failed to load bodega stock movement."
-        );
+        throw new Error(json.message || "Failed to load bodega stock movement.");
       }
 
       setRows(json.data || []);
@@ -142,9 +150,38 @@ export function BodegaStockMovementPageClient() {
     });
   }
 
+  function formatWholeNumber(value: number | undefined) {
+    return Number(value || 0).toLocaleString(undefined, {
+      maximumFractionDigits: 0,
+    });
+  }
+
   function formatDate(value?: string) {
     if (!value) return "—";
     return new Date(value).toISOString().slice(0, 10);
+  }
+
+  function renderStockQuantity(
+    row: BodegaMovementRow,
+    baseQty: number,
+    packs?: number,
+    loosePcs?: number
+  ) {
+    if (!row.isPackProduct || !row.packSize) {
+      return <span>{formatNumber(baseQty)}</span>;
+    }
+
+    const packText = `${formatWholeNumber(packs)} pack${Number(packs || 0) === 1 ? "" : "s"}`;
+    const looseText = Number(loosePcs || 0) > 0 ? ` / ${formatWholeNumber(loosePcs)} pcs` : "";
+
+    return (
+      <div className="space-y-0.5">
+        <div className="font-semibold">{packText}{looseText}</div>
+        <div className="text-xs text-muted-foreground">
+          {formatWholeNumber(baseQty)} pcs total
+        </div>
+      </div>
+    );
   }
 
   return (
@@ -211,12 +248,14 @@ export function BodegaStockMovementPageClient() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead className="w-14">#</TableHead>
+                  <TableHead>#</TableHead>
                   <TableHead>Product</TableHead>
-                  <TableHead className="text-right">Stock In</TableHead>
-                  <TableHead className="text-right">Stock Out</TableHead>
-                  <TableHead className="text-right">Current Stock</TableHead>
-                  <TableHead className="text-right">Price</TableHead>
+                  <TableHead>Stock In</TableHead>
+                  <TableHead>Stock Out</TableHead>
+                  <TableHead>Current Stock</TableHead>
+                  <TableHead>Pack Size</TableHead>
+                  <TableHead className="text-right">Price / PCS</TableHead>
+                  <TableHead className="text-right">Price / Pack</TableHead>
                   <TableHead>Date Added</TableHead>
                   <TableHead className="text-center">Action</TableHead>
                 </TableRow>
@@ -225,14 +264,14 @@ export function BodegaStockMovementPageClient() {
               <TableBody>
                 {isLoading ? (
                   <TableRow>
-                    <TableCell colSpan={8} className="h-32 text-center">
+                    <TableCell colSpan={10} className="h-32 text-center">
                       <Loader2 className="mx-auto h-5 w-5 animate-spin" />
                     </TableCell>
                   </TableRow>
                 ) : rows.length === 0 ? (
                   <TableRow>
                     <TableCell
-                      colSpan={8}
+                      colSpan={10}
                       className="h-32 text-center text-muted-foreground"
                     >
                       No bodega stock movement records found.
@@ -243,23 +282,46 @@ export function BodegaStockMovementPageClient() {
                     <TableRow key={row._id}>
                       <TableCell>{index + 1}</TableCell>
                       <TableCell className="font-medium">{row.product}</TableCell>
-                      <TableCell className="text-right">
-                        {formatNumber(row.stockIn)}
+                      <TableCell>
+                        {renderStockQuantity(
+                          row,
+                          row.stockIn,
+                          row.stockInPacks,
+                          row.stockInLoosePcs
+                        )}
+                      </TableCell>
+                      <TableCell>
+                        {renderStockQuantity(
+                          row,
+                          row.stockOut,
+                          row.stockOutPacks,
+                          row.stockOutLoosePcs
+                        )}
+                      </TableCell>
+                      <TableCell>
+                        {renderStockQuantity(
+                          row,
+                          row.currentStock,
+                          row.currentStockPacks,
+                          row.currentStockLoosePcs
+                        )}
+                      </TableCell>
+                      <TableCell>
+                        {row.isPackProduct && row.packSize
+                          ? `${formatWholeNumber(row.packSize)} pcs / pack`
+                          : "—"}
                       </TableCell>
                       <TableCell className="text-right">
-                        {formatNumber(row.stockOut)}
+                        {row.isPackProduct ? formatPeso(row.pricePerPcs || 0) : "—"}
                       </TableCell>
                       <TableCell className="text-right">
-                        {formatNumber(row.currentStock)}
-                      </TableCell>
-                      <TableCell className="text-right">
-                        {formatPeso(row.price)}
+                        {row.isPackProduct ? formatPeso(row.pricePerPack || 0) : formatPeso(row.price)}
                       </TableCell>
                       <TableCell>{formatDate(row.dateAdded)}</TableCell>
                       <TableCell className="text-center">
-                        <Button size="sm" variant="outline" asChild>
+                        <Button asChild variant="outline" size="sm">
                           <Link href={`/inventory/bodega/${row._id}`}>
-                            <Eye className="mr-1 h-4 w-4" />
+                            <Eye className="mr-2 h-4 w-4" />
                             View
                           </Link>
                         </Button>
@@ -269,22 +331,16 @@ export function BodegaStockMovementPageClient() {
                 )}
 
                 {!isLoading && rows.length > 0 ? (
-                  <TableRow className="font-bold">
-                    <TableCell colSpan={2} className="text-right">
+                  <TableRow className="font-semibold">
+                    <TableCell colSpan={2} className="text-center">
                       Total
                     </TableCell>
-                    <TableCell className="text-right">
-                      {formatNumber(totals.stockIn)}
+                    <TableCell>{formatNumber(totals.stockIn)}</TableCell>
+                    <TableCell>{formatNumber(totals.stockOut)}</TableCell>
+                    <TableCell>{formatNumber(totals.currentStock)}</TableCell>
+                    <TableCell colSpan={5} className="text-xs text-muted-foreground">
+                      Totals are raw base quantities. Pack counts are shown per product because each product can have a different pack size.
                     </TableCell>
-                    <TableCell className="text-right">
-                      {formatNumber(totals.stockOut)}
-                    </TableCell>
-                    <TableCell className="text-right">
-                      {formatNumber(totals.currentStock)}
-                    </TableCell>
-                    <TableCell />
-                    <TableCell />
-                    <TableCell />
                   </TableRow>
                 ) : null}
               </TableBody>

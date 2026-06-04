@@ -16,6 +16,7 @@ import CustomerModel from "@/models/Customer";
 import ProductModel from "@/models/Product";
 import SaleModel from "@/models/Sale";
 import SaleLineModel from "@/models/SaleLine";
+import StandardPackingModel from "@/models/StandardPacking";
 
 type SaleSource = "CHICKEN" | "BODEGA";
 
@@ -29,6 +30,7 @@ type SaleItemInput = {
   unitPrice?: number;
   pricePerPack?: number;
   packSize?: number;
+  stockPcsOut?: number;
   remarks?: string;
 };
 
@@ -78,12 +80,36 @@ function getCategoryId(product: any) {
 function firstPositiveNumber(...values: any[]) {
   for (const value of values) {
     const parsed = Number(value);
+
     if (Number.isFinite(parsed) && parsed > 0) {
       return parsed;
     }
   }
 
   return 0;
+}
+
+function wholeNumber(value: unknown) {
+  const parsed = Number(value);
+
+  if (!Number.isFinite(parsed)) return 0;
+
+  return Math.max(0, Math.trunc(parsed));
+}
+
+async function getPackSizeForBodegaProduct(
+  bodegaProductId: string,
+  session: mongoose.ClientSession
+) {
+  const standard = await StandardPackingModel.findOne({
+    isActive: true,
+    productId: bodegaProductId,
+  })
+    .select("standardPacking")
+    .session(session)
+    .lean();
+
+  return wholeNumber(standard?.standardPacking);
 }
 
 export async function GET(req: NextRequest) {
@@ -176,8 +202,9 @@ export async function POST(req: NextRequest) {
 
   await dbConnect();
 
-  // Register Category model for populate("categoryId").
+  // Register related models for populate and dynamic model access.
   void CategoryModel;
+  void StandardPackingModel;
 
   const body = await req.json();
   const sourceInput = cleanString(body.source).toUpperCase();
@@ -241,7 +268,6 @@ export async function POST(req: NextRequest) {
 
       for (const item of items) {
         const qty = cleanNumber(item.quantity || item.packs || item.qty);
-        const packSize = cleanNumber(item.packSize) || 1;
         const itemRemarks = cleanString(item.remarks);
 
         if (qty <= 0) {
@@ -307,14 +333,23 @@ export async function POST(req: NextRequest) {
           productType === "BODEGA_PRODUCT"
             ? Number(product.stockQty || 0)
             : Number(product.stockPcs || 0);
-        const stockOut = qty;
+
+        const standardPackSize =
+          source === "CHICKEN"
+            ? await getPackSizeForBodegaProduct(product._id.toString(), mongoSession)
+            : 0;
+        const packSize =
+          source === "CHICKEN"
+            ? wholeNumber(item.packSize) || standardPackSize || 1
+            : 1;
+        const stockOut = source === "CHICKEN" ? qty * packSize : qty;
 
         if (previousStock < stockOut) {
           fail(400, `Not enough stock for ${product.name}. Available: ${previousStock}.`);
         }
 
         const lineTotal = qty * price;
-        totalQty += qty;
+        totalQty += source === "CHICKEN" ? stockOut : qty;
         totalAmount += lineTotal;
 
         if (source === "CHICKEN") {

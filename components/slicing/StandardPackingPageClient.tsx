@@ -174,12 +174,12 @@ export function StandardPackingPageClient() {
     }
 
     if ((Number(form.standardPacking) || 0) <= 0) {
-      toast.error("Standard packing must be greater than zero.");
+      toast.error("Standard packing / pcs per pack must be greater than zero.");
       return;
     }
 
     if ((Number(form.standardSlice) || 0) <= 0) {
-      toast.error("Standard slice must be greater than zero.");
+      toast.error("Standard slice / pcs per head must be greater than zero.");
       return;
     }
 
@@ -251,7 +251,7 @@ export function StandardPackingPageClient() {
     <div className="space-y-6">
       <ModuleHeader
         title="Standard PCS & Packs"
-        description="Create slicing standards using bodega products."
+        description="Standard Slice = pcs per whole chicken/head. Standard Packing = pcs per full pack."
         actions={
           <Button onClick={openAddDialog} className="rounded-xl">
             <Plus className="mr-2 h-4 w-4" />
@@ -299,9 +299,11 @@ export function StandardPackingPageClient() {
                   <TableHead className="text-white">Output Product</TableHead>
                   <TableHead className="text-right text-white">
                     Standard Packing
+                    <span className="block text-xs font-normal text-slate-300">pcs per pack</span>
                   </TableHead>
                   <TableHead className="text-right text-white">
                     Standard Slice
+                    <span className="block text-xs font-normal text-slate-300">pcs per head</span>
                   </TableHead>
                   <TableHead className="text-white">
                     Chicken Size Type
@@ -421,7 +423,7 @@ export function StandardPackingPageClient() {
 
             <div className="grid gap-4 md:grid-cols-3">
               <div className="space-y-2">
-                <Label>Standard Packing</Label>
+                <Label>Standard Packing (pcs per full pack)</Label>
                 <Input
                   type="number"
                   min="0"
@@ -431,10 +433,13 @@ export function StandardPackingPageClient() {
                     updateForm("standardPacking", event.target.value)
                   }
                 />
+                <p className="text-xs text-muted-foreground">
+                  Example: C10 = 50 pcs per pack.
+                </p>
               </div>
 
               <div className="space-y-2">
-                <Label>Standard Slice</Label>
+                <Label>Standard Slice (pcs per whole chicken/head)</Label>
                 <Input
                   type="number"
                   min="0"
@@ -444,6 +449,9 @@ export function StandardPackingPageClient() {
                     updateForm("standardSlice", event.target.value)
                   }
                 />
+                <p className="text-xs text-muted-foreground">
+                  Example: OS1 to C10 = 26 pcs per head.
+                </p>
               </div>
 
               <div className="space-y-2">

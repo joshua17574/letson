@@ -1,4 +1,4 @@
-// components/app-shell/nav-config.ts
+﻿// components/app-shell/nav-config.ts
 import {
   ArrowLeftRight,
   BarChart3,
@@ -196,6 +196,7 @@ export const appNavItems: AppNavItem[] = [
     icon: BarChart3,
     permission: "reports.sales",
     children: [
+        { title: "Chicken Slicing Profit", href: "/reports/chicken-slicing", icon: BarChart3, permission: "reports.profit" },
       {
         title: "Sales Report",
         href: "/reports/sales",

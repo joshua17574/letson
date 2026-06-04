@@ -1,4 +1,3 @@
-// app/api/slicing/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { isValidObjectId } from "mongoose";
 
@@ -15,7 +14,6 @@ type SlicingItemInput = {
   standardId?: string;
   standardPackingId?: string;
   slicingStandardId?: string;
-
   bags?: number;
   heads?: number;
   qtyToSlice?: number;
@@ -24,15 +22,21 @@ type SlicingItemInput = {
 };
 
 function serializeSlicingItem(item: any) {
+  const batchId = item.batchId?._id?.toString?.() || item.batchId?.toString?.() || "";
+
   return {
     _id: item._id.toString(),
-    batchId: item.batchId?._id?.toString?.() || item.batchId?.toString?.(),
+    batchId,
     mainProductName: item.mainProductName,
     slicedProductName: item.slicedProductName,
     qtyToSlice: item.heads || 0,
+    heads: item.heads || 0,
     actualSlicedPcs: item.actualSlicedPcs || 0,
+    standardSlice: item.standardSlice || 0,
     standardPacking: item.standardPacking || 0,
+    totalStdPcs: item.totalStdPcs || 0,
     actualPacks: item.actualPacks || 0,
+    butal: item.butal || 0,
     variance: item.variance || 0,
     kilos: item.kilos || 0,
     bags: item.bags || 0,
@@ -46,14 +50,12 @@ function serializeSlicingItem(item: any) {
 
 export async function GET(req: NextRequest) {
   const { response } = await requireApiAuth();
-
   if (response) return response;
 
   await dbConnect();
 
   const { searchParams } = new URL(req.url);
   const { page, limit, skip } = getPagination(searchParams);
-
   const slicedProductId = cleanString(searchParams.get("slicedProductId"));
   const dateFrom = cleanString(searchParams.get("dateFrom"));
   const dateTo = cleanString(searchParams.get("dateTo"));
@@ -78,16 +80,10 @@ export async function GET(req: NextRequest) {
   const batchIds = batches.map((item) => item._id);
 
   const itemFilter: Record<string, any> = {
-    batchId: {
-      $in: batchIds,
-    },
+    batchId: { $in: batchIds },
   };
 
-  if (
-    slicedProductId &&
-    slicedProductId !== "ALL" &&
-    isValidObjectId(slicedProductId)
-  ) {
+  if (slicedProductId && slicedProductId !== "ALL" && isValidObjectId(slicedProductId)) {
     itemFilter.slicedProductId = slicedProductId;
   }
 
@@ -98,7 +94,6 @@ export async function GET(req: NextRequest) {
       .skip(skip)
       .limit(limit)
       .lean(),
-
     SlicingItemModel.countDocuments(itemFilter),
   ]);
 
@@ -116,19 +111,15 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   const { response, session } = await requireApiAuth();
-
   if (response) return response;
 
   await dbConnect();
-
   void BodegaProductModel;
 
   const body = await req.json();
-
   const slicingDate = cleanString(body.slicingDate);
   const slicer = cleanString(body.slicer);
   const packer = cleanString(body.packer);
-
   const rawItems: SlicingItemInput[] = Array.isArray(body.items)
     ? body.items
     : Array.isArray(body.records)
@@ -139,40 +130,28 @@ export async function POST(req: NextRequest) {
 
   if (!slicingDate) {
     return NextResponse.json(
-      {
-        success: false,
-        message: "Slicing date is required.",
-      },
+      { success: false, message: "Slicing date is required." },
       { status: 400 }
     );
   }
 
   if (!slicer) {
     return NextResponse.json(
-      {
-        success: false,
-        message: "Slicer name is required.",
-      },
+      { success: false, message: "Slicer name is required." },
       { status: 400 }
     );
   }
 
   if (!packer) {
     return NextResponse.json(
-      {
-        success: false,
-        message: "Packer name is required.",
-      },
+      { success: false, message: "Packer name is required." },
       { status: 400 }
     );
   }
 
   if (rawItems.length === 0) {
     return NextResponse.json(
-      {
-        success: false,
-        message: "At least one slicing item is required.",
-      },
+      { success: false, message: "At least one slicing item is required." },
       { status: 400 }
     );
   }
@@ -182,8 +161,8 @@ export async function POST(req: NextRequest) {
   let totalStdPcs = 0;
   let totalActualPcs = 0;
   let totalPacks = 0;
+  let totalButal = 0;
   let totalVariance = 0;
-
   const preparedItems = [];
 
   for (const item of rawItems) {
@@ -193,10 +172,7 @@ export async function POST(req: NextRequest) {
 
     if (!standardId || !isValidObjectId(standardId)) {
       return NextResponse.json(
-        {
-          success: false,
-          message: "Selected standard is invalid.",
-        },
+        { success: false, message: "Selected standard is invalid." },
         { status: 400 }
       );
     }
@@ -208,58 +184,26 @@ export async function POST(req: NextRequest) {
 
     if (!standard) {
       return NextResponse.json(
-        {
-          success: false,
-          message: "Selected standard was not found.",
-        },
+        { success: false, message: "Selected standard was not found." },
         { status: 404 }
       );
     }
 
     const [mainProduct, slicedProduct] = await Promise.all([
-      BodegaProductModel.findOne({
-        _id: standard.wholeChickenId,
-        isActive: true,
-      }),
-
-      BodegaProductModel.findOne({
-        _id: standard.productId,
-        isActive: true,
-      }),
+      BodegaProductModel.findOne({ _id: standard.wholeChickenId, isActive: true }),
+      BodegaProductModel.findOne({ _id: standard.productId, isActive: true }),
     ]);
 
     if (!mainProduct || !slicedProduct) {
-
-const heads = cleanNumber(item.heads || item.qtyToSlice);
-
-      const availableStock = Number(mainProduct?.stockQty || 0);
-
-      if (heads > availableStock) {
-        return NextResponse.json(
-          {
-            success: false,
-            message: `${mainProduct?.name} has only ${availableStock} available stock. Cannot slice ${heads}.`,
-          },
-          { status: 400 }
-        );
-      }
-
       return NextResponse.json(
         {
           success: false,
-          message:
-            "Bodega product connected to selected standard was not found.",
+          message: "Bodega product connected to selected standard was not found.",
         },
         { status: 404 }
       );
     }
 
-
-
-
-
-
-    
     const bags = cleanNumber(item.bags);
     const heads = cleanNumber(item.heads || item.qtyToSlice);
     const kilos = cleanNumber(item.kilos);
@@ -267,19 +211,25 @@ const heads = cleanNumber(item.heads || item.qtyToSlice);
 
     if (heads <= 0) {
       return NextResponse.json(
-        {
-          success: false,
-          message: "Heads must be greater than zero.",
-        },
+        { success: false, message: "Heads must be greater than zero." },
         { status: 400 }
       );
     }
 
     if (actualSlicedPcs <= 0) {
       return NextResponse.json(
+        { success: false, message: "Actual sliced PCS must be greater than zero." },
+        { status: 400 }
+      );
+    }
+
+    const availableStock = Number(mainProduct.stockQty || 0);
+
+    if (heads > availableStock) {
+      return NextResponse.json(
         {
           success: false,
-          message: "Actual sliced PCS must be greater than zero.",
+          message: `${mainProduct.name} has only ${availableStock} available stock. Cannot slice ${heads}.`,
         },
         { status: 400 }
       );
@@ -308,27 +258,22 @@ const heads = cleanNumber(item.heads || item.qtyToSlice);
     totalStdPcs += totalStd;
     totalActualPcs += actualSlicedPcs;
     totalPacks += actualPacks;
+    totalButal += butal;
     totalVariance += variance;
 
     preparedItems.push({
       standardId: standard._id,
-
       mainProduct,
       slicedProduct,
-
       mainProductId: mainProduct._id,
       slicedProductId: slicedProduct._id,
-
       mainProductName: mainProduct.name,
       slicedProductName: slicedProduct.name,
-
       bags,
       heads,
       kilos,
-
       standardSlice,
       standardPacking,
-
       totalStdPcs: totalStd,
       actualSlicedPcs,
       actualPacks,
@@ -346,6 +291,7 @@ const heads = cleanNumber(item.heads || item.qtyToSlice);
     totalStdPcs,
     totalActualPcs,
     totalPacks,
+    totalButal,
     totalVariance,
     createdBy: session?.user?.id,
   });
@@ -360,20 +306,15 @@ const heads = cleanNumber(item.heads || item.qtyToSlice);
     slicingItemsToInsert.push({
       batchId: batch._id,
       standardId: item.standardId,
-
       mainProductId: item.mainProductId,
       slicedProductId: item.slicedProductId,
-
       mainProductName: item.mainProductName,
       slicedProductName: item.slicedProductName,
-
       bags: item.bags,
       heads: item.heads,
       kilos: item.kilos,
-
       standardSlice: item.standardSlice,
       standardPacking: item.standardPacking,
-
       totalStdPcs: item.totalStdPcs,
       actualSlicedPcs: item.actualSlicedPcs,
       actualPacks: item.actualPacks,
@@ -429,9 +370,7 @@ const heads = cleanNumber(item.heads || item.qtyToSlice);
     {
       success: true,
       message: "Slicing records saved successfully.",
-      data: {
-        _id: batch._id.toString(),
-      },
+      data: { _id: batch._id.toString() },
     },
     { status: 201 }
   );

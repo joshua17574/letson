@@ -49,6 +49,13 @@ type BodegaProductApiItem = {
   stockPcs?: number;
 };
 
+type SlicingStandardApiItem = {
+  _id: string;
+  productId: string;
+  productName?: string;
+  standardPacking?: number;
+};
+
 type ChickenProductOption = {
   _id: string;
   productId: string;
@@ -57,9 +64,11 @@ type ChickenProductOption = {
   categoryId: string;
   categoryName: string;
   pricePerPack: number;
+  pricePerPcs: number;
   packSize: number;
-  stockQty: number;
+  stockPcs: number;
   availablePacks: number;
+  loosePcs: number;
 };
 
 type CartItem = {
@@ -68,23 +77,49 @@ type CartItem = {
   name: string;
   categoryName: string;
   availablePacks: number;
+  loosePcs: number;
   packs: number;
   pricePerPack: number;
+  pricePerPcs: number;
   packSize: number;
+  stockPcsOut: number;
 };
+
+function numberValue(value: unknown) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function wholeNumber(value: unknown) {
+  return Math.max(0, Math.trunc(numberValue(value)));
+}
+
+function getPackBreakdown(stockPcsValue: unknown, packSizeValue: unknown) {
+  const stockPcs = wholeNumber(stockPcsValue);
+  const packSize = wholeNumber(packSizeValue);
+
+  if (packSize <= 0) {
+    return {
+      availablePacks: 0,
+      loosePcs: stockPcs,
+    };
+  }
+
+  return {
+    availablePacks: Math.floor(stockPcs / packSize),
+    loosePcs: stockPcs % packSize,
+  };
+}
 
 export function SellChickenPageClient() {
   const [customers, setCustomers] = useState<CustomerOption[]>([]);
   const [products, setProducts] = useState<ChickenProductOption[]>([]);
-
   const [customerId, setCustomerId] = useState("");
   const [saleDate, setSaleDate] = useState(new Date().toISOString().slice(0, 10));
   const [receiptNumber, setReceiptNumber] = useState("");
-
   const [selectedProductId, setSelectedProductId] = useState("");
   const [packs, setPacks] = useState("0");
   const [cart, setCart] = useState<CartItem[]>([]);
-
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
 
@@ -103,7 +138,6 @@ export function SellChickenPageClient() {
     const res = await fetch("/api/customers?limit=100", {
       cache: "no-store",
     });
-
     const json = await res.json();
 
     if (res.ok && json.success) {
@@ -112,21 +146,46 @@ export function SellChickenPageClient() {
   }
 
   async function loadProducts() {
-    const res = await fetch("/api/bodega-products?limit=1000", {
-      cache: "no-store",
-    });
+    const [productsRes, standardsRes] = await Promise.all([
+      fetch("/api/bodega-products?limit=1000", {
+        cache: "no-store",
+      }),
+      fetch("/api/slicing/standards", {
+        cache: "no-store",
+      }),
+    ]);
 
-    const json = await res.json();
+    const productsJson = await productsRes.json();
+    const standardsJson = await standardsRes.json().catch(() => ({ success: false, data: [] }));
 
-    if (res.ok && json.success) {
+    if (productsRes.ok && productsJson.success) {
+      const packSizeByProductId = new Map<string, number>();
+
+      if (standardsRes.ok && standardsJson.success) {
+        for (const standard of (standardsJson.data || []) as SlicingStandardApiItem[]) {
+          const productId = String(standard.productId || "");
+          const packSize = wholeNumber(standard.standardPacking);
+
+          if (productId && packSize > 0 && !packSizeByProductId.has(productId)) {
+            packSizeByProductId.set(productId, packSize);
+          }
+        }
+      }
+
       const mappedProducts: ChickenProductOption[] = (
-        json.data || []
+        productsJson.data || []
       ).map((item: BodegaProductApiItem) => {
-        const stockQty = Number(item.stockQty ?? item.stockPcs ?? 0);
-        const packSize = Number(item.packSize ?? item.standardPacking ?? 1) || 1;
-        const pricePerPack = Number(
+        const stockPcs = wholeNumber(item.stockQty ?? item.stockPcs ?? 0);
+        const packSize =
+          wholeNumber(item.packSize) ||
+          wholeNumber(item.standardPacking) ||
+          packSizeByProductId.get(item._id) ||
+          1;
+        const pricePerPack = numberValue(
           item.sellingPrice ?? item.pricePerPack ?? item.price ?? 0
         );
+        const { availablePacks, loosePcs } = getPackBreakdown(stockPcs, packSize);
+        const pricePerPcs = packSize > 0 ? pricePerPack / packSize : pricePerPack;
 
         return {
           _id: item._id,
@@ -136,9 +195,11 @@ export function SellChickenPageClient() {
           categoryId: item.categoryId || "",
           categoryName: item.categoryName || "Uncategorized",
           pricePerPack,
+          pricePerPcs,
           packSize,
-          stockQty,
-          availablePacks: stockQty,
+          stockPcs,
+          availablePacks,
+          loosePcs,
         };
       });
 
@@ -168,7 +229,7 @@ export function SellChickenPageClient() {
       return;
     }
 
-    const packsToSell = Number(packs) || 0;
+    const packsToSell = wholeNumber(packs);
 
     if (packsToSell <= 0) {
       toast.error("Packs must be greater than zero.");
@@ -178,7 +239,6 @@ export function SellChickenPageClient() {
     const existing = cart.find(
       (item) => item.bodegaProductId === selectedProduct.bodegaProductId
     );
-
     const currentPacks = existing?.packs || 0;
     const newTotalPacks = currentPacks + packsToSell;
 
@@ -189,6 +249,8 @@ export function SellChickenPageClient() {
       return;
     }
 
+    const stockPcsOut = packsToSell * selectedProduct.packSize;
+
     if (existing) {
       setCart((current) =>
         current.map((item) =>
@@ -196,6 +258,7 @@ export function SellChickenPageClient() {
             ? {
                 ...item,
                 packs: newTotalPacks,
+                stockPcsOut: newTotalPacks * item.packSize,
               }
             : item
         )
@@ -209,9 +272,12 @@ export function SellChickenPageClient() {
           name: selectedProduct.name,
           categoryName: selectedProduct.categoryName,
           availablePacks: selectedProduct.availablePacks,
+          loosePcs: selectedProduct.loosePcs,
           packs: packsToSell,
           pricePerPack: selectedProduct.pricePerPack,
+          pricePerPcs: selectedProduct.pricePerPcs,
           packSize: selectedProduct.packSize,
+          stockPcsOut,
         },
       ]);
     }
@@ -263,10 +329,10 @@ export function SellChickenPageClient() {
             pricePerPack: item.pricePerPack,
             price: item.pricePerPack,
             packSize: item.packSize,
+            stockPcsOut: item.stockPcsOut,
           })),
         }),
       });
-
       const json = await res.json();
 
       if (!res.ok || !json.success) {
@@ -274,13 +340,11 @@ export function SellChickenPageClient() {
       }
 
       toast.success(json.message || "Sale created successfully.");
-
       setCustomerId("");
       setReceiptNumber("");
       setSelectedProductId("");
       setPacks("0");
       setCart([]);
-
       await loadProducts();
     } catch (error) {
       toast.error(
@@ -297,7 +361,6 @@ export function SellChickenPageClient() {
         <h1 className="text-3xl font-bold tracking-tight text-slate-900">
           Sell Products
         </h1>
-
         <Button>
           <ShoppingCart className="mr-2 h-4 w-4" />
           Sell Chicken
@@ -308,7 +371,6 @@ export function SellChickenPageClient() {
         <CardHeader className="border-b">
           <CardTitle>Create Sale</CardTitle>
         </CardHeader>
-
         <CardContent className="space-y-5 p-5">
           {isLoading ? (
             <div className="flex h-40 items-center justify-center">
@@ -368,7 +430,7 @@ export function SellChickenPageClient() {
                           key={product.bodegaProductId}
                           value={product.productId}
                         >
-                          {product.name} — {product.availablePacks} available
+                          {product.name} - {product.availablePacks} packs available
                         </SelectItem>
                       ))}
                     </SelectContent>
@@ -380,17 +442,17 @@ export function SellChickenPageClient() {
                   <Input
                     value={
                       selectedProduct
-                        ? `${selectedProduct.availablePacks} available (${formatPeso(
+                        ? `${selectedProduct.availablePacks} packs + ${selectedProduct.loosePcs} loose pcs (${formatPeso(
                             selectedProduct.pricePerPack
-                          )}/pack)`
-                        : `0 available (${formatPeso(0)}/pack)`
+                          )}/pack, ${selectedProduct.packSize} pcs/pack)`
+                        : `0 packs available (${formatPeso(0)}/pack)`
                     }
                     disabled
                   />
                 </div>
 
                 <div className="space-y-2">
-                  <Label>Packs / Qty</Label>
+                  <Label>Packs to Sell</Label>
                   <Input
                     type="number"
                     min="0"
@@ -412,35 +474,21 @@ export function SellChickenPageClient() {
                   <TableHeader className="bg-slate-900">
                     <TableRow>
                       <TableHead className="text-center text-white">#</TableHead>
-                      <TableHead className="text-center text-white">
-                        Product
-                      </TableHead>
-                      <TableHead className="text-center text-white">
-                        Category
-                      </TableHead>
-                      <TableHead className="text-center text-white">
-                        Available
-                      </TableHead>
-                      <TableHead className="text-center text-white">
-                        Qty to Sell
-                      </TableHead>
-                      <TableHead className="text-center text-white">
-                        Price
-                      </TableHead>
-                      <TableHead className="text-center text-white">
-                        Line Total
-                      </TableHead>
-                      <TableHead className="text-center text-white">
-                        Action
-                      </TableHead>
+                      <TableHead className="text-center text-white">Product</TableHead>
+                      <TableHead className="text-center text-white">Category</TableHead>
+                      <TableHead className="text-center text-white">Available Packs</TableHead>
+                      <TableHead className="text-center text-white">Packs to Sell</TableHead>
+                      <TableHead className="text-center text-white">PCS Out</TableHead>
+                      <TableHead className="text-center text-white">Price / Pack</TableHead>
+                      <TableHead className="text-center text-white">Line Total</TableHead>
+                      <TableHead className="text-center text-white">Action</TableHead>
                     </TableRow>
                   </TableHeader>
-
                   <TableBody>
                     {cart.length === 0 ? (
                       <TableRow>
                         <TableCell
-                          colSpan={8}
+                          colSpan={9}
                           className="h-20 text-center text-muted-foreground"
                         >
                           No items yet.
@@ -449,20 +497,15 @@ export function SellChickenPageClient() {
                     ) : (
                       cart.map((item, index) => (
                         <TableRow key={item.bodegaProductId}>
+                          <TableCell className="text-center">{index + 1}</TableCell>
+                          <TableCell className="text-center">{item.name}</TableCell>
+                          <TableCell className="text-center">{item.categoryName}</TableCell>
                           <TableCell className="text-center">
-                            {index + 1}
+                            {item.availablePacks} packs
                           </TableCell>
+                          <TableCell className="text-center">{item.packs}</TableCell>
                           <TableCell className="text-center">
-                            {item.name}
-                          </TableCell>
-                          <TableCell className="text-center">
-                            {item.categoryName}
-                          </TableCell>
-                          <TableCell className="text-center">
-                            {item.availablePacks}
-                          </TableCell>
-                          <TableCell className="text-center">
-                            {item.packs}
+                            {item.stockPcsOut} pcs
                           </TableCell>
                           <TableCell className="text-center">
                             {formatPeso(item.pricePerPack)}
@@ -490,7 +533,6 @@ export function SellChickenPageClient() {
                 <p className="text-xl font-bold">
                   Grand Total: {formatPeso(grandTotal)}
                 </p>
-
                 <Button
                   className="bg-emerald-600 hover:bg-emerald-700"
                   disabled={isSaving || cart.length === 0}

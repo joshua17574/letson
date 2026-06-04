@@ -1,4 +1,4 @@
-// middleware.ts
+﻿// middleware.ts
 import { NextResponse, type NextRequest } from "next/server";
 import { getToken } from "next-auth/jwt";
 
@@ -8,7 +8,7 @@ type PageRule = {
   permission: string;
 };
 
-const PAGE_RULES: PageRule[] = [
+const PAGE_RULES: PageRule[] = [ { prefix: "/profit/chicken-slicing", permission: "reports.profit" }, { prefix: "/reports/chicken-slicing", permission: "reports.profit" },
   { exact: "/dashboard", permission: "dashboard.view" },
 
   { prefix: "/customers", permission: "customers.view" },
@@ -112,7 +112,7 @@ export async function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: [
+  matcher: [ "/profit/:path*",
     "/dashboard/:path*",
     "/customers/:path*",
     "/suppliers/:path*",
@@ -131,3 +131,4 @@ export const config = {
     "/expenses-bodega/:path*",
   ],
 };
+
