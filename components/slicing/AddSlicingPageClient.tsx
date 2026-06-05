@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
@@ -451,32 +451,7 @@ export function AddSlicingPageClient() {
         </CardContent>
       </Card>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Production Preview</CardTitle>
-        </CardHeader>
-        <CardContent className="grid gap-3 md:grid-cols-4">
-          <div className="rounded-lg border p-3">
-            <p className="text-xs text-muted-foreground">Total Std PCS</p>
-            <p className="text-lg font-semibold">{totals.totalStdPcs.toLocaleString()}</p>
-          </div>
-          <div className="rounded-lg border p-3">
-            <p className="text-xs text-muted-foreground">Actual PCS</p>
-            <p className="text-lg font-semibold">{totals.actualSlicedPcs.toLocaleString()}</p>
-          </div>
-          <div className="rounded-lg border p-3">
-            <p className="text-xs text-muted-foreground">Full Packs / Loose PCS</p>
-            <p className="text-lg font-semibold">
-              {totals.packs.toLocaleString()} / {totals.butal.toLocaleString()}
-            </p>
-          </div>
-          <div className="rounded-lg border p-3">
-            <p className="text-xs text-muted-foreground">Yield</p>
-            <p className="text-lg font-semibold">{formatPercent(totals.yieldRate)}</p>
-          </div>
-        </CardContent>
-      </Card>
-
+    
       <Card>
         <CardHeader>
           <CardTitle>Slicing Items</CardTitle>

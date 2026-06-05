@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { isValidObjectId } from "mongoose";
+import mongoose, { isValidObjectId } from "mongoose";
 
 import dbConnect from "@/lib/mongodb";
 import { requireApiAuth } from "@/lib/require-auth";
@@ -48,6 +48,40 @@ function serializeSlicingItem(item: any) {
   };
 }
 
+function buildDateFilter(dateFrom: string, dateTo: string) {
+  const filter: Record<string, any> = {};
+
+  if (dateFrom || dateTo) {
+    filter.slicingDate = {};
+
+    if (dateFrom) {
+      filter.slicingDate.$gte = new Date(`${dateFrom}T00:00:00.000Z`);
+    }
+
+    if (dateTo) {
+      filter.slicingDate.$lte = new Date(`${dateTo}T23:59:59.999Z`);
+    }
+  }
+
+  return filter;
+}
+
+function toNumber(value: unknown) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function uniqueClean(values: unknown[]) {
+  return Array.from(
+    new Set(
+      values
+        .flat()
+        .map((value) => String(value || "").trim())
+        .filter(Boolean)
+    )
+  );
+}
+
 export async function GET(req: NextRequest) {
   const { response } = await requireApiAuth();
   if (response) return response;
@@ -59,22 +93,192 @@ export async function GET(req: NextRequest) {
   const slicedProductId = cleanString(searchParams.get("slicedProductId"));
   const dateFrom = cleanString(searchParams.get("dateFrom"));
   const dateTo = cleanString(searchParams.get("dateTo"));
+  const groupBy = cleanString(searchParams.get("groupBy"));
+  const view = cleanString(searchParams.get("view"));
+  const dailyView = groupBy === "daily" || view === "daily";
+
+  if (dailyView) {
+    const batchMatch: Record<string, any> = {
+      "batch.isVoided": false,
+    };
+
+    const dateFilter = buildDateFilter(dateFrom, dateTo);
+    if (dateFilter.slicingDate) {
+      batchMatch["batch.slicingDate"] = dateFilter.slicingDate;
+    }
+
+    const itemMatch: Record<string, any> = {};
+    if (slicedProductId && slicedProductId !== "ALL" && isValidObjectId(slicedProductId)) {
+      itemMatch.slicedProductId = new mongoose.Types.ObjectId(slicedProductId);
+    }
+
+    const pipeline: any[] = [
+      {
+        $lookup: {
+          from: "slicingbatches",
+          localField: "batchId",
+          foreignField: "_id",
+          as: "batch",
+        },
+      },
+      { $unwind: "$batch" },
+      { $match: batchMatch },
+    ];
+
+    if (Object.keys(itemMatch).length > 0) {
+      pipeline.push({ $match: itemMatch });
+    }
+
+    pipeline.push(
+      {
+        $group: {
+          _id: {
+            day: {
+              $dateToString: {
+                format: "%Y-%m-%d",
+                date: "$batch.slicingDate",
+              },
+            },
+            mainProductName: "$mainProductName",
+            slicedProductName: "$slicedProductName",
+            standardPacking: "$standardPacking",
+          },
+          firstDate: { $min: "$batch.slicingDate" },
+          batchIds: { $addToSet: "$batch._id" },
+          slicers: { $addToSet: "$batch.slicer" },
+          packers: { $addToSet: "$batch.packer" },
+          activityCount: { $sum: 1 },
+          bags: { $sum: "$bags" },
+          heads: { $sum: "$heads" },
+          kilos: { $sum: "$kilos" },
+          totalStdPcs: { $sum: "$totalStdPcs" },
+          actualSlicedPcs: { $sum: "$actualSlicedPcs" },
+          actualPacks: { $sum: "$actualPacks" },
+          butal: { $sum: "$butal" },
+          variance: { $sum: "$variance" },
+        },
+      },
+      {
+        $group: {
+          _id: "$_id.day",
+          slicingDate: { $first: "$firstDate" },
+          batchIds: { $push: "$batchIds" },
+          slicers: { $push: "$slicers" },
+          packers: { $push: "$packers" },
+          activityCount: { $sum: "$activityCount" },
+          bags: { $sum: "$bags" },
+          heads: { $sum: "$heads" },
+          kilos: { $sum: "$kilos" },
+          totalStdPcs: { $sum: "$totalStdPcs" },
+          actualSlicedPcs: { $sum: "$actualSlicedPcs" },
+          actualPacks: { $sum: "$actualPacks" },
+          butal: { $sum: "$butal" },
+          variance: { $sum: "$variance" },
+          products: {
+            $push: {
+              mainProductName: "$_id.mainProductName",
+              slicedProductName: "$_id.slicedProductName",
+              standardPacking: "$_id.standardPacking",
+              bags: "$bags",
+              heads: "$heads",
+              kilos: "$kilos",
+              totalStdPcs: "$totalStdPcs",
+              actualSlicedPcs: "$actualSlicedPcs",
+              actualPacks: "$actualPacks",
+              butal: "$butal",
+              variance: "$variance",
+              activityCount: "$activityCount",
+            },
+          },
+        },
+      },
+      { $sort: { _id: -1 } }
+    );
+
+    const aggregated = await SlicingItemModel.aggregate(pipeline);
+    const dailyRecords = aggregated.map((record) => {
+      const uniqueBatchIds = new Set(
+        (record.batchIds || []).flat().map((id: any) => id?.toString?.() || String(id))
+      );
+      const products = Array.isArray(record.products) ? record.products : [];
+      const slicedProductNames = Array.from(
+        new Set(products.map((product: any) => product.slicedProductName).filter(Boolean))
+      );
+      const mainProductNames = Array.from(
+        new Set(products.map((product: any) => product.mainProductName).filter(Boolean))
+      );
+
+      return {
+        _id: record._id,
+        date: record._id,
+        slicingDate: record.slicingDate ? new Date(record.slicingDate).toISOString() : record._id,
+        transactionName: `Daily Slicing - ${record._id}`,
+        mainProductName:
+          mainProductNames.length === 1 ? mainProductNames[0] : `${mainProductNames.length} products`,
+        slicedProductName:
+          slicedProductNames.length === 1 ? slicedProductNames[0] : `${slicedProductNames.length} products`,
+        batchCount: uniqueBatchIds.size,
+        activityCount: toNumber(record.activityCount),
+        bags: toNumber(record.bags),
+        heads: toNumber(record.heads),
+        kilos: toNumber(record.kilos),
+        totalStdPcs: toNumber(record.totalStdPcs),
+        actualSlicedPcs: toNumber(record.actualSlicedPcs),
+        actualPacks: toNumber(record.actualPacks),
+        butal: toNumber(record.butal),
+        variance: toNumber(record.variance),
+        slicers: uniqueClean(record.slicers || []),
+        packers: uniqueClean(record.packers || []),
+        products,
+      };
+    });
+
+    const pagedRecords = dailyRecords.slice(skip, skip + limit);
+
+    const summary = dailyRecords.reduce(
+      (sum, record) => ({
+        dayCount: sum.dayCount + 1,
+        batchCount: sum.batchCount + record.batchCount,
+        activityCount: sum.activityCount + record.activityCount,
+        heads: sum.heads + record.heads,
+        kilos: sum.kilos + record.kilos,
+        totalStdPcs: sum.totalStdPcs + record.totalStdPcs,
+        actualSlicedPcs: sum.actualSlicedPcs + record.actualSlicedPcs,
+        actualPacks: sum.actualPacks + record.actualPacks,
+        butal: sum.butal + record.butal,
+        variance: sum.variance + record.variance,
+      }),
+      {
+        dayCount: 0,
+        batchCount: 0,
+        activityCount: 0,
+        heads: 0,
+        kilos: 0,
+        totalStdPcs: 0,
+        actualSlicedPcs: 0,
+        actualPacks: 0,
+        butal: 0,
+        variance: 0,
+      }
+    );
+
+    return NextResponse.json({
+      success: true,
+      data: pagedRecords,
+      summary,
+      meta: {
+        page,
+        limit,
+        total: dailyRecords.length,
+        totalPages: Math.max(Math.ceil(dailyRecords.length / limit), 1),
+      },
+    });
+  }
 
   const batchFilter: Record<string, any> = {
     isVoided: false,
+    ...buildDateFilter(dateFrom, dateTo),
   };
-
-  if (dateFrom || dateTo) {
-    batchFilter.slicingDate = {};
-
-    if (dateFrom) {
-      batchFilter.slicingDate.$gte = new Date(`${dateFrom}T00:00:00.000Z`);
-    }
-
-    if (dateTo) {
-      batchFilter.slicingDate.$lte = new Date(`${dateTo}T23:59:59.999Z`);
-    }
-  }
 
   const batches = await SlicingBatchModel.find(batchFilter).select("_id").lean();
   const batchIds = batches.map((item) => item._id);
@@ -163,7 +367,8 @@ export async function POST(req: NextRequest) {
   let totalPacks = 0;
   let totalButal = 0;
   let totalVariance = 0;
-  const preparedItems = [];
+
+  const preparedItems: any[] = [];
 
   for (const item of rawItems) {
     const standardId = cleanString(
@@ -224,7 +429,6 @@ export async function POST(req: NextRequest) {
     }
 
     const availableStock = Number(mainProduct.stockQty || 0);
-
     if (heads > availableStock) {
       return NextResponse.json(
         {
@@ -242,7 +446,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json(
         {
           success: false,
-          message: `Invalid standard values for ${mainProduct.name} → ${slicedProduct.name}.`,
+          message: `Invalid standard values for ${mainProduct.name} -> ${slicedProduct.name}.`,
         },
         { status: 400 }
       );
@@ -325,7 +529,6 @@ export async function POST(req: NextRequest) {
     if (item.heads > 0) {
       const previousStock = Number(mainProduct.stockQty || 0);
       mainProduct.stockQty = Math.max(previousStock - item.heads, 0);
-
       bodegaStockTransactions.push({
         bodegaProductId: mainProduct._id,
         type: "STOCK_OUT",
@@ -342,7 +545,6 @@ export async function POST(req: NextRequest) {
     if (item.actualSlicedPcs > 0) {
       const previousStock = Number(slicedProduct.stockQty || 0);
       slicedProduct.stockQty = previousStock + item.actualSlicedPcs;
-
       bodegaStockTransactions.push({
         bodegaProductId: slicedProduct._id,
         type: "STOCK_IN",

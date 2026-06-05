@@ -7,21 +7,27 @@ import {
   Boxes,
   CalendarDays,
   CheckCircle2,
-  ClipboardList,
+  Clock,
   CreditCard,
-  Package,
+  DollarSign,
   PackagePlus,
   ReceiptText,
+  Scissors,
   ShoppingCart,
+  TrendingDown,
   TrendingUp,
-  Truck,
   Users,
   WalletCards,
 } from "lucide-react";
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { getDashboardSummary } from "@/lib/dashboard";
-import { formatPeso } from "@/lib/utils";
+import { cn, formatPeso } from "@/lib/utils";
+
+function numberValue(value: unknown) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
 
 function safePercent(value: number, total: number) {
   if (!total || total <= 0) return 0;
@@ -29,7 +35,37 @@ function safePercent(value: number, total: number) {
 }
 
 function formatPercent(value: number) {
-  return `${value.toFixed(1)}%`;
+  return `${numberValue(value).toFixed(1)}%`;
+}
+
+function formatCompact(value: number) {
+  return numberValue(value).toLocaleString("en-PH", {
+    maximumFractionDigits: 0,
+  });
+}
+
+function formatDate(value: string) {
+  if (!value) return "-";
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "-";
+
+  return date.toLocaleDateString("en-PH", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+}
+
+function getChangeText(today: number, yesterday: number) {
+  if (!yesterday && !today) return "No activity yet";
+  if (!yesterday && today) return "New activity today";
+
+  const diff = today - yesterday;
+  const percent = (diff / yesterday) * 100;
+  const sign = percent >= 0 ? "+" : "";
+
+  return `${sign}${formatPercent(percent)} vs yesterday`;
 }
 
 function KpiCard({
@@ -38,12 +74,14 @@ function KpiCard({
   subtitle,
   icon: Icon,
   tone,
+  href,
 }: {
   title: string;
-  value: string | number;
+  value: string;
   subtitle: string;
   icon: any;
   tone: "blue" | "emerald" | "rose" | "amber" | "slate" | "cyan";
+  href?: string;
 }) {
   const toneMap = {
     blue: "bg-blue-50 text-blue-700 ring-blue-100",
@@ -54,98 +92,52 @@ function KpiCard({
     cyan: "bg-cyan-50 text-cyan-700 ring-cyan-100",
   };
 
-  return (
-    <Card className="rounded-3xl border-slate-200 bg-white shadow-sm transition hover:-translate-y-0.5 hover:shadow-md">
+  const body = (
+    <Card className="h-full rounded-2xl border-slate-200 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md">
       <CardContent className="p-5">
-        <div className="flex items-start justify-between gap-4">
+        <div className="flex items-start justify-between gap-3">
           <div>
-            <p className="text-sm font-semibold text-slate-500">{title}</p>
+            <p className="text-sm font-medium text-slate-500">{title}</p>
             <p className="mt-2 text-2xl font-black tracking-tight text-slate-950">
               {value}
             </p>
             <p className="mt-1 text-xs text-slate-500">{subtitle}</p>
           </div>
-
-          <div className={`rounded-2xl p-3 ring-1 ${toneMap[tone]}`}>
-            <Icon className="h-6 w-6" />
+          <div className={cn("rounded-2xl p-3 ring-1", toneMap[tone])}>
+            <Icon className="h-5 w-5" />
           </div>
         </div>
       </CardContent>
     </Card>
   );
+
+  if (!href) return body;
+
+  return <Link href={href}>{body}</Link>;
 }
 
-function MetricLine({
+function ProgressLine({
   label,
   value,
   percent,
-  tone = "bg-blue-600",
+  barClassName,
 }: {
   label: string;
   value: string;
   percent: number;
-  tone?: string;
+  barClassName: string;
 }) {
   return (
     <div className="space-y-2">
-      <div className="flex items-center justify-between text-sm">
+      <div className="flex items-center justify-between gap-3 text-sm">
         <span className="font-medium text-slate-600">{label}</span>
-        <span className="font-bold text-slate-950">{value}</span>
+        <span className="font-bold text-slate-900">{value}</span>
       </div>
-
       <div className="h-2 overflow-hidden rounded-full bg-slate-100">
         <div
-          className={`h-full rounded-full ${tone}`}
-          style={{ width: `${percent}%` }}
+          className={cn("h-full rounded-full", barClassName)}
+          style={{ width: `${Math.max(0, Math.min(percent, 100))}%` }}
         />
-      </div>
-    </div>
-  );
-}
-
-function SummaryBlock({
-  title,
-  icon: Icon,
-  items,
-  tone,
-}: {
-  title: string;
-  icon: any;
-  items: {
-    label: string;
-    value: string;
-  }[];
-  tone: "emerald" | "blue" | "rose" | "cyan";
-}) {
-  const toneMap = {
-    emerald: "bg-emerald-50 text-emerald-700",
-    blue: "bg-blue-50 text-blue-700",
-    rose: "bg-rose-50 text-rose-700",
-    cyan: "bg-cyan-50 text-cyan-700",
-  };
-
-  return (
-    <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
-      <div className="mb-4 flex items-center gap-3">
-        <div className={`rounded-2xl p-3 ${toneMap[tone]}`}>
-          <Icon className="h-5 w-5" />
-        </div>
-
-        <p className="font-black text-slate-950">{title}</p>
-      </div>
-
-      <div className="space-y-3">
-        {items.map((item) => (
-          <div
-            key={item.label}
-            className="flex items-center justify-between rounded-2xl bg-slate-50 px-4 py-3"
-          >
-            <span className="text-sm font-medium text-slate-600">
-              {item.label}
-            </span>
-            <span className="font-black text-slate-950">{item.value}</span>
-          </div>
-        ))}
       </div>
     </div>
   );
@@ -165,21 +157,53 @@ function QuickAction({
   return (
     <Link
       href={href}
-      className="group flex items-center justify-between rounded-2xl border border-slate-200 bg-white p-4 transition hover:border-red-200 hover:bg-red-50/40"
+      className="group flex items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm transition hover:-translate-y-0.5 hover:border-slate-300 hover:shadow-md"
     >
       <div className="flex items-center gap-3">
-        <div className="rounded-2xl bg-slate-100 p-3 text-slate-700 group-hover:bg-red-100 group-hover:text-red-600">
+        <div className="rounded-2xl bg-slate-950 p-3 text-white">
           <Icon className="h-5 w-5" />
         </div>
-
         <div>
           <p className="font-bold text-slate-950">{title}</p>
-          <p className="text-sm text-slate-500">{description}</p>
+          <p className="text-xs text-slate-500">{description}</p>
         </div>
       </div>
-
-      <ArrowRight className="h-5 w-5 text-slate-400 group-hover:text-red-600" />
+      <ArrowRight className="h-4 w-4 text-slate-400 transition group-hover:translate-x-1" />
     </Link>
+  );
+}
+
+function StatusPill({
+  label,
+  tone,
+}: {
+  label: string;
+  tone: "good" | "warning" | "danger" | "neutral";
+}) {
+  const toneMap = {
+    good: "bg-emerald-50 text-emerald-700 ring-emerald-200",
+    warning: "bg-amber-50 text-amber-700 ring-amber-200",
+    danger: "bg-rose-50 text-rose-700 ring-rose-200",
+    neutral: "bg-slate-100 text-slate-700 ring-slate-200",
+  };
+
+  return (
+    <span
+      className={cn(
+        "inline-flex items-center rounded-full px-2.5 py-1 text-xs font-bold ring-1",
+        toneMap[tone]
+      )}
+    >
+      {label}
+    </span>
+  );
+}
+
+function EmptyState({ message }: { message: string }) {
+  return (
+    <div className="rounded-2xl border border-dashed border-slate-200 p-6 text-center text-sm text-slate-500">
+      {message}
+    </div>
   );
 }
 
@@ -191,14 +215,21 @@ export default async function DashboardPage() {
     summary.outstandingReceivables,
     summary.totalSales
   );
-
-  const financialMax = Math.max(
-    summary.totalSales,
-    summary.totalPayments,
-    summary.outstandingReceivables,
-    summary.totalStockInPurchases,
-    1
+  const expenseRate = safePercent(summary.today.expenses, summary.today.payments);
+  const monthExpenseRate = safePercent(
+    summary.thisMonth.expenses,
+    summary.thisMonth.payments
   );
+  const stockHealthTone =
+    summary.bodegaStock.outOfStockCount > 0
+      ? "danger"
+      : summary.bodegaStock.lowStockCount > 0
+        ? "warning"
+        : "good";
+  const ownerStatusTone =
+    summary.outstandingReceivables > 0 || summary.bodegaStock.lowStockCount > 0
+      ? "warning"
+      : "good";
 
   const currentDate = new Date().toLocaleDateString("en-PH", {
     weekday: "long",
@@ -207,363 +238,573 @@ export default async function DashboardPage() {
     day: "numeric",
   });
 
+  const financialMax = Math.max(
+    summary.thisMonth.sales,
+    summary.thisMonth.payments,
+    summary.thisMonth.expenses,
+    summary.thisMonth.stockInPurchases,
+    1
+  );
+
   return (
     <div className="space-y-6">
-      <div className="flex flex-col justify-between gap-4 rounded-3xl border border-slate-200 bg-white p-6 shadow-sm lg:flex-row lg:items-center">
-        <div>
-          <div className="flex items-center gap-2 text-sm font-semibold text-red-600">
-            <CalendarDays className="h-4 w-4" />
-            {currentDate}
+      <div className="overflow-hidden rounded-3xl border border-slate-200 bg-slate-950 shadow-sm">
+        <div className="relative p-6 text-white md:p-8">
+          <div className="absolute right-0 top-0 h-40 w-40 rounded-full bg-blue-500/20 blur-3xl" />
+          <div className="absolute bottom-0 left-1/3 h-40 w-40 rounded-full bg-emerald-500/20 blur-3xl" />
+
+          <div className="relative flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
+            <div className="max-w-3xl">
+              <div className="mb-3 flex flex-wrap items-center gap-2">
+                <span className="inline-flex items-center gap-2 rounded-full bg-white/10 px-3 py-1 text-xs font-semibold ring-1 ring-white/15">
+                  <CalendarDays className="h-3.5 w-3.5" />
+                  {currentDate}
+                </span>
+                <StatusPill
+                  label={ownerStatusTone === "good" ? "Business stable" : "Needs owner attention"}
+                  tone={ownerStatusTone}
+                />
+              </div>
+
+              <h1 className="text-3xl font-black tracking-tight md:text-4xl">
+                Owner Dashboard
+              </h1>
+              <p className="mt-2 max-w-2xl text-sm text-slate-300 md:text-base">
+                One-glance view of sales, collections, expenses, stock position,
+                receivables, and slicing activity.
+              </p>
+            </div>
+
+            <div className="grid gap-2 sm:grid-cols-2 lg:min-w-[420px]">
+              <Link
+                href="/sales"
+                className="rounded-2xl bg-white px-4 py-3 text-sm font-bold text-slate-950 transition hover:bg-slate-100"
+              >
+                New Sale
+              </Link>
+              <Link
+                href="/expenses-bodega"
+                className="rounded-2xl bg-white/10 px-4 py-3 text-sm font-bold text-white ring-1 ring-white/20 transition hover:bg-white/15"
+              >
+                Add Expense
+              </Link>
+              <Link
+                href="/inventory/bodega"
+                className="rounded-2xl bg-white/10 px-4 py-3 text-sm font-bold text-white ring-1 ring-white/20 transition hover:bg-white/15"
+              >
+                View Inventory
+              </Link>
+              <Link
+                href="/payments/add"
+                className="rounded-2xl bg-white/10 px-4 py-3 text-sm font-bold text-white ring-1 ring-white/20 transition hover:bg-white/15"
+              >
+                Record Payment
+              </Link>
+            </div>
           </div>
-
-          <h1 className="mt-2 text-3xl font-black tracking-tight text-slate-950">
-            Executive Dashboard
-          </h1>
-
-          <p className="mt-1 text-sm text-slate-500">
-            Accounting-based overview of sales revenue, collections,
-            receivables, and inventory received.
-          </p>
-        </div>
-
-        <div className="flex flex-wrap gap-2">
-          <Link
-            href="/sales"
-            className="rounded-2xl bg-red-600 px-4 py-2 text-sm font-bold text-white shadow-sm transition hover:bg-red-700"
-          >
-            New Sale
-          </Link>
-
-          <Link
-            href="/payments/add"
-            className="rounded-2xl bg-emerald-600 px-4 py-2 text-sm font-bold text-white shadow-sm transition hover:bg-emerald-700"
-          >
-            Record Payment
-          </Link>
         </div>
       </div>
 
-      {summary.outstandingReceivables > 0 ? (
-        <Card className="rounded-3xl border-rose-200 bg-rose-50 shadow-sm">
-          <CardContent className="flex flex-col gap-3 p-5 md:flex-row md:items-center md:justify-between">
-            <div className="flex items-center gap-3">
-              <div className="rounded-2xl bg-white p-3 text-rose-600 shadow-sm">
-                <AlertTriangle className="h-6 w-6" />
-              </div>
-
-              <div>
-                <p className="font-black text-rose-700">
-                  Outstanding receivables need attention
-                </p>
-                <p className="text-sm text-rose-600">
-                  Current unpaid customer balance is{" "}
-                  <strong>{formatPeso(summary.outstandingReceivables)}</strong>.
-                </p>
-              </div>
-            </div>
-
-            <Link
-              href="/payments"
-              className="rounded-2xl bg-rose-600 px-4 py-2 text-sm font-bold text-white hover:bg-rose-700"
-            >
-              View Balances
-            </Link>
-          </CardContent>
-        </Card>
-      ) : (
-        <Card className="rounded-3xl border-emerald-200 bg-emerald-50 shadow-sm">
-          <CardContent className="flex items-center gap-3 p-5">
-            <div className="rounded-2xl bg-white p-3 text-emerald-600 shadow-sm">
-              <CheckCircle2 className="h-6 w-6" />
-            </div>
-
-            <div>
-              <p className="font-black text-emerald-700">
-                Receivables are clear
-              </p>
-              <p className="text-sm text-emerald-600">
-                No outstanding customer balance detected.
-              </p>
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <KpiCard
-          title="Total Sales"
-          value={formatPeso(summary.totalSales)}
-          subtitle="All recorded customer sales"
-          icon={ShoppingCart}
-          tone="emerald"
-        />
-
-        <KpiCard
-          title="Total Payments Collected"
-          value={formatPeso(summary.totalPayments)}
-          subtitle="Cash collected from customers"
-          icon={WalletCards}
-          tone="blue"
-        />
-
-        <KpiCard
-          title="Receivables"
-          value={formatPeso(summary.outstandingReceivables)}
-          subtitle="Unpaid customer balances"
-          icon={AlertTriangle}
-          tone="rose"
-        />
-
-        <KpiCard
-          title="Stock In / Purchases"
-          value={formatPeso(summary.totalStockInPurchases)}
-          subtitle="Supplier-delivered inventory value"
-          icon={Boxes}
-          tone="cyan"
-        />
-
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <KpiCard
           title="Today Sales"
           value={formatPeso(summary.today.sales)}
-          subtitle="Sales created today"
-          icon={TrendingUp}
-          tone="emerald"
-        />
-
-        <KpiCard
-          title="Today Payments"
-          value={formatPeso(summary.today.payments)}
-          subtitle="Payments created today"
-          icon={CreditCard}
+          subtitle={getChangeText(summary.today.sales, summary.yesterday.sales)}
+          icon={ShoppingCart}
           tone="blue"
+          href="/sales/history"
         />
-
         <KpiCard
-          title="Customers"
-          value={summary.totalCustomers.toLocaleString()}
-          subtitle="Active customer records"
-          icon={Users}
-          tone="slate"
+          title="Today Collections"
+          value={formatPeso(summary.today.payments)}
+          subtitle={getChangeText(summary.today.payments, summary.yesterday.payments)}
+          icon={WalletCards}
+          tone="emerald"
+          href="/payments/history"
         />
-
         <KpiCard
-          title="Suppliers"
-          value={summary.totalSuppliers.toLocaleString()}
-          subtitle="Active supplier records"
-          icon={Truck}
+          title="Today Expenses"
+          value={formatPeso(summary.today.expenses)}
+          subtitle={getChangeText(summary.today.expenses, summary.yesterday.expenses)}
+          icon={ReceiptText}
+          tone="rose"
+          href="/expenses-bodega"
+        />
+        <KpiCard
+          title="Bodega Inventory Value"
+          value={formatPeso(summary.bodegaStock.totalCostValue)}
+          subtitle={`${formatCompact(summary.bodegaStock.totalProducts)} active products tracked`}
+          icon={Boxes}
           tone="amber"
+          href="/bodega-products"
         />
       </div>
 
-      <div className="grid gap-6 xl:grid-cols-[1.2fr_0.8fr]">
-        <Card className="rounded-3xl border-slate-200 bg-white shadow-sm">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-lg font-black">
-              <BarChart3 className="h-5 w-5 text-red-600" />
-              Financial Summary
-            </CardTitle>
-          </CardHeader>
-
-          <CardContent className="space-y-6">
-            <div className="rounded-3xl border border-slate-200 bg-slate-50 p-5">
-              <p className="text-sm font-semibold text-slate-500">
-                Accounting view
-              </p>
-
-              <p className="mt-2 text-sm text-slate-600">
-                Sales, collections, receivables, and stock-in values are shown
-                separately. They are not added together to avoid double-counting.
-              </p>
-            </div>
-
-            <div className="space-y-4">
-              <MetricLine
-                label="Sales Revenue"
-                value={formatPeso(summary.totalSales)}
-                percent={safePercent(summary.totalSales, financialMax)}
-                tone="bg-emerald-600"
-              />
-
-              <MetricLine
-                label="Cash Collected"
-                value={formatPeso(summary.totalPayments)}
-                percent={safePercent(summary.totalPayments, financialMax)}
-                tone="bg-blue-600"
-              />
-
-              <MetricLine
-                label="Unpaid Receivables"
-                value={formatPeso(summary.outstandingReceivables)}
-                percent={safePercent(
-                  summary.outstandingReceivables,
-                  financialMax
-                )}
-                tone="bg-rose-600"
-              />
-
-              <MetricLine
-                label="Inventory Received"
-                value={formatPeso(summary.totalStockInPurchases)}
-                percent={safePercent(
-                  summary.totalStockInPurchases,
-                  financialMax
-                )}
-                tone="bg-cyan-600"
-              />
-            </div>
-
-            <div className="grid gap-4 md:grid-cols-3">
-              <div className="rounded-3xl bg-emerald-50 p-5">
-                <p className="text-sm font-semibold text-emerald-700">
-                  Collection Rate
+      <div className="grid gap-6 xl:grid-cols-[1.25fr_0.75fr]">
+        <Card className="rounded-2xl border-slate-200 shadow-sm">
+          <CardHeader className="border-b border-slate-100">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <CardTitle className="text-xl font-black">Business Pulse</CardTitle>
+                <p className="mt-1 text-sm text-slate-500">
+                  Month-to-date sales, collections, expenses, and inventory received.
                 </p>
-                <p className="mt-2 text-2xl font-black text-emerald-900">
-                  {formatPercent(collectionRate)}
+              </div>
+              <StatusPill
+                label={`${formatPercent(collectionRate)} collected`}
+                tone={collectionRate >= 80 ? "good" : collectionRate >= 50 ? "warning" : "danger"}
+              />
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-5 p-5">
+            <ProgressLine
+              label="Sales"
+              value={formatPeso(summary.thisMonth.sales)}
+              percent={safePercent(summary.thisMonth.sales, financialMax)}
+              barClassName="bg-blue-600"
+            />
+            <ProgressLine
+              label="Collections"
+              value={formatPeso(summary.thisMonth.payments)}
+              percent={safePercent(summary.thisMonth.payments, financialMax)}
+              barClassName="bg-emerald-600"
+            />
+            <ProgressLine
+              label="Expenses"
+              value={formatPeso(summary.thisMonth.expenses)}
+              percent={safePercent(summary.thisMonth.expenses, financialMax)}
+              barClassName="bg-rose-600"
+            />
+            <ProgressLine
+              label="Stock In / Purchases"
+              value={formatPeso(summary.thisMonth.stockInPurchases)}
+              percent={safePercent(summary.thisMonth.stockInPurchases, financialMax)}
+              barClassName="bg-amber-500"
+            />
+
+            <div className="grid gap-3 border-t border-slate-100 pt-5 md:grid-cols-3">
+              <div className="rounded-2xl bg-emerald-50 p-4 ring-1 ring-emerald-100">
+                <div className="flex items-center gap-2 text-sm font-bold text-emerald-700">
+                  <TrendingUp className="h-4 w-4" />
+                  Operating Cash
+                </div>
+                <p className="mt-2 text-xl font-black text-emerald-950">
+                  {formatPeso(summary.thisMonth.operatingCash)}
                 </p>
                 <p className="mt-1 text-xs text-emerald-700">
-                  Payments collected against total sales
+                  Collections minus expenses only.
                 </p>
               </div>
-
-              <div className="rounded-3xl bg-rose-50 p-5">
-                <p className="text-sm font-semibold text-rose-700">
-                  Receivable Rate
-                </p>
-                <p className="mt-2 text-2xl font-black text-rose-900">
-                  {formatPercent(receivableRate)}
+              <div className="rounded-2xl bg-rose-50 p-4 ring-1 ring-rose-100">
+                <div className="flex items-center gap-2 text-sm font-bold text-rose-700">
+                  <TrendingDown className="h-4 w-4" />
+                  Receivables
+                </div>
+                <p className="mt-2 text-xl font-black text-rose-950">
+                  {formatPeso(summary.outstandingReceivables)}
                 </p>
                 <p className="mt-1 text-xs text-rose-700">
-                  Unpaid balance against total sales
+                  {formatPercent(receivableRate)} of total sales unpaid.
                 </p>
               </div>
-
-              <div className="rounded-3xl bg-cyan-50 p-5">
-                <p className="text-sm font-semibold text-cyan-700">
-                  Stock In / Purchases
+              <div className="rounded-2xl bg-slate-50 p-4 ring-1 ring-slate-200">
+                <div className="flex items-center gap-2 text-sm font-bold text-slate-700">
+                  <DollarSign className="h-4 w-4" />
+                  Expense Load
+                </div>
+                <p className="mt-2 text-xl font-black text-slate-950">
+                  {formatPercent(monthExpenseRate)}
                 </p>
-                <p className="mt-2 text-2xl font-black text-cyan-900">
-                  {formatPeso(summary.totalStockInPurchases)}
-                </p>
-                <p className="mt-1 text-xs text-cyan-700">
-                  Inventory received, not revenue
+                <p className="mt-1 text-xs text-slate-500">
+                  Expenses against collections this month.
                 </p>
               </div>
             </div>
           </CardContent>
         </Card>
 
-        <Card className="rounded-3xl border-slate-200 bg-white shadow-sm">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-lg font-black">
-              <ClipboardList className="h-5 w-5 text-red-600" />
-              Quick Operations
-            </CardTitle>
+        <Card className="rounded-2xl border-slate-200 shadow-sm">
+          <CardHeader className="border-b border-slate-100">
+            <CardTitle className="text-xl font-black">Today at a Glance</CardTitle>
+            <p className="text-sm text-slate-500">
+              Daily movement for owner monitoring.
+            </p>
           </CardHeader>
+          <CardContent className="space-y-3 p-5">
+            <div className="rounded-2xl border border-slate-200 p-4">
+              <p className="text-xs font-bold uppercase tracking-wide text-slate-500">
+                Slicing Production
+              </p>
+              <div className="mt-2 flex items-end justify-between gap-3">
+                <div>
+                  <p className="text-2xl font-black text-slate-950">
+                    {formatCompact(summary.today.slicingPacks)} packs
+                  </p>
+                  <p className="text-xs text-slate-500">
+                    {formatCompact(summary.today.slicingHeads)} heads processed
+                  </p>
+                </div>
+                <Scissors className="h-8 w-8 text-slate-300" />
+              </div>
+            </div>
 
-          <CardContent className="space-y-3">
-            <QuickAction
-              title="Sell Chicken"
-              description="Create chicken sale"
-              href="/sales"
-              icon={ShoppingCart}
-            />
+            <div className="rounded-2xl border border-slate-200 p-4">
+              <p className="text-xs font-bold uppercase tracking-wide text-slate-500">
+                Expenses Paid Today
+              </p>
+              <div className="mt-2 flex items-end justify-between gap-3">
+                <div>
+                  <p className="text-2xl font-black text-slate-950">
+                    {formatPeso(summary.today.expenses)}
+                  </p>
+                  <p className="text-xs text-slate-500">
+                    {formatPercent(expenseRate)} of collections
+                  </p>
+                </div>
+                <ReceiptText className="h-8 w-8 text-slate-300" />
+              </div>
+            </div>
 
-            <QuickAction
-              title="Sale Grocery"
-              description="Create grocery sale"
-              href="/sales/grocery"
-              icon={ReceiptText}
-            />
-
-            <QuickAction
-              title="Record Payment"
-              description="Collect customer payment"
-              href="/payments/add"
-              icon={CreditCard}
-            />
-
-            <QuickAction
-              title="Purchase Items"
-              description="Add purchased product stock"
-              href="/purchase-items"
-              icon={PackagePlus}
-            />
-
-            <QuickAction
-              title="Supplier Deliveries"
-              description="Record supplier stock-in"
-              href="/deliveries"
-              icon={Package}
-            />
+            <div className="rounded-2xl border border-slate-200 p-4">
+              <p className="text-xs font-bold uppercase tracking-wide text-slate-500">
+                Stock In Today
+              </p>
+              <div className="mt-2 flex items-end justify-between gap-3">
+                <div>
+                  <p className="text-2xl font-black text-slate-950">
+                    {formatPeso(summary.today.stockInPurchases)}
+                  </p>
+                  <p className="text-xs text-slate-500">
+                    Purchases and supplier deliveries
+                  </p>
+                </div>
+                <PackagePlus className="h-8 w-8 text-slate-300" />
+              </div>
+            </div>
           </CardContent>
         </Card>
       </div>
 
-      <div className="grid gap-4 xl:grid-cols-4">
-        <SummaryBlock
-          title="Revenue"
-          icon={ShoppingCart}
-          tone="emerald"
-          items={[
-            {
-              label: "Today Sales",
-              value: formatPeso(summary.today.sales),
-            },
-            {
-              label: "This Month Sales",
-              value: formatPeso(summary.thisMonth.sales),
-            },
-          ]}
-        />
+      <div className="grid gap-6 xl:grid-cols-[0.85fr_1.15fr]">
+        <Card className="rounded-2xl border-slate-200 shadow-sm">
+          <CardHeader className="border-b border-slate-100">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <CardTitle className="text-xl font-black">Inventory Stock Watch</CardTitle>
+                <p className="mt-1 text-sm text-slate-500">
+                  Pack-aware stock display for sliced chicken products.
+                </p>
+              </div>
+              <StatusPill
+                label={
+                  stockHealthTone === "good"
+                    ? "Healthy"
+                    : stockHealthTone === "warning"
+                      ? "Low stock"
+                      : "Out of stock"
+                }
+                tone={stockHealthTone}
+              />
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-4 p-5">
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="rounded-2xl bg-slate-50 p-4 ring-1 ring-slate-200">
+                <p className="text-xs font-bold uppercase tracking-wide text-slate-500">
+                  Inventory Cost Value
+                </p>
+                <p className="mt-2 text-xl font-black text-slate-950">
+                  {formatPeso(summary.bodegaStock.totalCostValue)}
+                </p>
+                <p className="mt-1 text-xs text-slate-500">
+                  Based on buying price x stock qty.
+                </p>
+              </div>
+              <div className="rounded-2xl bg-slate-50 p-4 ring-1 ring-slate-200">
+                <p className="text-xs font-bold uppercase tracking-wide text-slate-500">
+                  Stock Alerts
+                </p>
+                <p className="mt-2 text-xl font-black text-slate-950">
+                  {formatCompact(summary.bodegaStock.lowStockCount + summary.bodegaStock.outOfStockCount)}
+                </p>
+                <p className="mt-1 text-xs text-slate-500">
+                  Low and out-of-stock products.
+                </p>
+              </div>
+            </div>
 
-        <SummaryBlock
-          title="Collections"
-          icon={WalletCards}
-          tone="blue"
-          items={[
-            {
-              label: "Today Payments Collected",
-              value: formatPeso(summary.today.payments),
-            },
-            {
-              label: "This Month Payments Collected",
-              value: formatPeso(summary.thisMonth.payments),
-            },
-          ]}
-        />
+            {summary.bodegaStock.lowStockProducts.length ? (
+              <div className="space-y-3">
+                {summary.bodegaStock.lowStockProducts.map((product) => (
+                  <div
+                    key={product._id}
+                    className="flex items-center justify-between gap-3 rounded-2xl border border-slate-200 p-3"
+                  >
+                    <div>
+                      <p className="font-bold text-slate-950">{product.name}</p>
+                      <p className="text-xs text-slate-500">
+                        {product.display} - {product.detail}
+                      </p>
+                    </div>
+                    <StatusPill
+                      label={product.isOutOfStock ? "Out" : "Low"}
+                      tone={product.isOutOfStock ? "danger" : "warning"}
+                    />
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <EmptyState message="No low-stock bodega products detected." />
+            )}
 
-        <SummaryBlock
-          title="Receivables"
-          icon={AlertTriangle}
-          tone="rose"
-          items={[
-            {
-              label: "Current Unpaid Balance",
-              value: formatPeso(summary.outstandingReceivables),
-            },
-            {
-              label: "Receivable Rate",
-              value: formatPercent(receivableRate),
-            },
-          ]}
-        />
+            <Link
+              href="/bodega-products"
+              className="inline-flex items-center gap-2 text-sm font-bold text-slate-950 hover:underline"
+            >
+              Open Bodega Products <ArrowRight className="h-4 w-4" />
+            </Link>
+          </CardContent>
+        </Card>
 
-        <SummaryBlock
-          title="Inventory Activity"
-          icon={Boxes}
-          tone="cyan"
-          items={[
-            {
-              label: "Stock In / Purchases",
-              value: formatPeso(summary.totalStockInPurchases),
-            },
-            {
-              label: "Supplier Deliveries Value",
-              value: formatPeso(summary.totalSupplierDeliveries),
-            },
-          ]}
-        />
+        <Card className="rounded-2xl border-slate-200 shadow-sm">
+          <CardHeader className="border-b border-slate-100">
+            <CardTitle className="text-xl font-black">Top Inventory Value</CardTitle>
+            <p className="text-sm text-slate-500">
+              Highest stock value products, including pack breakdown when available.
+            </p>
+          </CardHeader>
+          <CardContent className="p-0">
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
+                  <tr>
+                    <th className="px-5 py-3 text-left">Product</th>
+                    <th className="px-5 py-3 text-left">Stock Display</th>
+                    <th className="px-5 py-3 text-right">Cost Value</th>
+                    <th className="px-5 py-3 text-right">Selling Value</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {summary.bodegaStock.topInventoryProducts.length ? (
+                    summary.bodegaStock.topInventoryProducts.map((product) => (
+                      <tr key={product._id} className="hover:bg-slate-50/70">
+                        <td className="px-5 py-4 font-bold text-slate-950">
+                          {product.name}
+                        </td>
+                        <td className="px-5 py-4 text-slate-600">
+                          <div>{product.display}</div>
+                          <div className="text-xs text-slate-400">{product.detail}</div>
+                        </td>
+                        <td className="px-5 py-4 text-right font-semibold text-slate-900">
+                          {formatPeso(product.inventoryCostValue)}
+                        </td>
+                        <td className="px-5 py-4 text-right font-semibold text-slate-900">
+                          {formatPeso(product.inventorySellingValue)}
+                        </td>
+                      </tr>
+                    ))
+                  ) : (
+                    <tr>
+                      <td colSpan={4} className="px-5 py-10 text-center text-slate-500">
+                        No inventory products found.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </CardContent>
+        </Card>
       </div>
+
+      <div className="grid gap-6 xl:grid-cols-2">
+        <Card className="rounded-2xl border-slate-200 shadow-sm">
+          <CardHeader className="border-b border-slate-100">
+            <CardTitle className="text-xl font-black">Recent Money Movement</CardTitle>
+            <p className="text-sm text-slate-500">
+              Latest sales, collections, and expenses.
+            </p>
+          </CardHeader>
+          <CardContent className="grid gap-5 p-5 lg:grid-cols-3">
+            <div className="space-y-3">
+              <div className="flex items-center gap-2 font-bold text-slate-950">
+                <ShoppingCart className="h-4 w-4 text-blue-600" /> Sales
+              </div>
+              {summary.recent.sales.length ? (
+                summary.recent.sales.map((sale) => (
+                  <div key={sale._id} className="rounded-2xl bg-slate-50 p-3">
+                    <p className="font-bold text-slate-950">{sale.title}</p>
+                    <p className="text-xs text-slate-500">{sale.name}</p>
+                    <div className="mt-2 flex items-center justify-between gap-2">
+                      <span className="text-sm font-bold">{formatPeso(sale.amount)}</span>
+                      <StatusPill
+                        label={sale.status || "Sale"}
+                        tone={sale.balance > 0 ? "warning" : "good"}
+                      />
+                    </div>
+                  </div>
+                ))
+              ) : (
+                <EmptyState message="No recent sales." />
+              )}
+            </div>
+
+            <div className="space-y-3">
+              <div className="flex items-center gap-2 font-bold text-slate-950">
+                <CreditCard className="h-4 w-4 text-emerald-600" /> Payments
+              </div>
+              {summary.recent.payments.length ? (
+                summary.recent.payments.map((payment) => (
+                  <div key={payment._id} className="rounded-2xl bg-slate-50 p-3">
+                    <p className="font-bold text-slate-950">{payment.title}</p>
+                    <p className="text-xs text-slate-500">{payment.name}</p>
+                    <div className="mt-2 flex items-center justify-between gap-2">
+                      <span className="text-sm font-bold">{formatPeso(payment.amount)}</span>
+                      <span className="text-xs text-slate-500">{formatDate(payment.date)}</span>
+                    </div>
+                  </div>
+                ))
+              ) : (
+                <EmptyState message="No recent payments." />
+              )}
+            </div>
+
+            <div className="space-y-3">
+              <div className="flex items-center gap-2 font-bold text-slate-950">
+                <ReceiptText className="h-4 w-4 text-rose-600" /> Expenses
+              </div>
+              {summary.recent.expenses.length ? (
+                summary.recent.expenses.map((expense) => (
+                  <div key={expense._id} className="rounded-2xl bg-slate-50 p-3">
+                    <p className="font-bold text-slate-950">{expense.title}</p>
+                    <p className="text-xs text-slate-500">{expense.type}</p>
+                    <div className="mt-2 flex items-center justify-between gap-2">
+                      <span className="text-sm font-bold">{formatPeso(expense.amount)}</span>
+                      <span className="text-xs text-slate-500">{formatDate(expense.date)}</span>
+                    </div>
+                  </div>
+                ))
+              ) : (
+                <EmptyState message="No recent expenses." />
+              )}
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="rounded-2xl border-slate-200 shadow-sm">
+          <CardHeader className="border-b border-slate-100">
+            <CardTitle className="text-xl font-black">Operations Monitor</CardTitle>
+            <p className="text-sm text-slate-500">
+              Customer base, suppliers, slicing activity, and owner reminders.
+            </p>
+          </CardHeader>
+          <CardContent className="space-y-5 p-5">
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="rounded-2xl bg-blue-50 p-4 ring-1 ring-blue-100">
+                <div className="flex items-center gap-2 text-sm font-bold text-blue-700">
+                  <Users className="h-4 w-4" /> Customers
+                </div>
+                <p className="mt-2 text-2xl font-black text-blue-950">
+                  {formatCompact(summary.totalCustomers)}
+                </p>
+              </div>
+              <div className="rounded-2xl bg-cyan-50 p-4 ring-1 ring-cyan-100">
+                <div className="flex items-center gap-2 text-sm font-bold text-cyan-700">
+                  <Boxes className="h-4 w-4" /> Suppliers
+                </div>
+                <p className="mt-2 text-2xl font-black text-cyan-950">
+                  {formatCompact(summary.totalSuppliers)}
+                </p>
+              </div>
+            </div>
+
+            <div className="space-y-3">
+              <div className="flex items-center justify-between gap-3">
+                <p className="font-bold text-slate-950">Recent Slicing</p>
+                <Link href="/slicing" className="text-xs font-bold text-slate-600 hover:underline">
+                  View history
+                </Link>
+              </div>
+              {summary.recent.slicing.length ? (
+                summary.recent.slicing.map((item) => (
+                  <div
+                    key={item._id}
+                    className="flex items-center justify-between gap-3 rounded-2xl border border-slate-200 p-3"
+                  >
+                    <div>
+                      <p className="font-bold text-slate-950">{item.title}</p>
+                      <p className="text-xs text-slate-500">
+                        {formatCompact(item.totalActualPcs)} pcs - {formatCompact(item.totalPacks)} packs
+                      </p>
+                    </div>
+                    <div className="text-right text-xs text-slate-500">
+                      {formatDate(item.date)}
+                    </div>
+                  </div>
+                ))
+              ) : (
+                <EmptyState message="No recent slicing records." />
+              )}
+            </div>
+
+            <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-amber-900">
+              <div className="flex gap-3">
+                {summary.outstandingReceivables > 0 || summary.bodegaStock.lowStockCount > 0 ? (
+                  <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0" />
+                ) : (
+                  <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0" />
+                )}
+                <div>
+                  <p className="font-black">Owner Notes</p>
+                  <p className="mt-1 text-sm">
+                    {summary.outstandingReceivables > 0
+                      ? `Follow up ${formatPeso(summary.outstandingReceivables)} receivables and monitor collections.`
+                      : "Receivables are clear based on recorded sales and payments."}
+                    {summary.bodegaStock.lowStockCount > 0
+                      ? ` ${summary.bodegaStock.lowStockCount} products are low stock.`
+                      : " Inventory alerts look good."}
+                  </p>
+                </div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      <Card className="rounded-2xl border-slate-200 shadow-sm">
+        <CardHeader className="border-b border-slate-100">
+          <CardTitle className="text-xl font-black">Quick Operations</CardTitle>
+          <p className="text-sm text-slate-500">
+            Common owner and cashier actions in one place.
+          </p>
+        </CardHeader>
+        <CardContent className="grid gap-3 p-5 md:grid-cols-2 xl:grid-cols-4">
+          <QuickAction
+            title="Sell Chicken"
+            description="Create pack-aware chicken sale"
+            href="/sales"
+            icon={ShoppingCart}
+          />
+          <QuickAction
+            title="Add Expense"
+            description="Record bodega expense"
+            href="/expenses-bodega"
+            icon={ReceiptText}
+          />
+          <QuickAction
+            title="Slicing History"
+            description="Review daily slicing activity"
+            href="/slicing"
+            icon={Scissors}
+          />
+          <QuickAction
+            title="Profit Reports"
+            description="Review sales and slicing reports"
+            href="/reports/chicken-slicing"
+            icon={BarChart3}
+          />
+        </CardContent>
+      </Card>
     </div>
   );
 }

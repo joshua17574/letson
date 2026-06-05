@@ -1,11 +1,7 @@
-// lib/role-permissions.ts
-
 export const ROLE_PERMISSION_GROUPS = [
   {
     group: "Dashboard",
-    permissions: [
-      { key: "dashboard.view", label: "View Dashboard" },
-    ],
+    permissions: [{ key: "dashboard.view", label: "View Dashboard" }],
   },
   {
     group: "Master Data",
@@ -53,6 +49,13 @@ export const ROLE_PERMISSION_GROUPS = [
     permissions: [
       { key: "payments.view", label: "View Payments" },
       { key: "payments.manage", label: "Manage Payments" },
+    ],
+  },
+  {
+    group: "Expenses",
+    permissions: [
+      { key: "expenses-bodega.view", label: "View Expenses Bodega" },
+      { key: "expenses-bodega.manage", label: "Manage Expenses Bodega" },
     ],
   },
   {

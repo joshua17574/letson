@@ -34,6 +34,23 @@ type SaleItemInput = {
   remarks?: string;
 };
 
+type PreparedSaleItem = {
+  productType: "BODEGA_PRODUCT" | "PRODUCT";
+  productId?: mongoose.Types.ObjectId;
+  bodegaProductId?: mongoose.Types.ObjectId;
+  categoryId?: mongoose.Types.ObjectId;
+  categoryName: string;
+  productName: string;
+  qty: number;
+  price: number;
+  lineTotal: number;
+  stockUnit: "PACK" | "QTY";
+  packSize: number;
+  stockPcsOut: number;
+  previousStock: number;
+  remarks: string;
+};
+
 class ApiError extends Error {
   constructor(public status: number, message: string) {
     super(message);
@@ -77,24 +94,30 @@ function getCategoryId(product: any) {
   return product.categoryId?._id || product.categoryId || undefined;
 }
 
-function firstPositiveNumber(...values: any[]) {
-  for (const value of values) {
-    const parsed = Number(value);
-
-    if (Number.isFinite(parsed) && parsed > 0) {
-      return parsed;
-    }
-  }
-
-  return 0;
+function positiveNumber(value: unknown) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) return 0;
+  return parsed;
 }
 
 function wholeNumber(value: unknown) {
   const parsed = Number(value);
-
   if (!Number.isFinite(parsed)) return 0;
-
   return Math.max(0, Math.trunc(parsed));
+}
+
+function roundMoney(value: number) {
+  return Math.round((Number(value) || 0) * 100) / 100;
+}
+
+function getDatabaseSalePrice(source: SaleSource, product: any) {
+  // SECURITY: never trust client-submitted item.price, item.unitPrice,
+  // or item.pricePerPack. The backend is the source of truth.
+  // CHICKEN/BodegaProduct sellingPrice is price per pack.
+  // BODEGA/Product unitPrice is price per quantity.
+  return source === "CHICKEN"
+    ? positiveNumber(product.sellingPrice)
+    : positiveNumber(product.unitPrice);
 }
 
 async function getPackSizeForBodegaProduct(
@@ -264,7 +287,7 @@ export async function POST(req: NextRequest) {
       let totalQty = 0;
       let totalPacks = 0;
       let totalAmount = 0;
-      const preparedItems: Record<string, any>[] = [];
+      const preparedItems: PreparedSaleItem[] = [];
 
       for (const item of items) {
         const qty = cleanNumber(item.quantity || item.packs || item.qty);
@@ -310,23 +333,15 @@ export async function POST(req: NextRequest) {
           fail(404, "Selected product was not found.");
         }
 
-        const price =
-          source === "CHICKEN"
-            ? firstPositiveNumber(
-                item.pricePerPack,
-                item.price,
-                item.unitPrice,
-                product.sellingPrice
-              )
-            : firstPositiveNumber(
-                item.price,
-                item.unitPrice,
-                item.pricePerPack,
-                product.unitPrice
-              );
+        const price = getDatabaseSalePrice(source, product);
 
         if (price <= 0) {
-          fail(400, `Price must be greater than zero for ${product.name}.`);
+          fail(
+            400,
+            source === "CHICKEN"
+              ? `Price per pack must be set in Bodega Product for ${product.name}.`
+              : `Unit price must be set in Product for ${product.name}.`
+          );
         }
 
         const previousStock =
@@ -338,26 +353,29 @@ export async function POST(req: NextRequest) {
           source === "CHICKEN"
             ? await getPackSizeForBodegaProduct(product._id.toString(), mongoSession)
             : 0;
-        const packSize =
-          source === "CHICKEN"
-            ? wholeNumber(item.packSize) || standardPackSize || 1
-            : 1;
+
+        if (source === "CHICKEN" && standardPackSize <= 0) {
+          fail(400, `Pack size is not configured for ${product.name}.`);
+        }
+
+        // SECURITY: for chicken sales, pack size must also come from the
+        // active Standard PCS & Packs record, not from the browser request.
+        const packSize = source === "CHICKEN" ? standardPackSize : 1;
         const stockOut = source === "CHICKEN" ? qty * packSize : qty;
 
         if (previousStock < stockOut) {
           fail(400, `Not enough stock for ${product.name}. Available: ${previousStock}.`);
         }
 
-        const lineTotal = qty * price;
+        const lineTotal = roundMoney(qty * price);
         totalQty += source === "CHICKEN" ? stockOut : qty;
-        totalAmount += lineTotal;
+        totalAmount = roundMoney(totalAmount + lineTotal);
 
         if (source === "CHICKEN") {
           totalPacks += qty;
         }
 
         preparedItems.push({
-          product,
           productType,
           productId: productType === "PRODUCT" ? product._id : undefined,
           bodegaProductId: productType === "BODEGA_PRODUCT" ? product._id : undefined,
@@ -505,6 +523,7 @@ export async function POST(req: NextRequest) {
     }
 
     console.error(error);
+
     return NextResponse.json(
       { success: false, message: "Unable to create sale." },
       { status: 500 }

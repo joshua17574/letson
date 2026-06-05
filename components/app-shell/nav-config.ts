@@ -1,5 +1,4 @@
-﻿// components/app-shell/nav-config.ts
-import {
+﻿import {
   ArrowLeftRight,
   BarChart3,
   Boxes,
@@ -66,7 +65,7 @@ export const appNavItems: AppNavItem[] = [
     permission: "products.view",
     children: [
       {
-        title: "Products",
+        title: "Grocery Products",
         href: "/products",
         icon: Package,
         permission: "products.view",
@@ -172,13 +171,22 @@ export const appNavItems: AppNavItem[] = [
       },
     ],
   },
+
+    {
+        title: "Slicing Profit",
+        href: "/reports/chicken-slicing",
+        icon: BarChart3,
+        permission: "reports.profit",
+      },
+
+
   {
     title: "Inventory",
     icon: Boxes,
     permission: "inventory.view",
     children: [
       {
-        title: "Whole Chicken Movement",
+        title: "Grocery Stock Movement",
         href: "/inventory/whole-chicken",
         icon: ArrowLeftRight,
         permission: "inventory.view",
@@ -191,12 +199,21 @@ export const appNavItems: AppNavItem[] = [
       },
     ],
   },
+
+  {
+    title: "Expenses Bodega",
+    href: "/expenses-bodega",
+    icon: ReceiptText,
+    permission: "expenses-bodega.view",
+  },
+
+
   {
     title: "Reports",
     icon: BarChart3,
     permission: "reports.sales",
     children: [
-        { title: "Chicken Slicing Profit", href: "/reports/chicken-slicing", icon: BarChart3, permission: "reports.profit" },
+    
       {
         title: "Sales Report",
         href: "/reports/sales",
