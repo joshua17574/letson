@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { isValidObjectId } from "mongoose";
+import { isValidObjectId, Types } from "mongoose";
 
 import dbConnect from "@/lib/mongodb";
 import { requireApiAuth } from "@/lib/require-auth";
@@ -20,6 +20,38 @@ function roundMoney(value: number) {
   return Math.round((Number(value) || 0) * 100) / 100;
 }
 
+type ReportBatch = {
+  _id: Types.ObjectId;
+  slicingDate?: Date | string | null;
+  slicer?: string | null;
+  packer?: string | null;
+};
+
+type ReportItem = {
+  _id: Types.ObjectId;
+  batchId?: Types.ObjectId | string | null;
+  mainProductId?: Types.ObjectId | string | null;
+  slicedProductId?: Types.ObjectId | string | null;
+  mainProductName?: string | null;
+  slicedProductName?: string | null;
+  heads?: number | null;
+  kilos?: number | null;
+  standardSlice?: number | null;
+  standardPacking?: number | null;
+  totalStdPcs?: number | null;
+  actualSlicedPcs?: number | null;
+  actualPacks?: number | null;
+  butal?: number | null;
+  variance?: number | null;
+};
+
+type ReportProduct = {
+  _id: Types.ObjectId;
+  name?: string | null;
+  buyingPrice?: number | null;
+  sellingPrice?: number | null;
+};
+
 function toObjectIdString(value: unknown) {
   if (!value) return "";
   return String(value);
@@ -38,12 +70,12 @@ function hasProfitPermission(session: any) {
   );
 }
 
-function getBatchDate(batch: any) {
+function getBatchDate(batch: ReportBatch | undefined) {
   if (!batch?.slicingDate) return "";
   return new Date(batch.slicingDate).toISOString();
 }
 
-function getProductPrice(product: any, field: "buyingPrice" | "sellingPrice") {
+function getProductPrice(product: ReportProduct | undefined, field: "buyingPrice" | "sellingPrice") {
   return numberValue(product?.[field]);
 }
 
@@ -83,9 +115,9 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  const batches = await SlicingBatchModel.find(batchFilter)
+  const batches = (await SlicingBatchModel.find(batchFilter)
     .select("_id slicingDate slicer packer")
-    .lean();
+    .lean()) as ReportBatch[];
 
   const batchIds = batches.map((batch) => batch._id);
   const batchById = new Map(
@@ -111,15 +143,15 @@ export async function GET(req: NextRequest) {
     ];
   }
 
-  const items = await SlicingItemModel.find(itemFilter)
+  const items = (await SlicingItemModel.find(itemFilter)
     .sort({ createdAt: -1 })
     .limit(limit)
-    .lean();
+    .lean()) as ReportItem[];
 
   const allProductIds = Array.from(
     new Set(
       items
-        .flatMap((item: any) => [
+        .flatMap((item) => [
           toObjectIdString(item.mainProductId),
           toObjectIdString(item.slicedProductId),
         ])
@@ -127,16 +159,16 @@ export async function GET(req: NextRequest) {
     )
   );
 
-  const products = await BodegaProductModel.find({ _id: { $in: allProductIds } })
+  const products = (await BodegaProductModel.find({ _id: { $in: allProductIds } })
     .select("_id name buyingPrice sellingPrice")
-    .lean();
+    .lean()) as ReportProduct[];
 
-  const productById = new Map(products.map((product: any) => [String(product._id), product]));
+  const productById = new Map(products.map((product) => [String(product._id), product]));
 
   const mainProductsMap = new Map<string, { _id: string; name: string }>();
   const slicedProductsMap = new Map<string, { _id: string; name: string }>();
 
-  const rows = items.map((item: any) => {
+  const rows = items.map((item) => {
     const batch = batchById.get(String(item.batchId));
     const mainProduct = productById.get(String(item.mainProductId));
     const slicedProduct = productById.get(String(item.slicedProductId));

@@ -30,7 +30,7 @@ export interface ISlicingItem extends Document {
   updatedAt: Date;
 }
 
-const SlicingItemSchema = new Schema(
+const SlicingItemSchema = new Schema<ISlicingItem>(
   {
     batchId: {
       type: Schema.Types.ObjectId,
@@ -160,7 +160,7 @@ SlicingItemSchema.index({ standardId: 1 });
 SlicingItemSchema.index({ mainProductId: 1 });
 SlicingItemSchema.index({ slicedProductId: 1 });
 
-const SlicingItemModel: Model =
+const SlicingItemModel: Model<ISlicingItem> =
   mongoose.models.SlicingItem || mongoose.model("SlicingItem", SlicingItemSchema);
 
 export default SlicingItemModel;

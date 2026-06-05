@@ -22,7 +22,9 @@ export function Topbar({ user }: { user: Session["user"] }) {
           <UserCircle className="h-6 w-6 text-blue-600" />
           <div className="leading-tight">
             <p className="text-sm font-semibold">{user.name}</p>
-            <p className="text-xs text-muted-foreground">{user.position}</p>
+            <p className="text-xs text-muted-foreground">
+              {user.roleName || user.role}
+            </p>
           </div>
         </div>
 

@@ -149,7 +149,7 @@ export async function DELETE(
   const bodegaTransactions = [];
 
   for (const line of lines) {
-    if (line.source === "BODEGA1" && line.productId) {
+    if (line.source === "CHICKEN" && line.productId) {
       const product = await ProductModel.findOne({
         _id: line.productId,
         isActive: true,
@@ -176,7 +176,7 @@ export async function DELETE(
       });
     }
 
-    if (line.source === "PRODUCT" && line.bodegaProductId) {
+    if (line.source === "BODEGA" && line.bodegaProductId) {
       const product = await BodegaProductModel.findOne({
         _id: line.bodegaProductId,
         isActive: true,

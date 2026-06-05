@@ -10,6 +10,7 @@ export interface ISlicingBatch extends Document {
   totalStdPcs: number;
   totalActualPcs: number;
   totalPacks: number;
+  totalButal: number;
   totalVariance: number;
   totalInputCost: number;
   totalOutputValue: number;
@@ -27,7 +28,7 @@ export interface ISlicingBatch extends Document {
   updatedAt: Date;
 }
 
-const SlicingBatchSchema = new Schema(
+const SlicingBatchSchema = new Schema<ISlicingBatch>(
   {
     slicingDate: {
       type: Date,
@@ -67,6 +68,11 @@ const SlicingBatchSchema = new Schema(
       min: 0,
     },
     totalPacks: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+    totalButal: {
       type: Number,
       default: 0,
       min: 0,
@@ -138,7 +144,7 @@ const SlicingBatchSchema = new Schema(
 SlicingBatchSchema.index({ slicingDate: -1 });
 SlicingBatchSchema.index({ isVoided: 1 });
 
-const SlicingBatchModel: Model =
+const SlicingBatchModel: Model<ISlicingBatch> =
   mongoose.models.SlicingBatch || mongoose.model("SlicingBatch", SlicingBatchSchema);
 
 export default SlicingBatchModel;
