@@ -1,6 +1,5 @@
-// app/api/bodega-products/route.ts
 import { NextRequest, NextResponse } from "next/server";
-import { isValidObjectId, QueryFilter } from "mongoose";
+import { isValidObjectId, Types } from "mongoose";
 
 import dbConnect from "@/lib/mongodb";
 import { requireApiAuth } from "@/lib/require-auth";
@@ -10,13 +9,57 @@ import {
   escapeRegex,
   getPagination,
 } from "@/lib/crud-utils";
-import BodegaProductModel, { IBodegaProduct } from "@/models/BodegaProduct";
+import BodegaProductModel from "@/models/BodegaProduct";
 import CategoryModel from "@/models/Category";
 import StandardPackingModel from "@/models/StandardPacking";
+
+type PopulatedCategory = {
+  _id?: Types.ObjectId | string;
+  name?: string;
+};
+
+type LeanBodegaProduct = {
+  _id: Types.ObjectId | string;
+  name?: string;
+  categoryId?: PopulatedCategory | Types.ObjectId | string | null;
+  stockQty?: number;
+  buyingPrice?: number;
+  sellingPrice?: number;
+  createdAt?: Date | string;
+  updatedAt?: Date | string;
+};
+
+type LeanStandardPacking = {
+  productId?: Types.ObjectId | string | null;
+  standardPacking?: number;
+};
 
 function numberValue(value: unknown) {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function idToString(value: unknown) {
+  if (!value) return "";
+  if (typeof value === "string") return value;
+  if (value instanceof Types.ObjectId) return value.toString();
+  if (typeof value === "object" && "toString" in value) return String(value.toString());
+  return "";
+}
+
+function getCategoryId(category: LeanBodegaProduct["categoryId"]) {
+  if (!category) return "";
+  if (typeof category === "string" || category instanceof Types.ObjectId) {
+    return idToString(category);
+  }
+  return idToString(category._id);
+}
+
+function getCategoryName(category: LeanBodegaProduct["categoryId"]) {
+  if (!category || typeof category === "string" || category instanceof Types.ObjectId) {
+    return "";
+  }
+  return category.name || "";
 }
 
 function getPackBreakdown(quantityValue: unknown, packSizeValue: unknown) {
@@ -51,7 +94,9 @@ function formatStockDisplay(stockQty: unknown, packSize: number) {
   return `${breakdown.packs.toLocaleString()} packs / ${breakdown.loosePcs.toLocaleString()} pcs loose - ${breakdown.totalPcs.toLocaleString()} pcs total`;
 }
 
-function serializeBodegaProduct(product: any, packSizeValue = 0) {
+function serializeBodegaProduct(product: LeanBodegaProduct | null, packSizeValue = 0) {
+  if (!product) return null;
+
   const packSize = Math.max(0, Math.trunc(numberValue(packSizeValue)));
   const isPackProduct = packSize > 0;
   const stockBreakdown = getPackBreakdown(product.stockQty, packSize);
@@ -61,11 +106,10 @@ function serializeBodegaProduct(product: any, packSizeValue = 0) {
   const pricePerPcs = isPackProduct && packSize > 0 ? sellingPrice / packSize : 0;
 
   return {
-    _id: product._id.toString(),
-    name: product.name,
-    categoryId:
-      product.categoryId?._id?.toString?.() || product.categoryId?.toString?.() || "",
-    categoryName: product.categoryId?.name || "",
+    _id: idToString(product._id),
+    name: product.name || "",
+    categoryId: getCategoryId(product.categoryId),
+    categoryName: getCategoryName(product.categoryId),
 
     // Keep the original field for backward compatibility.
     // For sliced products, stockQty is the raw/base quantity in PCS.
@@ -102,7 +146,7 @@ export async function GET(req: NextRequest) {
   const search = cleanString(searchParams.get("search"));
   const categoryId = cleanString(searchParams.get("categoryId"));
 
-  const filter: QueryFilter<IBodegaProduct> = {
+  const filter: Record<string, unknown> = {
     isActive: true,
   };
 
@@ -114,10 +158,10 @@ export async function GET(req: NextRequest) {
   }
 
   if (categoryId && isValidObjectId(categoryId)) {
-    filter.categoryId = categoryId;
+    filter.categoryId = new Types.ObjectId(categoryId);
   }
 
-  const [items, total] = await Promise.all([
+  const [rawItems, total] = await Promise.all([
     BodegaProductModel.find(filter)
       .populate("categoryId", "name")
       .sort({ name: 1 })
@@ -127,19 +171,24 @@ export async function GET(req: NextRequest) {
     BodegaProductModel.countDocuments(filter),
   ]);
 
-  const productIds = items.map((item) => item._id);
+  const items = rawItems as LeanBodegaProduct[];
+  const productIds = items
+    .map((item) => idToString(item._id))
+    .filter((id): id is string => Boolean(id) && isValidObjectId(id))
+    .map((id) => new Types.ObjectId(id));
+
   const packSizeByProductId = new Map<string, number>();
 
   if (productIds.length > 0) {
-    const standards = await StandardPackingModel.find({
+    const standards = (await StandardPackingModel.find({
       isActive: true,
       productId: { $in: productIds },
     })
       .select("productId standardPacking")
-      .lean();
+      .lean()) as LeanStandardPacking[];
 
     for (const standard of standards) {
-      const productId = standard.productId?.toString?.() || "";
+      const productId = idToString(standard.productId);
       const packSize = Math.max(0, Math.trunc(numberValue(standard.standardPacking)));
 
       if (productId && packSize > 0 && !packSizeByProductId.has(productId)) {
@@ -150,9 +199,9 @@ export async function GET(req: NextRequest) {
 
   return NextResponse.json({
     success: true,
-    data: items.map((item) =>
-      serializeBodegaProduct(item, packSizeByProductId.get(item._id.toString()) || 0)
-    ),
+    data: items
+      .map((item) => serializeBodegaProduct(item, packSizeByProductId.get(idToString(item._id)) || 0))
+      .filter(Boolean),
     meta: {
       page,
       limit,
@@ -194,7 +243,7 @@ export async function POST(req: NextRequest) {
 
   if (categoryId) {
     const categoryExists = await CategoryModel.exists({
-      _id: categoryId,
+      _id: new Types.ObjectId(categoryId),
       isActive: true,
     });
 
@@ -211,15 +260,15 @@ export async function POST(req: NextRequest) {
 
   const product = await BodegaProductModel.create({
     name,
-    categoryId: categoryId || undefined,
+    categoryId: categoryId ? new Types.ObjectId(categoryId) : undefined,
     stockQty: cleanNumber(body.stockQty),
     buyingPrice: cleanNumber(body.buyingPrice),
     sellingPrice: cleanNumber(body.sellingPrice),
   });
 
-  const populatedProduct = await BodegaProductModel.findById(product._id)
+  const populatedProduct = (await BodegaProductModel.findById(product._id)
     .populate("categoryId", "name")
-    .lean();
+    .lean()) as LeanBodegaProduct | null;
 
   return NextResponse.json(
     {

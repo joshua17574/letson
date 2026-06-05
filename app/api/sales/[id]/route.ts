@@ -1,4 +1,3 @@
-// app/api/sales/[id]/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { isValidObjectId } from "mongoose";
 
@@ -15,8 +14,7 @@ function serializeSale(sale: any, lines: any[] = []) {
   return {
     _id: sale._id.toString(),
     receiptNumber: sale.receiptNumber,
-    customerId:
-      sale.customerId?._id?.toString?.() || sale.customerId?.toString?.(),
+    customerId: sale.customerId?._id?.toString?.() || sale.customerId?.toString?.(),
     customerName: sale.customerId?.name || "",
     saleDate: sale.saleDate ? new Date(sale.saleDate).toISOString() : undefined,
     source: sale.source,
@@ -49,44 +47,32 @@ export async function GET(
   context: { params: Promise<{ id: string }> }
 ) {
   const { response } = await requireApiAuth();
-
   if (response) return response;
 
   const { id } = await context.params;
 
   if (!isValidObjectId(id)) {
     return NextResponse.json(
-      {
-        success: false,
-        message: "Invalid sale ID.",
-      },
+      { success: false, message: "Invalid sale ID." },
       { status: 400 }
     );
   }
 
   await dbConnect();
 
-  const sale = await SaleModel.findOne({
-    _id: id,
-    isVoided: false,
-  })
+  const sale = await SaleModel.findOne({ _id: id, isVoided: false })
     .populate("customerId", "name")
     .populate("createdBy", "name username")
     .lean();
 
   if (!sale) {
     return NextResponse.json(
-      {
-        success: false,
-        message: "Sale not found.",
-      },
+      { success: false, message: "Sale not found." },
       { status: 404 }
     );
   }
 
-  const lines = await SaleLineModel.find({
-    saleId: id,
-  }).lean();
+  const lines = await SaleLineModel.find({ saleId: id }).lean();
 
   return NextResponse.json({
     success: true,
@@ -99,34 +85,24 @@ export async function DELETE(
   context: { params: Promise<{ id: string }> }
 ) {
   const { response, session } = await requireApiAuth();
-
   if (response) return response;
 
   const { id } = await context.params;
 
   if (!isValidObjectId(id)) {
     return NextResponse.json(
-      {
-        success: false,
-        message: "Invalid sale ID.",
-      },
+      { success: false, message: "Invalid sale ID." },
       { status: 400 }
     );
   }
 
   await dbConnect();
 
-  const sale = await SaleModel.findOne({
-    _id: id,
-    isVoided: false,
-  });
+  const sale = await SaleModel.findOne({ _id: id, isVoided: false });
 
   if (!sale) {
     return NextResponse.json(
-      {
-        success: false,
-        message: "Sale not found.",
-      },
+      { success: false, message: "Sale not found." },
       { status: 404 }
     );
   }
@@ -141,42 +117,14 @@ export async function DELETE(
     );
   }
 
-  const lines = await SaleLineModel.find({
-    saleId: sale._id,
-  });
-
+  const lines = await SaleLineModel.find({ saleId: sale._id });
   const inventoryTransactions = [];
   const bodegaTransactions = [];
 
   for (const line of lines) {
-    if (line.source === "BODEGA1" && line.productId) {
-      const product = await ProductModel.findOne({
-        _id: line.productId,
-        isActive: true,
-      });
+    const stockToRestore = Number(line.stockPcsOut || line.qty || 0);
 
-      if (!product) continue;
-
-      const previousStock = product.stockPcs;
-      product.stockPcs += line.stockPcsOut;
-
-      await product.save();
-
-      inventoryTransactions.push({
-        productId: product._id,
-        type: "VOID_REVERSAL",
-        unit: "PCS",
-        quantity: line.stockPcsOut,
-        previousStock,
-        newStock: product.stockPcs,
-        remarks: `VOID SALE ${sale.receiptNumber}`,
-        referenceType: "SALE_VOID",
-        referenceId: sale._id,
-        createdBy: session?.user?.id,
-      });
-    }
-
-    if (line.source === "PRODUCT" && line.bodegaProductId) {
+    if (line.source === "CHICKEN" && line.bodegaProductId) {
       const product = await BodegaProductModel.findOne({
         _id: line.bodegaProductId,
         isActive: true,
@@ -184,17 +132,42 @@ export async function DELETE(
 
       if (!product) continue;
 
-      const previousStock = product.stockQty;
-      product.stockQty += line.qty;
-
+      const previousStock = Number(product.stockQty || 0);
+      product.stockQty = previousStock + stockToRestore;
       await product.save();
 
       bodegaTransactions.push({
         bodegaProductId: product._id,
         type: "VOID_REVERSAL",
-        quantity: line.qty,
+        quantity: stockToRestore,
         previousStock,
         newStock: product.stockQty,
+        remarks: `VOID SALE ${sale.receiptNumber}`,
+        referenceType: "SALE_VOID",
+        referenceId: sale._id,
+        createdBy: session?.user?.id,
+      });
+    }
+
+    if (line.source === "BODEGA" && line.productId) {
+      const product = await ProductModel.findOne({
+        _id: line.productId,
+        isActive: true,
+      });
+
+      if (!product) continue;
+
+      const previousStock = Number(product.stockPcs || 0);
+      product.stockPcs = previousStock + stockToRestore;
+      await product.save();
+
+      inventoryTransactions.push({
+        productId: product._id,
+        type: "VOID_REVERSAL",
+        unit: "PCS",
+        quantity: stockToRestore,
+        previousStock,
+        newStock: product.stockPcs,
         remarks: `VOID SALE ${sale.receiptNumber}`,
         referenceType: "SALE_VOID",
         referenceId: sale._id,
@@ -206,7 +179,6 @@ export async function DELETE(
   sale.isVoided = true;
   sale.status = "VOIDED";
   sale.balance = 0;
-
   await sale.save();
 
   if (inventoryTransactions.length > 0) {

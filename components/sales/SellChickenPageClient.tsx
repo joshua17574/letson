@@ -48,7 +48,6 @@ type ChickenProductOption = {
   stockPcs: number;
   availablePacks: number;
   loosePcs: number;
-  isPackBased?: boolean;
 };
 
 type CartItem = {
@@ -74,9 +73,9 @@ function wholeNumber(value: unknown) {
   return Math.max(0, Math.trunc(numberValue(value)));
 }
 
-function formatNumber(value: number) {
-  return numberValue(value).toLocaleString(undefined, {
-    maximumFractionDigits: 2,
+function formatWholeNumber(value: number | undefined) {
+  return Number(value || 0).toLocaleString(undefined, {
+    maximumFractionDigits: 0,
   });
 }
 
@@ -92,9 +91,7 @@ export function SellChickenPageClient() {
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
 
-  const selectedProduct = products.find(
-    (product) => product.bodegaProductId === selectedProductId
-  );
+  const selectedProduct = products.find((product) => product.productId === selectedProductId);
 
   const grandTotal = useMemo(() => {
     return cart.reduce((sum, item) => sum + item.packs * item.pricePerPack, 0);
@@ -130,9 +127,7 @@ export function SellChickenPageClient() {
     try {
       await Promise.all([loadCustomers(), loadProducts()]);
     } catch (error) {
-      toast.error(
-        error instanceof Error ? error.message : "Failed to load sales data."
-      );
+      toast.error(error instanceof Error ? error.message : "Failed to load sales data.");
     } finally {
       setIsLoading(false);
     }
@@ -156,23 +151,21 @@ export function SellChickenPageClient() {
     }
 
     if (selectedProduct.packSize <= 0) {
-      toast.error("Pack size is missing for this product.");
+      toast.error("Pack size is not configured for this product.");
       return;
     }
 
     if (selectedProduct.pricePerPack <= 0) {
-      toast.error(`Selling price per pack is missing for ${selectedProduct.name}.`);
+      toast.error("Price per pack is not configured for this product.");
       return;
     }
 
-    const existing = cart.find(
-      (item) => item.bodegaProductId === selectedProduct.bodegaProductId
-    );
+    const existing = cart.find((item) => item.bodegaProductId === selectedProduct.bodegaProductId);
     const currentPacks = existing?.packs || 0;
     const newTotalPacks = currentPacks + packsToSell;
 
     if (newTotalPacks > selectedProduct.availablePacks) {
-      toast.error(`Not enough stock. Available full packs: ${selectedProduct.availablePacks}.`);
+      toast.error(`Not enough stock. Available packs: ${selectedProduct.availablePacks}.`);
       return;
     }
 
@@ -214,9 +207,7 @@ export function SellChickenPageClient() {
   }
 
   function removeCartItem(bodegaProductId: string) {
-    setCart((current) =>
-      current.filter((item) => item.bodegaProductId !== bodegaProductId)
-    );
+    setCart((current) => current.filter((item) => item.bodegaProductId !== bodegaProductId));
   }
 
   async function submitSale() {
@@ -256,7 +247,6 @@ export function SellChickenPageClient() {
           })),
         }),
       });
-
       const json = await res.json();
 
       if (!res.ok || !json.success) {
@@ -271,9 +261,7 @@ export function SellChickenPageClient() {
       setCart([]);
       await loadProducts();
     } catch (error) {
-      toast.error(
-        error instanceof Error ? error.message : "Failed to submit sale."
-      );
+      toast.error(error instanceof Error ? error.message : "Failed to submit sale.");
     } finally {
       setIsSaving(false);
     }
@@ -281,31 +269,30 @@ export function SellChickenPageClient() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <h1 className="text-3xl font-bold tracking-tight">Sell Products</h1>
-        <Button className="rounded-xl">
-          <ShoppingCart className="mr-2 h-4 w-4" />
-          Sell Chicken
-        </Button>
+      <div>
+        <h1 className="text-2xl font-bold tracking-tight">Sell Products</h1>
+        <p className="text-sm text-muted-foreground">
+          Sell sliced chicken by pack. Stock is deducted as packs multiplied by pack size.
+        </p>
       </div>
 
-      <Card className="rounded-2xl border-slate-200 shadow-sm">
+      <Card>
         <CardHeader>
-          <CardTitle>Create Sale</CardTitle>
+          <CardTitle>Sell Chicken</CardTitle>
         </CardHeader>
         <CardContent>
           {isLoading ? (
-            <div className="flex h-56 items-center justify-center">
+            <div className="flex h-40 items-center justify-center">
               <Loader2 className="h-6 w-6 animate-spin" />
             </div>
           ) : (
             <div className="space-y-5">
-              <div className="grid gap-4 lg:grid-cols-3">
-                <div className="space-y-2">
+              <div className="grid gap-4 md:grid-cols-3">
+                <div>
                   <Label>Customer *</Label>
                   <Select value={customerId} onValueChange={setCustomerId}>
                     <SelectTrigger>
-                      <SelectValue placeholder="-- Select customer --" />
+                      <SelectValue placeholder="Select customer" />
                     </SelectTrigger>
                     <SelectContent>
                       {customers.map((customer) => (
@@ -317,7 +304,7 @@ export function SellChickenPageClient() {
                   </Select>
                 </div>
 
-                <div className="space-y-2">
+                <div>
                   <Label>Sale Date *</Label>
                   <Input
                     type="date"
@@ -326,7 +313,7 @@ export function SellChickenPageClient() {
                   />
                 </div>
 
-                <div className="space-y-2">
+                <div>
                   <Label>Receipt Number *</Label>
                   <Input
                     value={receiptNumber}
@@ -336,73 +323,81 @@ export function SellChickenPageClient() {
                 </div>
               </div>
 
-              <div className="grid gap-4 lg:grid-cols-[1.2fr_1.8fr_0.7fr_0.7fr]">
-                <div className="space-y-2">
+              <div className="grid gap-4 md:grid-cols-4">
+                <div className="md:col-span-2">
                   <Label>Product</Label>
                   <Select value={selectedProductId} onValueChange={setSelectedProductId}>
                     <SelectTrigger>
-                      <SelectValue placeholder="-- Select bodega product --" />
+                      <SelectValue placeholder="Select chicken product" />
                     </SelectTrigger>
                     <SelectContent>
                       {products.map((product) => (
-                        <SelectItem key={product.bodegaProductId} value={product.bodegaProductId}>
-                          {product.name} - {product.availablePacks} packs available
+                        <SelectItem key={product.productId} value={product.productId}>
+                          {product.name} - {product.availablePacks} packs / {product.loosePcs} pcs loose
                         </SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
                 </div>
 
-                <div className="space-y-2">
+                <div>
                   <Label>Available / Price</Label>
-                  <Input
-                    readOnly
-                    value={
-                      selectedProduct
-                        ? `${selectedProduct.availablePacks} packs + ${selectedProduct.loosePcs} loose pcs (${selectedProduct.stockPcs} pcs total) | ${formatPeso(selectedProduct.pricePerPack)}/pack | ${formatPeso(selectedProduct.pricePerPcs)}/pc`
-                        : "0 packs available"
-                    }
-                  />
+                  <div className="rounded-md border px-3 py-2 text-sm">
+                    {selectedProduct ? (
+                      <>
+                        <div className="font-semibold">
+                          {formatWholeNumber(selectedProduct.availablePacks)} packs / {formatWholeNumber(selectedProduct.loosePcs)} pcs loose
+                        </div>
+                        <div className="text-xs text-muted-foreground">
+                          {formatWholeNumber(selectedProduct.stockPcs)} pcs total, {formatWholeNumber(selectedProduct.packSize)} pcs / pack
+                        </div>
+                        <div className="text-xs text-muted-foreground">
+                          {formatPeso(selectedProduct.pricePerPack)} / pack, {formatPeso(selectedProduct.pricePerPcs)} / pcs
+                        </div>
+                      </>
+                    ) : (
+                      <span className="text-muted-foreground">Select product</span>
+                    )}
+                  </div>
                 </div>
 
-                <div className="space-y-2">
+                <div>
                   <Label>Packs to Sell</Label>
-                  <Input
-                    type="number"
-                    min="0"
-                    step="1"
-                    value={packs}
-                    onChange={(event) => setPacks(event.target.value)}
-                  />
-                </div>
-
-                <div className="flex items-end">
-                  <Button type="button" className="w-full" onClick={addToCart}>
-                    <ShoppingCart className="h-4 w-4" />
-                  </Button>
+                  <div className="flex gap-2">
+                    <Input
+                      type="number"
+                      min="0"
+                      step="1"
+                      value={packs}
+                      onChange={(event) => setPacks(event.target.value)}
+                    />
+                    <Button type="button" onClick={addToCart}>
+                      <ShoppingCart className="mr-2 h-4 w-4" />
+                      Add
+                    </Button>
+                  </div>
                 </div>
               </div>
 
-              <div className="overflow-hidden rounded-xl border border-slate-200">
+              <div className="overflow-x-auto rounded-md border">
                 <Table>
-                  <TableHeader className="bg-slate-950">
+                  <TableHeader>
                     <TableRow>
-                      <TableHead className="text-white">#</TableHead>
-                      <TableHead className="text-white">Product</TableHead>
-                      <TableHead className="text-white">Category</TableHead>
-                      <TableHead className="text-right text-white">Available Packs</TableHead>
-                      <TableHead className="text-right text-white">Packs to Sell</TableHead>
-                      <TableHead className="text-right text-white">PCS Out</TableHead>
-                      <TableHead className="text-right text-white">Price / Pack</TableHead>
-                      <TableHead className="text-right text-white">Price / PCS</TableHead>
-                      <TableHead className="text-right text-white">Line Total</TableHead>
-                      <TableHead className="text-center text-white">Action</TableHead>
+                      <TableHead>#</TableHead>
+                      <TableHead>Product</TableHead>
+                      <TableHead>Category</TableHead>
+                      <TableHead className="text-right">Available</TableHead>
+                      <TableHead className="text-right">Packs to Sell</TableHead>
+                      <TableHead className="text-right">PCS Out</TableHead>
+                      <TableHead className="text-right">Price / Pack</TableHead>
+                      <TableHead className="text-right">Line Total</TableHead>
+                      <TableHead className="text-center">Action</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {cart.length === 0 ? (
                       <TableRow>
-                        <TableCell colSpan={10} className="h-24 text-center text-muted-foreground">
+                        <TableCell colSpan={9} className="h-24 text-center text-muted-foreground">
                           No items yet.
                         </TableCell>
                       </TableRow>
@@ -413,24 +408,24 @@ export function SellChickenPageClient() {
                           <TableCell className="font-medium">{item.name}</TableCell>
                           <TableCell>{item.categoryName}</TableCell>
                           <TableCell className="text-right">
-                            {item.availablePacks.toLocaleString()} packs
-                            {item.loosePcs > 0 ? ` + ${item.loosePcs} pcs` : ""}
+                            {formatWholeNumber(item.availablePacks)} packs / {formatWholeNumber(item.loosePcs)} pcs loose
                           </TableCell>
-                          <TableCell className="text-right">{item.packs.toLocaleString()}</TableCell>
-                          <TableCell className="text-right">{item.stockPcsOut.toLocaleString()} pcs</TableCell>
+                          <TableCell className="text-right">{formatWholeNumber(item.packs)}</TableCell>
+                          <TableCell className="text-right">
+                            {formatWholeNumber(item.stockPcsOut)} pcs
+                          </TableCell>
                           <TableCell className="text-right">{formatPeso(item.pricePerPack)}</TableCell>
-                          <TableCell className="text-right">{formatPeso(item.pricePerPcs)}</TableCell>
-                          <TableCell className="text-right font-semibold">
+                          <TableCell className="text-right">
                             {formatPeso(item.packs * item.pricePerPack)}
                           </TableCell>
                           <TableCell className="text-center">
                             <Button
                               type="button"
                               size="icon"
-                              variant="destructive"
+                              variant="ghost"
                               onClick={() => removeCartItem(item.bodegaProductId)}
                             >
-                              <Trash2 className="h-4 w-4" />
+                              <Trash2 className="h-4 w-4 text-red-600" />
                             </Button>
                           </TableCell>
                         </TableRow>
@@ -440,9 +435,10 @@ export function SellChickenPageClient() {
                 </Table>
               </div>
 
-              <div className="flex flex-col items-end gap-3">
-                <div className="text-2xl font-bold">
-                  Grand Total: {formatPeso(grandTotal)}
+              <div className="flex items-center justify-between rounded-lg bg-slate-50 p-4">
+                <div>
+                  <p className="text-sm text-muted-foreground">Grand Total</p>
+                  <p className="text-2xl font-bold">{formatPeso(grandTotal)}</p>
                 </div>
                 <Button type="button" onClick={submitSale} disabled={isSaving || cart.length === 0}>
                   {isSaving ? (

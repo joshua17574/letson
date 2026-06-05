@@ -1,4 +1,3 @@
-// app/api/inventory/bodega/route.ts
 import { NextRequest, NextResponse } from "next/server";
 
 import dbConnect from "@/lib/mongodb";
@@ -15,7 +14,6 @@ function getTransactionSign(type: string) {
   if (type === "DAMAGED") return "OUT";
   if (type === "EXPIRED") return "OUT";
   if (type === "VOID_REVERSAL") return "OUT";
-
   return "NONE";
 }
 
@@ -54,7 +52,6 @@ function getPackBreakdown(totalPcsValue: unknown, packSizeValue: unknown) {
 
 export async function GET(req: NextRequest) {
   const { response } = await requireApiAuth();
-
   if (response) return response;
 
   await dbConnect();
@@ -69,61 +66,56 @@ export async function GET(req: NextRequest) {
   };
 
   if (search) {
-    productFilter.name = {
-      $regex: escapeRegex(search),
-      $options: "i",
-    };
+    productFilter.name = { $regex: escapeRegex(search), $options: "i" };
   }
 
   const products = await BodegaProductModel.find(productFilter)
     .sort({ name: 1 })
     .lean();
 
-  const productIds = products.map((product) => product._id);
+  const productIds = products
+    .map((product: any) => product._id)
+    .filter(Boolean);
 
   const transactionFilter: Record<string, any> = {
-    bodegaProductId: {
-      $in: productIds,
-    },
+    bodegaProductId: { $in: productIds },
   };
 
   if (dateFrom || dateTo) {
     transactionFilter.createdAt = {};
-
     if (dateFrom) {
       transactionFilter.createdAt.$gte = new Date(`${dateFrom}T00:00:00.000Z`);
     }
-
     if (dateTo) {
       transactionFilter.createdAt.$lte = new Date(`${dateTo}T23:59:59.999Z`);
     }
   }
 
   const [transactions, standardPackings] = await Promise.all([
-    BodegaStockTransactionModel.find(transactionFilter).sort({ createdAt: -1 }).lean(),
-    StandardPackingModel.find({
-      isActive: true,
-      productId: {
-        $in: productIds,
-      },
-      standardPacking: {
-        $gt: 0,
-      },
-    })
+    BodegaStockTransactionModel.find(transactionFilter)
+      .sort({ createdAt: -1 })
+      .lean(),
+    (StandardPackingModel as any)
+      .find({
+        isActive: true,
+        productId: { $in: productIds },
+        standardPacking: { $gt: 0 },
+      })
       .sort({ updatedAt: -1 })
       .lean(),
   ]);
 
   const packSizeMap = new Map<string, number>();
 
-  for (const standard of standardPackings) {
+  for (const standard of standardPackings as any[]) {
     const productId = standard.productId?.toString?.() || "";
     const packSize = toWhole(standard.standardPacking);
 
     if (!productId || packSize <= 0) continue;
 
-    // If the same sliced product appears in multiple standards, keep the first
-    // recent active standard. Standard packing should normally be the same per output product.
+    // If the same sliced product appears in multiple standards, keep the most
+    // recently updated active standard. Standard packing should normally be the
+    // same per output product.
     if (!packSizeMap.has(productId)) {
       packSizeMap.set(productId, packSize);
     }
@@ -138,11 +130,10 @@ export async function GET(req: NextRequest) {
     }
   >();
 
-  for (const transaction of transactions) {
+  for (const transaction of transactions as any[]) {
     const productId = transaction.bodegaProductId?.toString?.() || "";
     const sign = getTransactionSign(transaction.type);
     const quantity = toNumber(transaction.quantity);
-
     const current = movementMap.get(productId) || {
       stockIn: 0,
       stockOut: 0,
@@ -168,7 +159,7 @@ export async function GET(req: NextRequest) {
     movementMap.set(productId, current);
   }
 
-  const data = products.map((product) => {
+  const data = products.map((product: any) => {
     const id = product._id.toString();
     const movement = movementMap.get(id) || {
       stockIn: 0,
@@ -215,8 +206,10 @@ export async function GET(req: NextRequest) {
       stockIn: sum.stockIn + row.stockIn,
       stockOut: sum.stockOut + row.stockOut,
       currentStock: sum.currentStock + row.currentStock,
-      slicedStockInPcs: sum.slicedStockInPcs + (row.isPackProduct ? row.stockIn : 0),
-      slicedStockOutPcs: sum.slicedStockOutPcs + (row.isPackProduct ? row.stockOut : 0),
+      slicedStockInPcs:
+        sum.slicedStockInPcs + (row.isPackProduct ? row.stockIn : 0),
+      slicedStockOutPcs:
+        sum.slicedStockOutPcs + (row.isPackProduct ? row.stockOut : 0),
       slicedCurrentPcs:
         sum.slicedCurrentPcs + (row.isPackProduct ? row.currentStock : 0),
       unitStockIn: sum.unitStockIn + (!row.isPackProduct ? row.stockIn : 0),

@@ -58,11 +58,9 @@ type BodegaProductItem = {
   name: string;
   categoryId: string;
   categoryName: string;
-
-  // Raw database quantity. For sliced products this is PCS.
   stockQty: number;
-
-  // Owner-friendly display fields from /api/bodega-products.
+  buyingPrice: number;
+  sellingPrice: number;
   isPackProduct?: boolean;
   packSize?: number;
   stockPcs?: number;
@@ -71,9 +69,6 @@ type BodegaProductItem = {
   stockDisplay?: string;
   pricePerPack?: number;
   pricePerPcs?: number;
-
-  buyingPrice: number;
-  sellingPrice: number;
 };
 
 type ApiMeta = {
@@ -96,28 +91,38 @@ const emptyStockForm = {
   remarks: "",
 };
 
-function numberValue(value: unknown) {
-  const parsed = Number(value);
-  return Number.isFinite(parsed) ? parsed : 0;
+function formatWholeNumber(value: number | undefined) {
+  return Number(value || 0).toLocaleString(undefined, {
+    maximumFractionDigits: 0,
+  });
 }
 
-function formatNumber(value: unknown) {
-  return numberValue(value).toLocaleString();
-}
-
-function getOwnerStockLabel(product: BodegaProductItem) {
-  if (product.stockDisplay) return product.stockDisplay;
-
-  if (product.isPackProduct && numberValue(product.packSize) > 0) {
-    const stockPcs = Math.max(0, Math.trunc(numberValue(product.stockQty)));
-    const packSize = Math.max(0, Math.trunc(numberValue(product.packSize)));
-    const packs = Math.floor(stockPcs / packSize);
-    const loosePcs = stockPcs - packs * packSize;
-
-    return `${packs.toLocaleString()} packs / ${loosePcs.toLocaleString()} pcs loose - ${stockPcs.toLocaleString()} pcs total`;
+function renderStockSummary(product: BodegaProductItem) {
+  if (!product.isPackProduct || !product.packSize) {
+    return (
+      <div className="text-right">
+        <div className="font-semibold">{formatWholeNumber(product.stockQty)}</div>
+        <div className="text-xs text-muted-foreground">base units</div>
+      </div>
+    );
   }
 
-  return `${formatNumber(product.stockQty)} pcs total`;
+  return (
+    <div className="text-right leading-tight">
+      <div className="font-semibold text-slate-950">
+        {formatWholeNumber(product.stockPacks)} packs
+        {Number(product.stockLoosePcs || 0) > 0
+          ? ` / ${formatWholeNumber(product.stockLoosePcs)} pcs loose`
+          : ""}
+      </div>
+      <div className="text-xs text-muted-foreground">
+        {formatWholeNumber(product.stockPcs)} pcs total
+      </div>
+      <div className="text-xs text-muted-foreground">
+        {formatWholeNumber(product.packSize)} pcs / pack
+      </div>
+    </div>
+  );
 }
 
 export function BodegaProductsPageClient() {
@@ -129,20 +134,17 @@ export function BodegaProductsPageClient() {
     total: 0,
     totalPages: 1,
   });
-
   const [page, setPage] = useState(1);
   const [limit, setLimit] = useState("100");
   const [search, setSearch] = useState("");
   const [draftSearch, setDraftSearch] = useState("");
   const [categoryId, setCategoryId] = useState("ALL");
-
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [formDialogOpen, setFormDialogOpen] = useState(false);
   const [stockDialogOpen, setStockDialogOpen] = useState(false);
   const [editingProduct, setEditingProduct] = useState<BodegaProductItem | null>(null);
   const [stockProduct, setStockProduct] = useState<BodegaProductItem | null>(null);
-
   const [form, setForm] = useState(emptyForm);
   const [stockForm, setStockForm] = useState(emptyStockForm);
 
@@ -159,9 +161,7 @@ export function BodegaProductsPageClient() {
 
       setCategories(json.data || []);
     } catch (error) {
-      toast.error(
-        error instanceof Error ? error.message : "Failed to load categories."
-      );
+      toast.error(error instanceof Error ? error.message : "Failed to load categories.");
     }
   }
 
@@ -196,9 +196,7 @@ export function BodegaProductsPageClient() {
         }
       );
     } catch (error) {
-      toast.error(
-        error instanceof Error ? error.message : "Failed to load bodega products."
-      );
+      toast.error(error instanceof Error ? error.message : "Failed to load bodega products.");
     } finally {
       setIsLoading(false);
     }
@@ -264,7 +262,6 @@ export function BodegaProductsPageClient() {
       const url = editingProduct
         ? `/api/bodega-products/${editingProduct._id}`
         : "/api/bodega-products";
-
       const res = await fetch(url, {
         method: editingProduct ? "PATCH" : "POST",
         headers: {
@@ -272,7 +269,6 @@ export function BodegaProductsPageClient() {
         },
         body: JSON.stringify(payload),
       });
-
       const json = await res.json();
 
       if (!res.ok || !json.success) {
@@ -283,9 +279,7 @@ export function BodegaProductsPageClient() {
       setFormDialogOpen(false);
       await loadProducts();
     } catch (error) {
-      toast.error(
-        error instanceof Error ? error.message : "Failed to save bodega product."
-      );
+      toast.error(error instanceof Error ? error.message : "Failed to save bodega product.");
     } finally {
       setIsSaving(false);
     }
@@ -298,17 +292,13 @@ export function BodegaProductsPageClient() {
     setIsSaving(true);
 
     try {
-      const res = await fetch(
-        `/api/bodega-products/${stockProduct._id}/stock-in`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify(stockForm),
-        }
-      );
-
+      const res = await fetch(`/api/bodega-products/${stockProduct._id}/stock-in`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(stockForm),
+      });
       const json = await res.json();
 
       if (!res.ok || !json.success) {
@@ -342,9 +332,7 @@ export function BodegaProductsPageClient() {
       toast.success(json.message || "Bodega product deleted successfully.");
       await loadProducts();
     } catch (error) {
-      toast.error(
-        error instanceof Error ? error.message : "Failed to delete bodega product."
-      );
+      toast.error(error instanceof Error ? error.message : "Failed to delete bodega product.");
     }
   }
 
@@ -366,16 +354,22 @@ export function BodegaProductsPageClient() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-3xl font-bold tracking-tight">Bodega Products</h1>
-        <p className="text-sm text-muted-foreground">
-          Stock for sliced products is stored as PCS but displayed as packs plus loose PCS.
-        </p>
+      <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight">Bodega Products</h1>
+          <p className="text-sm text-muted-foreground">
+            Owner-friendly stock display: packs and loose pcs are calculated from total PCS.
+          </p>
+        </div>
+        <Button onClick={openCreateDialog}>
+          <Plus className="mr-2 h-4 w-4" />
+          Add Product
+        </Button>
       </div>
 
       <Card>
-        <CardContent className="grid gap-4 p-4 md:grid-cols-4">
-          <div className="space-y-2 md:col-span-2">
+        <CardContent className="grid gap-4 p-5 md:grid-cols-4">
+          <div>
             <Label>Search Product</Label>
             <Input
               value={draftSearch}
@@ -387,7 +381,7 @@ export function BodegaProductsPageClient() {
             />
           </div>
 
-          <div className="space-y-2">
+          <div>
             <Label>Category</Label>
             <Select
               value={categoryId}
@@ -410,7 +404,7 @@ export function BodegaProductsPageClient() {
             </Select>
           </div>
 
-          <div className="space-y-2">
+          <div>
             <Label>Show entries</Label>
             <Select
               value={limit}
@@ -431,8 +425,8 @@ export function BodegaProductsPageClient() {
             </Select>
           </div>
 
-          <div className="flex gap-2 md:col-span-4">
-            <Button onClick={applySearch}>
+          <div className="flex items-end gap-2">
+            <Button onClick={applySearch} className="flex-1">
               <Search className="mr-2 h-4 w-4" />
               Search
             </Button>
@@ -447,18 +441,11 @@ export function BodegaProductsPageClient() {
       <Card>
         <CardHeader className="flex flex-row items-center justify-between">
           <CardTitle>All Bodega Products</CardTitle>
-          <div className="flex gap-2">
-            <Button variant="outline" onClick={handlePrint}>
-              <Printer className="mr-2 h-4 w-4" />
-              Print
-            </Button>
-            <Button onClick={openCreateDialog}>
-              <Plus className="mr-2 h-4 w-4" />
-              Add Product
-            </Button>
-          </div>
+          <Button variant="outline" onClick={handlePrint}>
+            <Printer className="mr-2 h-4 w-4" />
+            Print
+          </Button>
         </CardHeader>
-
         <CardContent>
           <div className="overflow-x-auto rounded-md border">
             <Table>
@@ -466,25 +453,23 @@ export function BodegaProductsPageClient() {
                 <TableRow>
                   <TableHead>Product Name</TableHead>
                   <TableHead>Category</TableHead>
-                  <TableHead>Stock</TableHead>
-                  <TableHead className="text-right">Pack Size</TableHead>
+                  <TableHead className="text-right">Stock Summary</TableHead>
                   <TableHead className="text-right">Buying Price</TableHead>
-                  <TableHead className="text-right">Price / Pack</TableHead>
                   <TableHead className="text-right">Price / PCS</TableHead>
+                  <TableHead className="text-right">Price / Pack</TableHead>
                   <TableHead className="text-center">Action</TableHead>
                 </TableRow>
               </TableHeader>
-
               <TableBody>
                 {isLoading ? (
                   <TableRow>
-                    <TableCell colSpan={8} className="h-24 text-center">
+                    <TableCell colSpan={7} className="h-32 text-center">
                       <Loader2 className="mx-auto h-5 w-5 animate-spin" />
                     </TableCell>
                   </TableRow>
                 ) : products.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={8} className="h-24 text-center text-muted-foreground">
+                    <TableCell colSpan={7} className="h-32 text-center text-muted-foreground">
                       No bodega products found.
                     </TableCell>
                   </TableRow>
@@ -493,54 +478,25 @@ export function BodegaProductsPageClient() {
                     <TableRow key={product._id}>
                       <TableCell className="font-medium">{product.name}</TableCell>
                       <TableCell>{product.categoryName || "-"}</TableCell>
-                      <TableCell>
-                        <div className="font-medium">{getOwnerStockLabel(product)}</div>
-                        {product.isPackProduct ? (
-                          <div className="text-xs text-muted-foreground">
-                            Base inventory: {formatNumber(product.stockPcs ?? product.stockQty)} pcs
-                          </div>
-                        ) : null}
-                      </TableCell>
-                      <TableCell className="text-right">
-                        {product.isPackProduct
-                          ? `${formatNumber(product.packSize)} pcs/pack`
-                          : "-"}
-                      </TableCell>
+                      <TableCell>{renderStockSummary(product)}</TableCell>
                       <TableCell className="text-right">{formatPeso(product.buyingPrice)}</TableCell>
                       <TableCell className="text-right">
-                        {product.isPackProduct
-                          ? formatPeso(product.pricePerPack || product.sellingPrice)
-                          : formatPeso(product.sellingPrice)}
+                        {product.isPackProduct ? formatPeso(product.pricePerPcs || 0) : "-"}
                       </TableCell>
                       <TableCell className="text-right">
                         {product.isPackProduct
-                          ? formatPeso(product.pricePerPcs || 0)
-                          : "-"}
+                          ? formatPeso(product.pricePerPack || 0)
+                          : formatPeso(product.sellingPrice)}
                       </TableCell>
                       <TableCell>
                         <div className="flex justify-center gap-2">
-                          <Button
-                            size="icon"
-                            variant="outline"
-                            onClick={() => openStockDialog(product)}
-                            title="Add stock"
-                          >
+                          <Button size="icon" variant="outline" onClick={() => openStockDialog(product)}>
                             <PackagePlus className="h-4 w-4" />
                           </Button>
-                          <Button
-                            size="icon"
-                            variant="outline"
-                            onClick={() => openEditDialog(product)}
-                            title="Edit product"
-                          >
+                          <Button size="icon" variant="outline" onClick={() => openEditDialog(product)}>
                             <Pencil className="h-4 w-4" />
                           </Button>
-                          <Button
-                            size="icon"
-                            variant="destructive"
-                            onClick={() => handleDelete(product)}
-                            title="Delete product"
-                          >
+                          <Button size="icon" variant="destructive" onClick={() => handleDelete(product)}>
                             <Trash2 className="h-4 w-4" />
                           </Button>
                         </div>
@@ -556,8 +512,8 @@ export function BodegaProductsPageClient() {
             <span>Showing {products.length} of {meta.total} records</span>
             <div className="flex items-center gap-2">
               <Button
-                variant="outline"
                 size="sm"
+                variant="outline"
                 disabled={page <= 1 || isLoading}
                 onClick={() => setPage((current) => Math.max(current - 1, 1))}
               >
@@ -567,8 +523,8 @@ export function BodegaProductsPageClient() {
                 Page {meta.page} of {meta.totalPages}
               </span>
               <Button
-                variant="outline"
                 size="sm"
+                variant="outline"
                 disabled={page >= meta.totalPages || isLoading}
                 onClick={() => setPage((current) => Math.min(current + 1, meta.totalPages))}
               >
@@ -586,7 +542,7 @@ export function BodegaProductsPageClient() {
           </DialogHeader>
 
           <form onSubmit={handleSubmit} className="space-y-4">
-            <div className="space-y-2">
+            <div>
               <Label>Product Name</Label>
               <Input
                 value={form.name}
@@ -596,12 +552,9 @@ export function BodegaProductsPageClient() {
               />
             </div>
 
-            <div className="space-y-2">
+            <div>
               <Label>Category</Label>
-              <Select
-                value={form.categoryId}
-                onValueChange={(value) => updateForm("categoryId", value)}
-              >
+              <Select value={form.categoryId} onValueChange={(value) => updateForm("categoryId", value)}>
                 <SelectTrigger>
                   <SelectValue placeholder="Select category" />
                 </SelectTrigger>
@@ -617,20 +570,21 @@ export function BodegaProductsPageClient() {
             </div>
 
             <div className="grid gap-4 md:grid-cols-3">
-              <div className="space-y-2">
+              <div>
                 <Label>Stock QTY</Label>
                 <Input
                   type="number"
                   min="0"
+                  step="1"
                   value={form.stockQty}
                   onChange={(event) => updateForm("stockQty", event.target.value)}
                 />
-                <p className="text-xs text-muted-foreground">
-                  For sliced products, enter total PCS. Pack display is calculated from Standard PCS & Packs.
+                <p className="mt-1 text-xs text-muted-foreground">
+                  For sliced products, enter total PCS. Packs are calculated from Standard PCS & Packs.
                 </p>
               </div>
 
-              <div className="space-y-2">
+              <div>
                 <Label>Buying Price</Label>
                 <Input
                   type="number"
@@ -641,7 +595,7 @@ export function BodegaProductsPageClient() {
                 />
               </div>
 
-              <div className="space-y-2">
+              <div>
                 <Label>Selling Price</Label>
                 <Input
                   type="number"
@@ -650,8 +604,8 @@ export function BodegaProductsPageClient() {
                   value={form.sellingPrice}
                   onChange={(event) => updateForm("sellingPrice", event.target.value)}
                 />
-                <p className="text-xs text-muted-foreground">
-                  For sliced products with a standard, this is price per pack.
+                <p className="mt-1 text-xs text-muted-foreground">
+                  For sliced products, this is price per pack.
                 </p>
               </div>
             </div>
@@ -674,27 +628,23 @@ export function BodegaProductsPageClient() {
             <DialogTitle>Add Stock: {stockProduct?.name}</DialogTitle>
           </DialogHeader>
 
-          {stockProduct ? (
-            <div className="rounded-md border bg-muted/40 p-3 text-sm">
-              Current stock: <span className="font-semibold">{getOwnerStockLabel(stockProduct)}</span>
-            </div>
-          ) : null}
-
           <form onSubmit={handleStockIn} className="space-y-4">
-            <div className="space-y-2">
+            <div>
               <Label>Quantity</Label>
               <Input
                 type="number"
                 min="0"
+                step="1"
                 value={stockForm.quantity}
                 onChange={(event) => updateStockForm("quantity", event.target.value)}
               />
-              <p className="text-xs text-muted-foreground">
-                Enter PCS for sliced products. Example: 1 pack of C10 = 50 pcs.
-              </p>
+              {stockProduct?.isPackProduct ? (
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Enter PCS. Example: 30 pcs now plus 20 pcs later becomes 1 full pack automatically.
+                </p>
+              ) : null}
             </div>
-
-            <div className="space-y-2">
+            <div>
               <Label>Remarks</Label>
               <Textarea
                 value={stockForm.remarks}
@@ -702,13 +652,12 @@ export function BodegaProductsPageClient() {
                 placeholder="Optional remarks"
               />
             </div>
-
             <DialogFooter>
               <Button type="button" variant="outline" onClick={() => setStockDialogOpen(false)} disabled={isSaving}>
                 Cancel
               </Button>
               <Button type="submit" disabled={isSaving}>
-                {isSaving ? "Saving..." : "Add Stock"}
+                {isSaving ? "Adding..." : "Add Stock"}
               </Button>
             </DialogFooter>
           </form>
