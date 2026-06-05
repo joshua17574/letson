@@ -37,11 +37,13 @@ const SlicingItemSchema = new Schema<ISlicingItem>(
       ref: "SlicingBatch",
       required: true,
     },
+    // This points to models/StandardPacking.ts, not an old SlicingStandard model.
     standardId: {
       type: Schema.Types.ObjectId,
       ref: "StandardPacking",
       required: true,
     },
+    // Slicing now uses bodega products for both input whole chicken and output sliced product.
     mainProductId: {
       type: Schema.Types.ObjectId,
       ref: "BodegaProduct",
@@ -159,8 +161,11 @@ SlicingItemSchema.index({ batchId: 1 });
 SlicingItemSchema.index({ standardId: 1 });
 SlicingItemSchema.index({ mainProductId: 1 });
 SlicingItemSchema.index({ slicedProductId: 1 });
+SlicingItemSchema.index({ batchId: 1, slicedProductId: 1 });
+SlicingItemSchema.index({ batchId: 1, mainProductId: 1 });
 
 const SlicingItemModel: Model<ISlicingItem> =
-  mongoose.models.SlicingItem || mongoose.model("SlicingItem", SlicingItemSchema);
+  mongoose.models.SlicingItem ||
+  mongoose.model<ISlicingItem>("SlicingItem", SlicingItemSchema);
 
 export default SlicingItemModel;

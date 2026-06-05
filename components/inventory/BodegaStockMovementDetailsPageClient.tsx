@@ -2,14 +2,11 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { Loader2, RefreshCcw, Search } from "lucide-react";
+import { Loader2 } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-} from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -28,6 +25,13 @@ type ProductSummary = {
   currentStock: number;
   price: number;
   lastUpdated?: string;
+  isPackProduct?: boolean;
+  packSize?: number;
+  currentStockPcs?: number;
+  currentStockPacks?: number;
+  currentStockLoosePcs?: number;
+  pricePerPack?: number;
+  pricePerPcs?: number;
 };
 
 type BodegaDetail = {
@@ -39,6 +43,12 @@ type BodegaDetail = {
   qtyOut: number;
   previousStock: number;
   newStock: number;
+  quantityPacks?: number;
+  quantityLoosePcs?: number;
+  previousStockPacks?: number;
+  previousStockLoosePcs?: number;
+  newStockPacks?: number;
+  newStockLoosePcs?: number;
   remarks: string;
 };
 
@@ -49,53 +59,36 @@ type Props = {
 export function BodegaStockMovementDetailsPageClient({ productId }: Props) {
   const [product, setProduct] = useState<ProductSummary | null>(null);
   const [rows, setRows] = useState<BodegaDetail[]>([]);
-
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
-
   const [appliedFilters, setAppliedFilters] = useState({
     dateFrom: "",
     dateTo: "",
   });
-
   const [isLoading, setIsLoading] = useState(true);
 
   async function loadDetails() {
     setIsLoading(true);
 
     const params = new URLSearchParams();
-
-    if (appliedFilters.dateFrom) {
-      params.set("dateFrom", appliedFilters.dateFrom);
-    }
-
-    if (appliedFilters.dateTo) {
-      params.set("dateTo", appliedFilters.dateTo);
-    }
+    if (appliedFilters.dateFrom) params.set("dateFrom", appliedFilters.dateFrom);
+    if (appliedFilters.dateTo) params.set("dateTo", appliedFilters.dateTo);
 
     try {
-      const res = await fetch(
-        `/api/inventory/bodega/${productId}?${params.toString()}`,
-        {
-          cache: "no-store",
-        }
-      );
-
+      const res = await fetch(`/api/inventory/bodega/${productId}?${params.toString()}`, {
+        cache: "no-store",
+      });
       const json = await res.json();
 
       if (!res.ok || !json.success) {
-        throw new Error(
-          json.message || "Failed to load bodega movement details."
-        );
+        throw new Error(json.message || "Failed to load bodega movement details.");
       }
 
       setProduct(json.product || null);
       setRows(json.data || []);
     } catch (error) {
       toast.error(
-        error instanceof Error
-          ? error.message
-          : "Failed to load bodega movement details."
+        error instanceof Error ? error.message : "Failed to load bodega movement details."
       );
     } finally {
       setIsLoading(false);
@@ -117,21 +110,24 @@ export function BodegaStockMovementDetailsPageClient({ productId }: Props) {
   function resetFilters() {
     setDateFrom("");
     setDateTo("");
-    setAppliedFilters({
-      dateFrom: "",
-      dateTo: "",
-    });
+    setAppliedFilters({ dateFrom: "", dateTo: "" });
   }
 
-  function formatNumber(value: number, decimals = 2) {
+  function formatNumber(value: number | undefined, decimals = 2) {
     return Number(value || 0).toLocaleString(undefined, {
       minimumFractionDigits: decimals,
       maximumFractionDigits: decimals,
     });
   }
 
+  function formatWholeNumber(value: number | undefined) {
+    return Number(value || 0).toLocaleString(undefined, {
+      maximumFractionDigits: 0,
+    });
+  }
+
   function formatDate(value?: string) {
-    if (!value) return "—";
+    if (!value) return "-";
     return new Date(value).toISOString().slice(0, 10);
   }
 
@@ -144,88 +140,126 @@ export function BodegaStockMovementDetailsPageClient({ productId }: Props) {
     return <span className={className}>{type}</span>;
   }
 
-  return (
-    <div className="space-y-5">
-      <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
-        <h1 className="text-3xl font-bold tracking-tight text-slate-900">
-          Bodega Stock Movement Details
-        </h1>
+  function renderStockQuantity(
+    totalQty: number,
+    packs?: number,
+    loosePcs?: number
+  ) {
+    if (!product?.isPackProduct || !product.packSize) {
+      return formatNumber(totalQty);
+    }
 
-        <Button variant="secondary" asChild>
+    return (
+      <div className="text-right leading-tight">
+        <div className="font-semibold">
+          {formatWholeNumber(packs)} pack{Number(packs || 0) === 1 ? "" : "s"}
+          {Number(loosePcs || 0) > 0 ? ` / ${formatWholeNumber(loosePcs)} pcs` : ""}
+        </div>
+        <div className="text-xs text-muted-foreground">
+          {formatWholeNumber(totalQty)} pcs total
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight">Bodega Stock Movement Details</h1>
+          <p className="text-sm text-muted-foreground">
+            Transaction history for one bodega product.
+          </p>
+        </div>
+        <Button variant="outline" asChild>
           <Link href="/inventory/bodega">Back</Link>
         </Button>
       </div>
 
+      <div className="grid gap-4 md:grid-cols-3">
+        <Card>
+          <CardContent className="p-4">
+            <p className="text-xs font-medium uppercase text-muted-foreground">Product</p>
+            <p className="mt-1 text-lg font-bold">{product?.name || "-"}</p>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardContent className="p-4">
+            <p className="text-xs font-medium uppercase text-muted-foreground">Current Stock</p>
+            <div className="mt-1 text-lg font-bold">
+              {product?.isPackProduct
+                ? renderStockQuantity(
+                    product.currentStock,
+                    product.currentStockPacks,
+                    product.currentStockLoosePcs
+                  )
+                : formatNumber(product?.currentStock || 0)}
+            </div>
+            {product?.isPackProduct ? (
+              <p className="text-xs text-muted-foreground">
+                {formatWholeNumber(product.packSize)} pcs / pack
+              </p>
+            ) : null}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardContent className="p-4">
+            <p className="text-xs font-medium uppercase text-muted-foreground">
+              {product?.isPackProduct ? "Price / Pack" : "Price"}
+            </p>
+            <p className="mt-1 text-lg font-bold">
+              {product?.isPackProduct
+                ? formatPeso(product.pricePerPack || 0)
+                : formatPeso(product?.price || 0)}
+            </p>
+            {product?.isPackProduct ? (
+              <p className="text-xs text-muted-foreground">
+                Price / PCS: {formatPeso(product.pricePerPcs || 0)}
+              </p>
+            ) : null}
+            <p className="text-xs text-muted-foreground">
+              Last updated: {formatDate(product?.lastUpdated)}
+            </p>
+          </CardContent>
+        </Card>
+      </div>
+
       <Card>
-        <CardContent className="grid gap-4 p-5 md:grid-cols-2 xl:grid-cols-4">
+        <CardContent className="grid gap-4 p-5 md:grid-cols-3">
           <div>
-            <p className="text-sm font-semibold">Product</p>
-            <p>{product?.name || "—"}</p>
+            <Label>Start Date</Label>
+            <Input
+              type="date"
+              value={dateFrom}
+              onChange={(event) => setDateFrom(event.target.value)}
+            />
           </div>
 
           <div>
-            <p className="text-sm font-semibold">Current Stock</p>
-            <p>{formatNumber(product?.currentStock || 0)}</p>
+            <Label>End Date</Label>
+            <Input
+              type="date"
+              value={dateTo}
+              onChange={(event) => setDateTo(event.target.value)}
+            />
           </div>
 
-          <div>
-            <p className="text-sm font-semibold">Price</p>
-            <p>{formatPeso(product?.price || 0)}</p>
-          </div>
-
-          <div>
-            <p className="text-sm font-semibold">Last Updated</p>
-            <p>{formatDate(product?.lastUpdated)}</p>
+          <div className="flex items-end gap-2">
+            <Button onClick={applyFilters}>Filter</Button>
+            <Button variant="secondary" onClick={resetFilters}>Reset</Button>
           </div>
         </CardContent>
       </Card>
 
-      <div className="grid gap-4 rounded-xl border bg-white p-4 shadow-sm md:grid-cols-2 xl:grid-cols-[2fr_1.5fr_1.5fr_auto_auto]">
-        <div className="space-y-2">
-          <Label>Product</Label>
-          <Input value={product?.name || ""} disabled />
-        </div>
-
-        <div className="space-y-2">
-          <Label>Start Date</Label>
-          <Input
-            type="date"
-            value={dateFrom}
-            onChange={(event) => setDateFrom(event.target.value)}
-          />
-        </div>
-
-        <div className="space-y-2">
-          <Label>End Date</Label>
-          <Input
-            type="date"
-            value={dateTo}
-            onChange={(event) => setDateTo(event.target.value)}
-          />
-        </div>
-
-        <div className="flex items-end">
-          <Button variant="outline" onClick={applyFilters}>
-            <Search className="mr-2 h-4 w-4" />
-            Filter
-          </Button>
-        </div>
-
-        <div className="flex items-end">
-          <Button variant="secondary" onClick={resetFilters}>
-            <RefreshCcw className="mr-2 h-4 w-4" />
-            Reset
-          </Button>
-        </div>
-      </div>
-
       <Card>
-        <CardContent className="p-4">
-          <div className="overflow-x-auto rounded-lg border">
+        <CardContent className="p-5">
+          <div className="overflow-x-auto rounded-md border">
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead className="w-14">#</TableHead>
+                  <TableHead>#</TableHead>
                   <TableHead>Date</TableHead>
                   <TableHead>Type</TableHead>
                   <TableHead>Reference</TableHead>
@@ -236,7 +270,6 @@ export function BodegaStockMovementDetailsPageClient({ productId }: Props) {
                   <TableHead>Remarks</TableHead>
                 </TableRow>
               </TableHeader>
-
               <TableBody>
                 {isLoading ? (
                   <TableRow>
@@ -246,10 +279,7 @@ export function BodegaStockMovementDetailsPageClient({ productId }: Props) {
                   </TableRow>
                 ) : rows.length === 0 ? (
                   <TableRow>
-                    <TableCell
-                      colSpan={9}
-                      className="h-32 text-center text-muted-foreground"
-                    >
+                    <TableCell colSpan={9} className="h-32 text-center text-muted-foreground">
                       No bodega movement details found.
                     </TableCell>
                   </TableRow>
@@ -261,18 +291,26 @@ export function BodegaStockMovementDetailsPageClient({ productId }: Props) {
                       <TableCell>{typeBadge(row.type)}</TableCell>
                       <TableCell>{row.reference}</TableCell>
                       <TableCell className="text-right">
-                        {formatNumber(row.qtyIn)}
+                        {row.qtyIn > 0
+                          ? renderStockQuantity(row.qtyIn, row.quantityPacks, row.quantityLoosePcs)
+                          : "-"}
                       </TableCell>
                       <TableCell className="text-right">
-                        {formatNumber(row.qtyOut)}
+                        {row.qtyOut > 0
+                          ? renderStockQuantity(row.qtyOut, row.quantityPacks, row.quantityLoosePcs)
+                          : "-"}
                       </TableCell>
                       <TableCell className="text-right">
-                        {formatNumber(row.previousStock)}
+                        {renderStockQuantity(
+                          row.previousStock,
+                          row.previousStockPacks,
+                          row.previousStockLoosePcs
+                        )}
                       </TableCell>
                       <TableCell className="text-right">
-                        {formatNumber(row.newStock)}
+                        {renderStockQuantity(row.newStock, row.newStockPacks, row.newStockLoosePcs)}
                       </TableCell>
-                      <TableCell>{row.remarks || "—"}</TableCell>
+                      <TableCell>{row.remarks || "-"}</TableCell>
                     </TableRow>
                   ))
                 )}

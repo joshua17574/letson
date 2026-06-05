@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Loader2,
   Pencil,
@@ -13,7 +13,7 @@ import { toast } from "sonner";
 
 import { ModuleHeader } from "@/components/app-shell/ModuleHeader";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Dialog,
   DialogContent,
@@ -67,6 +67,12 @@ type ApiMeta = {
   totalPages: number;
 };
 
+type ExpenseTypeSummary = {
+  type: ExpenseType;
+  rows: number;
+  totalAmount: number;
+};
+
 const expenseTypeOptions: { label: string; value: ExpenseType }[] = [
   { label: "Delivery Expenses", value: "DELIVERY_EXPENSES" },
   { label: "Cleaning Supplies", value: "CLEANING_SUPPLIES" },
@@ -75,7 +81,7 @@ const expenseTypeOptions: { label: string; value: ExpenseType }[] = [
   { label: "Office Supplies", value: "OFFICE_SUPPLIES" },
   { label: "Repair & Maintenance", value: "REPAIR_AND_MAINTENANCE" },
   { label: "Salaries", value: "SALARIES" },
-  { label: "Incitives & Allowances", value: "INCENTIVES_AND_ALLOWANCES" },
+  { label: "Incentives & Allowances", value: "INCENTIVES_AND_ALLOWANCES" },
   { label: "Others", value: "OTHERS" },
 ];
 
@@ -91,6 +97,13 @@ function getTypeLabel(type: string) {
   return expenseTypeOptions.find((item) => item.value === type)?.label || type;
 }
 
+function formatDate(value?: string) {
+  if (!value) return "-";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "-";
+  return date.toISOString().slice(0, 10);
+}
+
 export function ExpensesBodegaPageClient() {
   const [rows, setRows] = useState<ExpenseRow[]>([]);
   const [meta, setMeta] = useState<ApiMeta>({
@@ -99,20 +112,18 @@ export function ExpensesBodegaPageClient() {
     total: 0,
     totalPages: 1,
   });
-
   const [summary, setSummary] = useState({
     rows: 0,
     totalAmount: 0,
+    byType: [] as ExpenseTypeSummary[],
   });
 
   const [page, setPage] = useState(1);
   const [limit, setLimit] = useState("25");
-
   const [search, setSearch] = useState("");
   const [type, setType] = useState("ALL");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
-
   const [appliedFilters, setAppliedFilters] = useState({
     search: "",
     type: "ALL",
@@ -123,9 +134,21 @@ export function ExpensesBodegaPageClient() {
   const [form, setForm] = useState(emptyForm);
   const [editingExpense, setEditingExpense] = useState<ExpenseRow | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
-
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
+
+  const activeFilterText = useMemo(() => {
+    const parts: string[] = [];
+
+    if (appliedFilters.search) parts.push(`Search: ${appliedFilters.search}`);
+    if (appliedFilters.type !== "ALL") {
+      parts.push(`Type: ${getTypeLabel(appliedFilters.type)}`);
+    }
+    if (appliedFilters.dateFrom) parts.push(`From: ${appliedFilters.dateFrom}`);
+    if (appliedFilters.dateTo) parts.push(`To: ${appliedFilters.dateTo}`);
+
+    return parts.length ? parts.join(" | ") : "No filters applied";
+  }, [appliedFilters]);
 
   async function loadExpenses() {
     setIsLoading(true);
@@ -144,7 +167,6 @@ export function ExpensesBodegaPageClient() {
       const res = await fetch(`/api/expenses?${params.toString()}`, {
         cache: "no-store",
       });
-
       const json = await res.json();
 
       if (!res.ok || !json.success) {
@@ -152,7 +174,13 @@ export function ExpensesBodegaPageClient() {
       }
 
       setRows(json.data || []);
-      setSummary(json.summary || { rows: 0, totalAmount: 0 });
+      setSummary(
+        json.summary || {
+          rows: 0,
+          totalAmount: 0,
+          byType: [],
+        }
+      );
       setMeta(
         json.meta || {
           page,
@@ -234,6 +262,11 @@ export function ExpensesBodegaPageClient() {
       return;
     }
 
+    if (!form.expenseDate) {
+      toast.error("Expense date is required.");
+      return;
+    }
+
     if ((Number(form.amount) || 0) <= 0) {
       toast.error("Amount must be greater than zero.");
       return;
@@ -245,15 +278,11 @@ export function ExpensesBodegaPageClient() {
       const url = editingExpense
         ? `/api/expenses/${editingExpense._id}`
         : "/api/expenses";
-
       const res = await fetch(url, {
         method: editingExpense ? "PATCH" : "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify(form),
       });
-
       const json = await res.json();
 
       if (!res.ok || !json.success) {
@@ -274,14 +303,12 @@ export function ExpensesBodegaPageClient() {
 
   async function deleteExpense(expense: ExpenseRow) {
     const confirmed = window.confirm(`Delete expense "${expense.name}"?`);
-
     if (!confirmed) return;
 
     try {
       const res = await fetch(`/api/expenses/${expense._id}`, {
         method: "DELETE",
       });
-
       const json = await res.json();
 
       if (!res.ok || !json.success) {
@@ -297,16 +324,11 @@ export function ExpensesBodegaPageClient() {
     }
   }
 
-  function formatDate(value?: string) {
-    if (!value) return "—";
-    return new Date(value).toISOString().slice(0, 10);
-  }
-
   return (
     <div className="space-y-6">
       <ModuleHeader
-        title="Expenses (Bodega)"
-        description="Track business operating expenses by expense type."
+        title="Expenses Bodega"
+        description="Track operating expenses for bodega, slicing, delivery, salaries, supplies, and other costs."
         actions={
           <Button onClick={openAddDialog} className="rounded-xl">
             <Plus className="mr-2 h-4 w-4" />
@@ -316,24 +338,24 @@ export function ExpensesBodegaPageClient() {
       />
 
       <Card className="rounded-2xl border-slate-200 shadow-sm">
-        <CardContent className="grid gap-4 p-5 md:grid-cols-2 xl:grid-cols-[1.5fr_1fr_1fr_1fr_auto_auto]">
-          <div className="space-y-2">
-            <Label>Search Name</Label>
+        <CardContent className="grid gap-4 p-5 md:grid-cols-5">
+          <div className="md:col-span-2">
+            <Label>Search</Label>
             <Input
               value={search}
               onChange={(event) => setSearch(event.target.value)}
-              placeholder="e.g. Ice, Diesel"
+              placeholder="Search name or remarks"
               onKeyDown={(event) => {
                 if (event.key === "Enter") applyFilters();
               }}
             />
           </div>
 
-          <div className="space-y-2">
+          <div>
             <Label>Expense Type</Label>
             <Select value={type} onValueChange={setType}>
               <SelectTrigger>
-                <SelectValue />
+                <SelectValue placeholder="All Types" />
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="ALL">All Types</SelectItem>
@@ -346,8 +368,8 @@ export function ExpensesBodegaPageClient() {
             </Select>
           </div>
 
-          <div className="space-y-2">
-            <Label>Start Date</Label>
+          <div>
+            <Label>Date From</Label>
             <Input
               type="date"
               value={dateFrom}
@@ -355,8 +377,8 @@ export function ExpensesBodegaPageClient() {
             />
           </div>
 
-          <div className="space-y-2">
-            <Label>End Date</Label>
+          <div>
+            <Label>Date To</Label>
             <Input
               type="date"
               value={dateTo}
@@ -364,77 +386,94 @@ export function ExpensesBodegaPageClient() {
             />
           </div>
 
-          <div className="flex items-end">
-            <Button onClick={applyFilters} className="w-full rounded-xl">
+          <div className="flex items-end gap-2 md:col-span-5">
+            <Button onClick={applyFilters} disabled={isLoading}>
               <Search className="mr-2 h-4 w-4" />
               Filter
             </Button>
-          </div>
-
-          <div className="flex items-end">
-            <Button
-              variant="secondary"
-              onClick={resetFilters}
-              className="w-full rounded-xl"
-            >
+            <Button variant="secondary" onClick={resetFilters} disabled={isLoading}>
               <RefreshCcw className="mr-2 h-4 w-4" />
               Reset
             </Button>
+            <p className="text-sm text-muted-foreground">{activeFilterText}</p>
           </div>
         </CardContent>
       </Card>
 
-      <div className="grid gap-4 md:grid-cols-2">
+      <div className="grid gap-4 md:grid-cols-3">
         <Card className="rounded-2xl border-slate-200 shadow-sm">
-          <CardContent className="p-5">
-            <p className="text-sm text-slate-500">Filtered Expenses</p>
-            <p className="mt-1 text-2xl font-black text-slate-950">
-              {summary.rows.toLocaleString()}
-            </p>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium text-muted-foreground">
+              Filtered Records
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-3xl font-bold">{summary.rows.toLocaleString()}</p>
           </CardContent>
         </Card>
 
-        <Card className="rounded-2xl border-slate-200 shadow-sm">
-          <CardContent className="p-5">
-            <p className="text-sm text-slate-500">Total Expense Amount</p>
-            <p className="mt-1 text-2xl font-black text-rose-600">
+        <Card className="rounded-2xl border-slate-200 shadow-sm md:col-span-2">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium text-muted-foreground">
+              Total Expense Amount
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-3xl font-bold text-red-700">
               {formatPeso(summary.totalAmount)}
             </p>
           </CardContent>
         </Card>
       </div>
 
+      {summary.byType.length > 0 ? (
+        <Card className="rounded-2xl border-slate-200 shadow-sm">
+          <CardHeader>
+            <CardTitle>Expense Breakdown</CardTitle>
+          </CardHeader>
+          <CardContent className="grid gap-3 md:grid-cols-3">
+            {summary.byType.map((item) => (
+              <div key={item.type} className="rounded-xl border bg-slate-50 p-4">
+                <p className="text-sm font-medium">{getTypeLabel(item.type)}</p>
+                <p className="mt-1 text-xl font-bold">
+                  {formatPeso(item.totalAmount)}
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  {item.rows.toLocaleString()} record{item.rows === 1 ? "" : "s"}
+                </p>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      ) : null}
+
       <Card className="rounded-2xl border-slate-200 shadow-sm">
-        <CardContent className="p-5">
-          <div className="mb-4 flex items-center justify-between">
-            <div>
-              <p className="text-lg font-bold text-slate-950">
-                Expense Records
-              </p>
-              <p className="text-sm text-slate-500">
-                Showing {rows.length} of {meta.total} records
-              </p>
-            </div>
-
-            <Select
-              value={limit}
-              onValueChange={(value) => {
-                setLimit(value);
-                setPage(1);
-              }}
-            >
-              <SelectTrigger className="w-24">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="10">10</SelectItem>
-                <SelectItem value="25">25</SelectItem>
-                <SelectItem value="50">50</SelectItem>
-                <SelectItem value="100">100</SelectItem>
-              </SelectContent>
-            </Select>
+        <CardHeader className="flex flex-row items-center justify-between gap-3">
+          <div>
+            <CardTitle>Expense Records</CardTitle>
+            <p className="text-sm text-muted-foreground">
+              Showing {rows.length.toLocaleString()} of {meta.total.toLocaleString()} records
+            </p>
           </div>
-
+          <Select
+            value={limit}
+            onValueChange={(value) => {
+              setLimit(value);
+              setPage(1);
+            }}
+          >
+            <SelectTrigger className="w-[120px]">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="10">10</SelectItem>
+              <SelectItem value="25">25</SelectItem>
+              <SelectItem value="50">50</SelectItem>
+              <SelectItem value="100">100</SelectItem>
+            </SelectContent>
+          </Select>
+        </CardHeader>
+        <CardContent>
           <div className="overflow-hidden rounded-2xl border border-slate-200">
             <Table>
               <TableHeader className="bg-slate-950">
@@ -443,26 +482,22 @@ export function ExpensesBodegaPageClient() {
                   <TableHead className="text-white">Name</TableHead>
                   <TableHead className="text-white">Type</TableHead>
                   <TableHead className="text-white">Date</TableHead>
-                  <TableHead className="text-right text-white">
-                    Amount
-                  </TableHead>
-                  <TableHead className="text-center text-white">
-                    Action
-                  </TableHead>
+                  <TableHead className="text-right text-white">Amount</TableHead>
+                  <TableHead className="text-white">Remarks</TableHead>
+                  <TableHead className="text-center text-white">Action</TableHead>
                 </TableRow>
               </TableHeader>
-
               <TableBody>
                 {isLoading ? (
                   <TableRow>
-                    <TableCell colSpan={6} className="h-32 text-center">
+                    <TableCell colSpan={7} className="h-32 text-center">
                       <Loader2 className="mx-auto h-5 w-5 animate-spin" />
                     </TableCell>
                   </TableRow>
                 ) : rows.length === 0 ? (
                   <TableRow>
                     <TableCell
-                      colSpan={6}
+                      colSpan={7}
                       className="h-32 text-center text-muted-foreground"
                     >
                       No expenses found.
@@ -474,19 +509,16 @@ export function ExpensesBodegaPageClient() {
                       <TableCell>
                         {(meta.page - 1) * meta.limit + index + 1}
                       </TableCell>
-                      <TableCell className="font-medium">
-                        {expense.name}
-                      </TableCell>
-                      <TableCell>
-                        <span className="rounded-full bg-red-50 px-3 py-1 text-xs font-bold text-red-700">
-                          {getTypeLabel(expense.type)}
-                        </span>
-                      </TableCell>
+                      <TableCell className="font-medium">{expense.name}</TableCell>
+                      <TableCell>{getTypeLabel(expense.type)}</TableCell>
                       <TableCell>{formatDate(expense.expenseDate)}</TableCell>
                       <TableCell className="text-right font-semibold">
                         {formatPeso(expense.amount)}
                       </TableCell>
-                      <TableCell className="text-center">
+                      <TableCell className="max-w-[260px] truncate text-muted-foreground">
+                        {expense.remarks || "-"}
+                      </TableCell>
+                      <TableCell>
                         <div className="flex justify-center gap-2">
                           <Button
                             size="sm"
@@ -496,7 +528,6 @@ export function ExpensesBodegaPageClient() {
                             <Pencil className="mr-1 h-4 w-4" />
                             Edit
                           </Button>
-
                           <Button
                             size="sm"
                             variant="destructive"
@@ -514,22 +545,20 @@ export function ExpensesBodegaPageClient() {
             </Table>
           </div>
 
-          <div className="mt-4 flex justify-end gap-2">
+          <div className="mt-4 flex items-center justify-end gap-3">
             <Button
               variant="outline"
-              disabled={page <= 1 || isLoading}
+              disabled={meta.page <= 1 || isLoading}
               onClick={() => setPage((current) => Math.max(current - 1, 1))}
             >
               Previous
             </Button>
-
-            <span className="rounded-xl border px-3 py-2 text-sm text-slate-600">
+            <span className="text-sm text-muted-foreground">
               Page {meta.page} of {meta.totalPages}
             </span>
-
             <Button
               variant="outline"
-              disabled={page >= meta.totalPages || isLoading}
+              disabled={meta.page >= meta.totalPages || isLoading}
               onClick={() =>
                 setPage((current) => Math.min(current + 1, meta.totalPages))
               }
@@ -554,52 +583,54 @@ export function ExpensesBodegaPageClient() {
               <Input
                 value={form.name}
                 onChange={(event) => updateForm("name", event.target.value)}
-                placeholder="e.g. Spoilage C10"
+                placeholder="Example: Diesel, ice, salaries, repairs"
                 required
               />
             </div>
 
-            <div className="space-y-2">
-              <Label>Expense Type</Label>
-              <Select
-                value={form.type}
-                onValueChange={(value) => updateForm("type", value)}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Select expense type" />
-                </SelectTrigger>
-                <SelectContent>
-                  {expenseTypeOptions.map((item) => (
-                    <SelectItem key={item.value} value={item.value}>
-                      {item.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
+            <div className="grid gap-4 md:grid-cols-3">
+              <div className="space-y-2">
+                <Label>Expense Type</Label>
+                <Select
+                  value={form.type}
+                  onValueChange={(value: ExpenseType) => updateForm("type", value)}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {expenseTypeOptions.map((item) => (
+                      <SelectItem key={item.value} value={item.value}>
+                        {item.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
 
-            <div className="space-y-2">
-              <Label>Date</Label>
-              <Input
-                type="date"
-                value={form.expenseDate}
-                onChange={(event) =>
-                  updateForm("expenseDate", event.target.value)
-                }
-                required
-              />
-            </div>
+              <div className="space-y-2">
+                <Label>Date</Label>
+                <Input
+                  type="date"
+                  value={form.expenseDate}
+                  onChange={(event) =>
+                    updateForm("expenseDate", event.target.value)
+                  }
+                  required
+                />
+              </div>
 
-            <div className="space-y-2">
-              <Label>Amount</Label>
-              <Input
-                type="number"
-                min="0"
-                step="0.01"
-                value={form.amount}
-                onChange={(event) => updateForm("amount", event.target.value)}
-                required
-              />
+              <div className="space-y-2">
+                <Label>Amount</Label>
+                <Input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={form.amount}
+                  onChange={(event) => updateForm("amount", event.target.value)}
+                  required
+                />
+              </div>
             </div>
 
             <div className="space-y-2">
@@ -615,12 +646,11 @@ export function ExpensesBodegaPageClient() {
               <Button
                 type="button"
                 variant="secondary"
-                onClick={() => setDialogOpen(false)}
                 disabled={isSaving}
+                onClick={() => setDialogOpen(false)}
               >
                 Cancel
               </Button>
-
               <Button type="submit" disabled={isSaving}>
                 {isSaving ? "Saving..." : "Save"}
               </Button>

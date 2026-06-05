@@ -136,15 +136,13 @@ const SlicingBatchSchema = new Schema<ISlicingBatch>(
       default: false,
     },
   },
-  {
-    timestamps: true,
-  }
+  { timestamps: true }
 );
 
 SlicingBatchSchema.index({ slicingDate: -1 });
 SlicingBatchSchema.index({ isVoided: 1 });
 
 const SlicingBatchModel: Model<ISlicingBatch> =
-  mongoose.models.SlicingBatch || mongoose.model("SlicingBatch", SlicingBatchSchema);
+  mongoose.models.SlicingBatch || mongoose.model<ISlicingBatch>("SlicingBatch", SlicingBatchSchema);
 
 export default SlicingBatchModel;
