@@ -168,7 +168,7 @@ export function BodegaStockMovementDetailsPageClient({ productId }: Props) {
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Bodega Stock Movement Details</h1>
           <p className="text-sm text-muted-foreground">
-            Transaction history for one bodega product.
+            Transaction history for one bodega product. Current Stock Now is the live product balance.
           </p>
         </div>
         <Button variant="outline" asChild>
@@ -186,7 +186,7 @@ export function BodegaStockMovementDetailsPageClient({ productId }: Props) {
 
         <Card>
           <CardContent className="p-4">
-            <p className="text-xs font-medium uppercase text-muted-foreground">Current Stock</p>
+            <p className="text-xs font-medium uppercase text-muted-foreground">Current Stock Now</p>
             <div className="mt-1 text-lg font-bold">
               {product?.isPackProduct
                 ? renderStockQuantity(

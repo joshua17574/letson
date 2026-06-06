@@ -188,7 +188,7 @@ export function BodegaStockMovementPageClient() {
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Bodega Stock Movement Inventory</h1>
           <p className="text-sm text-muted-foreground">
-            Sliced products are stored as total PCS and displayed as packs plus loose PCS.
+            Stock In and Stock Out follow the selected date filter. Current Stock Now is the live product balance.
           </p>
         </div>
         <Button variant="outline" onClick={refreshData}>
@@ -244,7 +244,7 @@ export function BodegaStockMovementPageClient() {
       <div className="grid gap-4 md:grid-cols-3">
         <Card>
           <CardContent className="p-4">
-            <p className="text-xs font-medium uppercase text-muted-foreground">Sliced Products Current</p>
+            <p className="text-xs font-medium uppercase text-muted-foreground">Sliced Products Current Now</p>
             <p className="mt-1 text-2xl font-bold">
               {formatWholeNumber(totals.sliced?.currentPcs)} pcs
             </p>
@@ -256,7 +256,7 @@ export function BodegaStockMovementPageClient() {
 
         <Card>
           <CardContent className="p-4">
-            <p className="text-xs font-medium uppercase text-muted-foreground">Whole / Other Current</p>
+            <p className="text-xs font-medium uppercase text-muted-foreground">Whole / Other Current Now</p>
             <p className="mt-1 text-2xl font-bold">
               {formatNumber(totals.whole?.currentStock || 0)}
             </p>
@@ -285,7 +285,7 @@ export function BodegaStockMovementPageClient() {
                   <TableHead>Product</TableHead>
                   <TableHead className="text-right">Stock In</TableHead>
                   <TableHead className="text-right">Stock Out</TableHead>
-                  <TableHead className="text-right">Current Stock</TableHead>
+                  <TableHead className="text-right">Current Stock Now</TableHead>
                   <TableHead className="text-right">Pack Size</TableHead>
                   <TableHead className="text-right">Price / PCS</TableHead>
                   <TableHead className="text-right">Price / Pack</TableHead>

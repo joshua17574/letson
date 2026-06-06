@@ -481,7 +481,7 @@ export function BodegaProductsPageClient() {
                   <TableRow>
                     <TableHead className="text-white">Product</TableHead>
                     <TableHead className="text-white">Category</TableHead>
-                    <TableHead className="text-white">Owner Stock View</TableHead>
+                    <TableHead className="text-white">Owner Stock Now</TableHead>
                     <TableHead className="text-right text-white">Pack Size</TableHead>
                     <TableHead className="text-right text-white">Buying Price</TableHead>
                     <TableHead className="text-right text-white">Price / Pack</TableHead>
@@ -653,7 +653,7 @@ export function BodegaProductsPageClient() {
           <form onSubmit={handleStockIn} className="space-y-4">
             {stockProduct ? (
               <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                <p className="mb-2 text-xs font-bold uppercase tracking-wide text-slate-500">Current Stock</p>
+                <p className="mb-2 text-xs font-bold uppercase tracking-wide text-slate-500">Current Stock Now</p>
                 <PackStockDisplay
                   stockPcs={getStockPcs(stockProduct)}
                   packSize={stockProduct.isPackProduct ? getPackSize(stockProduct) : 0}

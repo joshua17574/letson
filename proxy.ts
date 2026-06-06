@@ -35,7 +35,7 @@ const PAGE_RULES: PageRule[] = [
   { prefix: "/reports/profit", permission: "reports.profit" },
   { prefix: "/users", permission: "users.view" },
   { prefix: "/roles", permission: "roles.view" },
-  { prefix: "/expenses-bodega", permission: "reports.profit" },
+  { prefix: "/expenses-bodega", permission: "expenses-bodega.view" },
 ];
 
 function normalizePath(pathname: string) {
@@ -86,7 +86,7 @@ export async function proxy(request: NextRequest) {
   }
 
   const permissions = Array.isArray((token as { permissions?: unknown }).permissions)
-    ? ((token as { permissions: string[] }).permissions)
+    ? (token as { permissions: string[] }).permissions
     : [];
 
   if (!permissions.includes(requiredPermission)) {

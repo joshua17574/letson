@@ -1,4 +1,4 @@
-﻿// components/app-shell/nav-config.ts
+// components/app-shell/nav-config.ts
 import type { LucideIcon } from "lucide-react";
 import {
   ArrowLeftRight,
@@ -190,16 +190,15 @@ export const appNavItems: AppNavItem[] = [
         icon: Clock,
         permission: "payments.view",
       },
-        
     ],
   },
-   {
-        title: "Slicing Profit",
-        href: "/profit/chicken-slicing",
-        icon: BarChart3,
-        permission: "reports.profit",
-        section: "Finance",
-      },
+  {
+    title: "Slicing Profit",
+    href: "/profit/chicken-slicing",
+    icon: BarChart3,
+    permission: "reports.profit",
+    section: "Finance",
+  },
   {
     title: "Expenses Bodega",
     href: "/expenses-bodega",
@@ -214,6 +213,12 @@ export const appNavItems: AppNavItem[] = [
     section: "Finance",
     children: [
       {
+        title: "Grocery/Product Inventory",
+        href: "/inventory/products",
+        icon: Package,
+        permission: "inventory.view",
+      },
+      {
         title: "Whole Chicken Movement",
         href: "/inventory/whole-chicken",
         icon: ArrowLeftRight,
@@ -227,8 +232,6 @@ export const appNavItems: AppNavItem[] = [
       },
     ],
   },
-
-
   {
     title: "Reports",
     icon: BarChart3,
@@ -261,7 +264,6 @@ export const appNavItems: AppNavItem[] = [
       },
     ],
   },
-  
   {
     title: "Users",
     href: "/users",
