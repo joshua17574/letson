@@ -1,4 +1,6 @@
-﻿import {
+﻿// components/app-shell/nav-config.ts
+import type { LucideIcon } from "lucide-react";
+import {
   ArrowLeftRight,
   BarChart3,
   Boxes,
@@ -14,24 +16,27 @@
   ShieldCheck,
   ShoppingBasket,
   ShoppingCart,
-  Truck,
   Tags,
-  Users,
+  Truck,
   UserRoundCog,
+  Users,
   WalletCards,
 } from "lucide-react";
+
+export type AppNavChild = {
+  title: string;
+  href: string;
+  icon?: LucideIcon;
+  permission?: string;
+};
 
 export type AppNavItem = {
   title: string;
   href?: string;
-  icon: any;
+  icon: LucideIcon;
   permission?: string;
-  children?: {
-    title: string;
-    href: string;
-    icon?: any;
-    permission?: string;
-  }[];
+  section?: "Workspace" | "Operations" | "Finance" | "Admin";
+  children?: AppNavChild[];
 };
 
 export const appNavItems: AppNavItem[] = [
@@ -40,32 +45,37 @@ export const appNavItems: AppNavItem[] = [
     href: "/dashboard",
     icon: LayoutDashboard,
     permission: "dashboard.view",
+    section: "Workspace",
   },
   {
     title: "Customers",
     href: "/customers",
     icon: Users,
     permission: "customers.view",
+    section: "Workspace",
   },
   {
     title: "Suppliers",
     href: "/suppliers",
     icon: Truck,
     permission: "suppliers.view",
+    section: "Workspace",
   },
   {
     title: "Categories",
     href: "/categories",
     icon: Tags,
     permission: "categories.view",
+    section: "Workspace",
   },
   {
     title: "Products",
     icon: Package,
     permission: "products.view",
+    section: "Workspace",
     children: [
       {
-        title: "Grocery Products",
+        title: "Products",
         href: "/products",
         icon: Package,
         permission: "products.view",
@@ -83,17 +93,20 @@ export const appNavItems: AppNavItem[] = [
     href: "/purchase-items",
     icon: PackagePlus,
     permission: "purchase-items.view",
+    section: "Operations",
   },
   {
     title: "Deliveries",
     href: "/deliveries",
     icon: Truck,
     permission: "supplier-deliveries.view",
+    section: "Operations",
   },
   {
     title: "Slicing",
     icon: Scissors,
     permission: "slicing.view",
+    section: "Operations",
     children: [
       {
         title: "Slice History",
@@ -108,6 +121,12 @@ export const appNavItems: AppNavItem[] = [
         permission: "slicing.manage",
       },
       {
+        title: "Daily Slicing History",
+        href: "/slicing/daily-history",
+        icon: ClipboardList,
+        permission: "slicing.view",
+      },
+      {
         title: "Standard PCS & Packs",
         href: "/slicing/standard-packing",
         icon: Boxes,
@@ -119,6 +138,7 @@ export const appNavItems: AppNavItem[] = [
     title: "Sales",
     icon: ShoppingCart,
     permission: "sales.view",
+    section: "Operations",
     children: [
       {
         title: "Sell Chicken",
@@ -150,6 +170,7 @@ export const appNavItems: AppNavItem[] = [
     title: "Payments",
     icon: WalletCards,
     permission: "payments.view",
+    section: "Finance",
     children: [
       {
         title: "Payment Summary",
@@ -169,24 +190,31 @@ export const appNavItems: AppNavItem[] = [
         icon: Clock,
         permission: "payments.view",
       },
+        
     ],
   },
-
-    {
+   {
         title: "Slicing Profit",
-        href: "/reports/chicken-slicing",
+        href: "/profit/chicken-slicing",
         icon: BarChart3,
         permission: "reports.profit",
+        section: "Finance",
       },
-
-
+  {
+    title: "Expenses Bodega",
+    href: "/expenses-bodega",
+    icon: ReceiptText,
+    permission: "expenses-bodega.view",
+    section: "Finance",
+  },
   {
     title: "Inventory",
     icon: Boxes,
     permission: "inventory.view",
+    section: "Finance",
     children: [
       {
-        title: "Grocery Stock Movement",
+        title: "Whole Chicken Movement",
         href: "/inventory/whole-chicken",
         icon: ArrowLeftRight,
         permission: "inventory.view",
@@ -200,20 +228,13 @@ export const appNavItems: AppNavItem[] = [
     ],
   },
 
-  {
-    title: "Expenses Bodega",
-    href: "/expenses-bodega",
-    icon: ReceiptText,
-    permission: "expenses-bodega.view",
-  },
-
 
   {
     title: "Reports",
     icon: BarChart3,
     permission: "reports.sales",
+    section: "Finance",
     children: [
-    
       {
         title: "Sales Report",
         href: "/reports/sales",
@@ -240,16 +261,19 @@ export const appNavItems: AppNavItem[] = [
       },
     ],
   },
+  
   {
     title: "Users",
     href: "/users",
     icon: UserRoundCog,
     permission: "users.view",
+    section: "Admin",
   },
   {
     title: "Roles",
     href: "/roles",
     icon: ShieldCheck,
     permission: "roles.view",
+    section: "Admin",
   },
 ];

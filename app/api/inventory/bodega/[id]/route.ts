@@ -1,4 +1,3 @@
-// app/api/inventory/bodega/[id]/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { isValidObjectId } from "mongoose";
 
@@ -18,45 +17,63 @@ function wholeNumber(value: unknown) {
   return Math.max(0, Math.trunc(numberValue(value)));
 }
 
+function objectIdString(value: unknown) {
+  if (!value) return "";
+  if (typeof value === "string") return value;
+  if (typeof value === "object" && value !== null && "toString" in value) {
+    return String((value as { toString: () => string }).toString());
+  }
+  return String(value);
+}
+
 function getPackBreakdown(quantityValue: unknown, packSizeValue: unknown) {
-  const quantity = wholeNumber(quantityValue);
+  const pcs = wholeNumber(quantityValue);
   const packSize = wholeNumber(packSizeValue);
 
   if (packSize <= 0) {
-    return {
-      pcs: quantity,
-      packs: 0,
-      loosePcs: quantity,
-    };
+    return { pcs, packs: 0, loosePcs: pcs };
   }
 
-  const packs = Math.floor(quantity / packSize);
-  const loosePcs = quantity - packs * packSize;
-
-  return {
-    pcs: quantity,
-    packs,
-    loosePcs,
-  };
+  const packs = Math.floor(pcs / packSize);
+  const loosePcs = pcs - packs * packSize;
+  return { pcs, packs, loosePcs };
 }
 
-function getDirection(transaction: any) {
-  return Number(transaction.newStock || 0) >= Number(transaction.previousStock || 0)
-    ? "IN"
-    : "OUT";
+function getDirection(transaction: any): "IN" | "OUT" | "NONE" {
+  const previousStock = numberValue(transaction.previousStock);
+  const newStock = numberValue(transaction.newStock);
+
+  if (newStock > previousStock) return "IN";
+  if (newStock < previousStock) return "OUT";
+
+  const type = String(transaction.type || "").toUpperCase();
+  if (type === "STOCK_IN" || type === "VOID_REVERSAL") return "IN";
+  if (["STOCK_OUT", "SALE", "DAMAGED", "EXPIRED"].includes(type)) return "OUT";
+
+  return "NONE";
+}
+
+function getMovementQuantity(transaction: any) {
+  const explicitQuantity = numberValue(transaction.quantity);
+  if (explicitQuantity > 0) return explicitQuantity;
+
+  return Math.abs(numberValue(transaction.newStock) - numberValue(transaction.previousStock));
 }
 
 function getReference(transaction: any) {
   const direction = getDirection(transaction);
-  const suffix = transaction._id.toString().slice(-6).toUpperCase();
+  const suffix = objectIdString(transaction._id).slice(-6).toUpperCase();
   return `${direction}-${suffix}`;
 }
 
 async function getPackSize(productId: string) {
-  const standard = await StandardPackingModel.findOne({
-    isActive: true,
-    productId,
-  })
+  const standard = await (StandardPackingModel as any)
+    .findOne({
+      isActive: true,
+      productId,
+      standardPacking: { $gt: 0 },
+    })
+    .sort({ updatedAt: -1 })
     .select("standardPacking")
     .lean();
 
@@ -71,13 +88,9 @@ export async function GET(
   if (response) return response;
 
   const { id } = await context.params;
-
   if (!isValidObjectId(id)) {
     return NextResponse.json(
-      {
-        success: false,
-        message: "Invalid bodega product ID.",
-      },
+      { success: false, message: "Invalid bodega product ID." },
       { status: 400 }
     );
   }
@@ -88,17 +101,13 @@ export async function GET(
   const dateFrom = cleanString(searchParams.get("dateFrom"));
   const dateTo = cleanString(searchParams.get("dateTo"));
 
-  const product = await BodegaProductModel.findOne({
-    _id: id,
-    isActive: true,
-  }).lean();
+  const product = await (BodegaProductModel as any)
+    .findOne({ _id: id, isActive: true })
+    .lean();
 
   if (!product) {
     return NextResponse.json(
-      {
-        success: false,
-        message: "Bodega product not found.",
-      },
+      { success: false, message: "Bodega product not found." },
       { status: 404 }
     );
   }
@@ -106,61 +115,57 @@ export async function GET(
   const packSize = await getPackSize(id);
   const isPackProduct = packSize > 0;
   const currentBreakdown = getPackBreakdown(product.stockQty, packSize);
-  const pricePerPack = numberValue(product.sellingPrice);
-  const pricePerPcs = isPackProduct ? pricePerPack / packSize : 0;
+  const price = numberValue(product.sellingPrice || product.buyingPrice || 0);
+  const pricePerPack = isPackProduct ? price : 0;
+  const pricePerPcs = isPackProduct ? price / packSize : price;
 
-  const filter: any = {
-    bodegaProductId: id,
-  };
-
+  const filter: Record<string, any> = { bodegaProductId: id };
   if (dateFrom || dateTo) {
     filter.createdAt = {};
-
-    if (dateFrom) {
-      filter.createdAt.$gte = new Date(`${dateFrom}T00:00:00.000Z`);
-    }
-
-    if (dateTo) {
-      filter.createdAt.$lte = new Date(`${dateTo}T23:59:59.999Z`);
-    }
+    if (dateFrom) filter.createdAt.$gte = new Date(`${dateFrom}T00:00:00.000Z`);
+    if (dateTo) filter.createdAt.$lte = new Date(`${dateTo}T23:59:59.999Z`);
   }
 
-  const transactions = await BodegaStockTransactionModel.find(filter)
+  const transactions = await (BodegaStockTransactionModel as any)
+    .find(filter)
     .sort({ createdAt: -1 })
     .lean();
 
   return NextResponse.json({
     success: true,
     product: {
-      _id: product._id.toString(),
+      _id: objectIdString(product._id),
       name: product.name,
       currentStock: numberValue(product.stockQty),
-      price: isPackProduct ? pricePerPack : numberValue(product.sellingPrice),
+      currentStockPcs: currentBreakdown.pcs,
+      price: isPackProduct ? pricePerPack : price,
       lastUpdated: product.updatedAt ? new Date(product.updatedAt).toISOString() : undefined,
       isPackProduct,
       packSize,
-      currentStockPcs: currentBreakdown.pcs,
+      currentPacks: currentBreakdown.packs,
+      currentLoosePcs: currentBreakdown.loosePcs,
       currentStockPacks: currentBreakdown.packs,
       currentStockLoosePcs: currentBreakdown.loosePcs,
-      pricePerPack: isPackProduct ? pricePerPack : 0,
+      pricePerPack,
       pricePerPcs,
     },
-    data: transactions.map((transaction) => {
+    data: (transactions as any[]).map((transaction) => {
       const direction = getDirection(transaction);
-      const quantity = numberValue(transaction.quantity || 0);
+      const quantity = getMovementQuantity(transaction);
       const previousBreakdown = getPackBreakdown(transaction.previousStock, packSize);
       const newBreakdown = getPackBreakdown(transaction.newStock, packSize);
       const quantityBreakdown = getPackBreakdown(quantity, packSize);
 
       return {
-        _id: transaction._id.toString(),
+        _id: objectIdString(transaction._id),
         date: transaction.createdAt ? new Date(transaction.createdAt).toISOString() : undefined,
-        type: direction,
+        type: direction === "NONE" ? "IN" : direction,
         reference: getReference(transaction),
         qtyIn: direction === "IN" ? quantity : 0,
         qtyOut: direction === "OUT" ? quantity : 0,
         previousStock: numberValue(transaction.previousStock || 0),
         newStock: numberValue(transaction.newStock || 0),
+
         quantityPcs: quantityBreakdown.pcs,
         quantityPacks: quantityBreakdown.packs,
         quantityLoosePcs: quantityBreakdown.loosePcs,
@@ -170,6 +175,7 @@ export async function GET(
         newStockPcs: newBreakdown.pcs,
         newStockPacks: newBreakdown.packs,
         newStockLoosePcs: newBreakdown.loosePcs,
+
         remarks: transaction.remarks || transaction.referenceType || "",
       };
     }),

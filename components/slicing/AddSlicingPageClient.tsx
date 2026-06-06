@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
@@ -12,15 +12,18 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 
-import { ModuleHeader } from "@/components/app-shell/ModuleHeader";
+import {
+  ErpField,
+  ErpKeyValue,
+  ErpMetricCard,
+  ErpMobileCard,
+  ErpPage,
+  ErpPageHeader,
+  ErpSection,
+} from "@/components/erp/ErpShell";
+import { formatDecimal, formatWholeNumber, numberValue } from "@/components/erp/StockDisplay";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
 import {
   Command,
   CommandEmpty,
@@ -47,7 +50,6 @@ type SlicingStandardOption = {
   standardPacking: number;
   standardSlice: number;
   chickenSizeType?: string;
-  availableStock: number;
 };
 
 type SlicingRow = {
@@ -58,7 +60,6 @@ type SlicingRow = {
   productName: string;
   standardPacking: number;
   standardSlice: number;
-  availableStock: number;
   bags: string;
   heads: string;
   kilos: string;
@@ -73,68 +74,29 @@ const emptyRow: SlicingRow = {
   productName: "",
   standardPacking: 0,
   standardSlice: 0,
-  availableStock: 0,
   bags: "0",
   heads: "0",
   kilos: "0",
   actualSlicedPcs: "0",
 };
 
-function numberValue(value: string | number | undefined | null) {
-  const parsed = Number(value);
-  return Number.isFinite(parsed) ? parsed : 0;
+function calculateRow(row: SlicingRow) {
+  const heads = Math.max(0, Math.trunc(numberValue(row.heads)));
+  const actualSlicedPcs = Math.max(0, Math.trunc(numberValue(row.actualSlicedPcs)));
+  const standardSlice = Math.max(0, Math.trunc(numberValue(row.standardSlice)));
+  const standardPacking = Math.max(0, Math.trunc(numberValue(row.standardPacking)));
+
+  const totalStdPcs = heads * standardSlice;
+  const actualPacks = standardPacking > 0 ? Math.floor(actualSlicedPcs / standardPacking) : 0;
+  const butal = standardPacking > 0 ? actualSlicedPcs - actualPacks * standardPacking : actualSlicedPcs;
+  const variance = actualSlicedPcs - totalStdPcs;
+  const yieldRate = totalStdPcs > 0 ? (actualSlicedPcs / totalStdPcs) * 100 : 0;
+
+  return { totalStdPcs, actualPacks, butal, variance, yieldRate };
 }
 
 function formatPercent(value: number) {
   return `${numberValue(value).toFixed(2)}%`;
-}
-
-function calculatePackBreakdown(actualPcsValue: number, standardPackingValue: number) {
-  const actualPcs = Math.max(0, Math.trunc(numberValue(actualPcsValue)));
-  const pcsPerPack = Math.max(0, Math.trunc(numberValue(standardPackingValue)));
-
-  if (pcsPerPack <= 0) {
-    return {
-      pcsPerPack: 0,
-      actualPacks: 0,
-      packedPcs: 0,
-      butal: actualPcs,
-    };
-  }
-
-  const actualPacks = Math.floor(actualPcs / pcsPerPack);
-  const packedPcs = actualPacks * pcsPerPack;
-  const butal = actualPcs - packedPcs;
-
-  return {
-    pcsPerPack,
-    actualPacks,
-    packedPcs,
-    butal,
-  };
-}
-
-function calculateRow(row: SlicingRow) {
-  const heads = numberValue(row.heads);
-  const actualSlicedPcs = Math.max(0, Math.trunc(numberValue(row.actualSlicedPcs)));
-  const standardSlice = numberValue(row.standardSlice);
-  const standardPacking = numberValue(row.standardPacking);
-  const totalStdPcs = heads * standardSlice;
-  const packBreakdown = calculatePackBreakdown(actualSlicedPcs, standardPacking);
-  const actualPacks = packBreakdown.actualPacks;
-  const packedPcs = packBreakdown.packedPcs;
-  const butal = packBreakdown.butal;
-  const variance = actualSlicedPcs - totalStdPcs;
-  const yieldRate = totalStdPcs > 0 ? (actualSlicedPcs / totalStdPcs) * 100 : 0;
-
-  return {
-    totalStdPcs,
-    actualPacks,
-    packedPcs,
-    butal,
-    variance,
-    yieldRate,
-  };
 }
 
 function StandardPicker({
@@ -152,56 +114,39 @@ function StandardPicker({
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
-        <Button
-          variant="outline"
-          role="combobox"
-          aria-expanded={open}
-          className="w-full justify-between"
-        >
+        <Button type="button" variant="outline" role="combobox" className="h-11 w-full justify-between bg-white">
           {selected ? (
-            <span className="truncate">
-              {selected.wholeChickenName} - {selected.productName}
-            </span>
+            <span className="truncate">{selected.wholeChickenName} to {selected.productName}</span>
           ) : (
-            "Select standard..."
+            <span className="text-muted-foreground">Select standard...</span>
           )}
           <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
         </Button>
       </PopoverTrigger>
-      <PopoverContent className="w-[420px] p-0" align="start">
+      <PopoverContent className="w-[520px] max-w-[calc(100vw-2rem)] p-0" align="start">
         <Command>
-          <CommandInput placeholder="Search standard..." />
+          <CommandInput placeholder="Search standard, whole chicken, product..." />
           <CommandList>
             <CommandEmpty>No standard found.</CommandEmpty>
             <CommandGroup>
               {standards.map((standard) => (
                 <CommandItem
                   key={standard._id}
-                  value={`${standard.wholeChickenName} ${standard.productName}`}
+                  value={`${standard.wholeChickenName} ${standard.productName} ${standard.chickenSizeType || ""}`}
                   onSelect={() => {
                     onSelect(standard);
                     setOpen(false);
                   }}
                   className="cursor-pointer"
                 >
-                  <Check
-                    className={cn(
-                      "mr-2 h-4 w-4",
-                      value === standard._id ? "opacity-100" : "opacity-0"
-                    )}
-                  />
-                  <div className="flex flex-col gap-1">
-                    <span className="font-medium">
-                      {standard.wholeChickenName} - {standard.productName}
-                    </span>
-                    <span className="text-xs text-muted-foreground">
-                      Stock: {standard.availableStock} | Std Slice: {standard.standardSlice} pcs/head | Std Pack: {standard.standardPacking} pcs/pack
-                    </span>
-                    {standard.chickenSizeType ? (
-                      <Badge variant="secondary" className="w-fit">
-                        {standard.chickenSizeType}
-                      </Badge>
-                    ) : null}
+                  <Check className={cn("mr-2 h-4 w-4", value === standard._id ? "opacity-100" : "opacity-0")} />
+                  <div className="flex flex-1 flex-col gap-1">
+                    <div className="font-semibold">{standard.wholeChickenName} to {standard.productName}</div>
+                    <div className="flex flex-wrap gap-1">
+                      <Badge variant="secondary">Std Slice: {formatWholeNumber(standard.standardSlice)} pcs/head</Badge>
+                      <Badge variant="secondary">Pack: {formatWholeNumber(standard.standardPacking)} pcs</Badge>
+                      {standard.chickenSizeType ? <Badge variant="outline">{standard.chickenSizeType}</Badge> : null}
+                    </div>
                   </div>
                 </CommandItem>
               ))}
@@ -224,46 +169,30 @@ export function AddSlicingPageClient() {
   const [isSaving, setIsSaving] = useState(false);
 
   const totals = useMemo(() => {
-    const rowTotals = rows.reduce(
+    const computed = rows.reduce(
       (sum, row) => {
-        const computed = calculateRow(row);
+        const rowComputed = calculateRow(row);
         return {
           heads: sum.heads + numberValue(row.heads),
           kilos: sum.kilos + numberValue(row.kilos),
-          totalStdPcs: sum.totalStdPcs + computed.totalStdPcs,
+          totalStdPcs: sum.totalStdPcs + rowComputed.totalStdPcs,
           actualSlicedPcs: sum.actualSlicedPcs + numberValue(row.actualSlicedPcs),
-          packs: sum.packs + computed.actualPacks,
-          packedPcs: sum.packedPcs + computed.packedPcs,
-          butal: sum.butal + computed.butal,
-          variance: sum.variance + computed.variance,
+          packs: sum.packs + rowComputed.actualPacks,
+          butal: sum.butal + rowComputed.butal,
+          variance: sum.variance + rowComputed.variance,
         };
       },
-      {
-        heads: 0,
-        kilos: 0,
-        totalStdPcs: 0,
-        actualSlicedPcs: 0,
-        packs: 0,
-        packedPcs: 0,
-        butal: 0,
-        variance: 0,
-      }
+      { heads: 0, kilos: 0, totalStdPcs: 0, actualSlicedPcs: 0, packs: 0, butal: 0, variance: 0 }
     );
 
-    const yieldRate =
-      rowTotals.totalStdPcs > 0
-        ? (rowTotals.actualSlicedPcs / rowTotals.totalStdPcs) * 100
-        : 0;
-
     return {
-      ...rowTotals,
-      yieldRate,
+      ...computed,
+      yieldRate: computed.totalStdPcs > 0 ? (computed.actualSlicedPcs / computed.totalStdPcs) * 100 : 0,
     };
   }, [rows]);
 
   async function loadStandards() {
     setIsLoadingStandards(true);
-
     try {
       const res = await fetch("/api/slicing/standards", { cache: "no-store" });
       const json = await res.json();
@@ -287,10 +216,7 @@ export function AddSlicingPageClient() {
   function updateRow(index: number, field: keyof SlicingRow, value: string) {
     setRows((current) => {
       const next = [...current];
-      next[index] = {
-        ...next[index],
-        [field]: value,
-      };
+      next[index] = { ...next[index], [field]: value };
       return next;
     });
   }
@@ -307,7 +233,6 @@ export function AddSlicingPageClient() {
         productName: standard.productName,
         standardPacking: numberValue(standard.standardPacking),
         standardSlice: numberValue(standard.standardSlice),
-        availableStock: numberValue(standard.availableStock),
       };
       return next;
     });
@@ -329,36 +254,22 @@ export function AddSlicingPageClient() {
       toast.error("Slicing date is required.");
       return;
     }
-
     if (!slicer.trim()) {
       toast.error("Slicer name is required.");
       return;
     }
-
     if (!packer.trim()) {
       toast.error("Packer name is required.");
       return;
     }
 
-    const validRows = rows.filter(
-      (row) => row.standardId && numberValue(row.heads) > 0 && numberValue(row.actualSlicedPcs) > 0
-    );
-
+    const validRows = rows.filter((row) => row.standardId && numberValue(row.heads) > 0 && numberValue(row.actualSlicedPcs) > 0);
     if (validRows.length === 0) {
       toast.error("Add at least one valid slicing row.");
       return;
     }
 
-    for (const row of validRows) {
-      const heads = numberValue(row.heads);
-      if (heads > row.availableStock) {
-        toast.error(`${row.wholeChickenName} only has ${row.availableStock} available stock.`);
-        return;
-      }
-    }
-
     setIsSaving(true);
-
     try {
       const payload = {
         slicingDate,
@@ -409,196 +320,143 @@ export function AddSlicingPageClient() {
   }
 
   return (
-    <div className="space-y-5">
-      <ModuleHeader
-        title="New Slicing Records"
+    <ErpPage>
+      <ErpPageHeader
+        eyebrow="Production Entry"
+        title="Add New Slicing"
+        description="Record slicing activities with clear standard PCS, actual PCS, full packs, loose PCS, and variance. Profit information is hidden from this employee-facing screen."
         actions={
-          <Button variant="outline" onClick={() => router.push("/slicing")}>
+          <Button variant="secondary" onClick={() => router.push("/slicing")}>
             Back to History
           </Button>
         }
       />
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Slicing Details</CardTitle>
-        </CardHeader>
-        <CardContent className="grid gap-4 md:grid-cols-3">
-          <div>
-            <Label>Slicing Date</Label>
-            <Input
-              type="date"
-              value={slicingDate}
-              onChange={(event) => setSlicingDate(event.target.value)}
-            />
-          </div>
-          <div>
-            <Label>Slicer</Label>
-            <Input
-              value={slicer}
-              onChange={(event) => setSlicer(event.target.value)}
-              placeholder="Enter slicer name"
-            />
-          </div>
-          <div>
-            <Label>Packer</Label>
-            <Input
-              value={packer}
-              onChange={(event) => setPacker(event.target.value)}
-              placeholder="Enter packer name"
-            />
-          </div>
-        </CardContent>
-      </Card>
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <ErpMetricCard label="Heads" value={formatWholeNumber(totals.heads)} description="Whole chickens selected" tone="blue" />
+        <ErpMetricCard label="Standard PCS" value={formatWholeNumber(totals.totalStdPcs)} description="Heads multiplied by standard slice" tone="violet" />
+        <ErpMetricCard label="Actual PCS" value={formatWholeNumber(totals.actualSlicedPcs)} description={`${formatWholeNumber(totals.packs)} packs / ${formatWholeNumber(totals.butal)} loose pcs`} tone="emerald" />
+        <ErpMetricCard label="Yield" value={formatPercent(totals.yieldRate)} description={`Variance ${formatWholeNumber(totals.variance)} pcs`} tone={totals.variance < 0 ? "rose" : "amber"} />
+      </div>
 
-    
-      <Card>
-        <CardHeader>
-          <CardTitle>Slicing Items</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          {isLoadingStandards ? (
-            <div className="flex h-40 items-center justify-center">
-              <Loader2 className="h-6 w-6 animate-spin" />
-            </div>
-          ) : (
-            <div className="space-y-4">
-              {rows.map((row, index) => {
-                const computed = calculateRow(row);
+      <ErpSection title="Slicing Details" description="One batch can contain multiple sliced products.">
+        <div className="grid gap-4 md:grid-cols-3">
+          <ErpField label="Slicing Date">
+            <Input type="date" value={slicingDate} onChange={(event) => setSlicingDate(event.target.value)} />
+          </ErpField>
+          <ErpField label="Slicer">
+            <Input value={slicer} onChange={(event) => setSlicer(event.target.value)} placeholder="Enter slicer name" />
+          </ErpField>
+          <ErpField label="Packer">
+            <Input value={packer} onChange={(event) => setPacker(event.target.value)} placeholder="Enter packer name" />
+          </ErpField>
+        </div>
+      </ErpSection>
 
-                return (
-                  <div key={index} className="rounded-xl border bg-white p-4 shadow-sm">
-                    <div className="mb-4 flex items-center justify-between gap-3">
-                      <div className="font-semibold">Item #{index + 1}</div>
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="destructive"
-                        onClick={() => removeRow(index)}
-                        disabled={rows.length === 1}
-                      >
-                        <Trash2 className="mr-2 h-4 w-4" />
-                        Remove
-                      </Button>
-                    </div>
-
-                    <div className="grid gap-4 lg:grid-cols-4">
-                      <div className="lg:col-span-2">
-                        <Label>Standard</Label>
-                        <StandardPicker
-                          standards={standards}
-                          value={row.standardId}
-                          onSelect={(standard) => selectStandard(index, standard)}
-                        />
-                        <p className="mt-2 text-xs text-muted-foreground">
-                          Available Stock: {row.availableStock} | Std Slice: {row.standardSlice} pcs/head | Pack Size: {row.standardPacking} pcs/pack
-                        </p>
-                      </div>
-                      <div>
-                        <Label>Bags</Label>
-                        <Input
-                          type="number"
-                          min="0"
-                          value={row.bags}
-                          onChange={(event) => updateRow(index, "bags", event.target.value)}
-                        />
-                      </div>
-                      <div>
-                        <Label>Heads</Label>
-                        <Input
-                          type="number"
-                          min="0"
-                          value={row.heads}
-                          onChange={(event) => updateRow(index, "heads", event.target.value)}
-                        />
-                      </div>
-                      <div>
-                        <Label>Kilos</Label>
-                        <Input
-                          type="number"
-                          min="0"
-                          step="0.01"
-                          value={row.kilos}
-                          onChange={(event) => updateRow(index, "kilos", event.target.value)}
-                        />
-                      </div>
-                      <div>
-                        <Label>Actual Sliced PCS</Label>
-                        <Input
-                          type="number"
-                          min="0"
-                          value={row.actualSlicedPcs}
-                          onChange={(event) => updateRow(index, "actualSlicedPcs", event.target.value)}
-                        />
-                      </div>
-                      <div>
-                        <Label>Std PCS (Heads x Slice)</Label>
-                        <Input value={computed.totalStdPcs} readOnly />
-                      </div>
-                      <div>
-                        <Label>Full Packs</Label>
-                        <Input value={computed.actualPacks} readOnly />
-                        <p className="mt-1 text-xs text-muted-foreground">
-                          {row.standardPacking > 0
-                            ? `${row.standardPacking} pcs = 1 pack`
-                            : "Select a standard to count packs"}
-                        </p>
-                      </div>
-                      <div>
-                        <Label>Butal / Loose PCS</Label>
-                        <Input value={computed.butal} readOnly />
-                      </div>
-                      <div>
-                        <Label>Variance</Label>
-                        <Input
-                          value={computed.variance}
-                          readOnly
-                          className={computed.variance < 0 ? "font-bold text-red-600" : computed.variance > 0 ? "font-bold text-emerald-700" : ""}
-                        />
-                      </div>
-                      <div>
-                        <Label>Yield Rate</Label>
-                        <Input value={formatPercent(computed.yieldRate)} readOnly />
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-
+      <ErpSection
+        title="Slicing Items"
+        description="Standard Slice means PCS per head. Standard Packing means PCS per pack."
+        actions={
           <Button type="button" variant="secondary" onClick={addRow}>
             <Plus className="mr-2 h-4 w-4" />
             Add Row
           </Button>
-
-          <div className="rounded-xl border bg-slate-50 p-4 text-sm">
-            <div className="grid gap-3 md:grid-cols-3 lg:grid-cols-7">
-              <div>Total Heads: {totals.heads.toLocaleString()}</div>
-              <div>Total Kilos: {totals.kilos.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
-              <div>Total Std PCS: {totals.totalStdPcs.toLocaleString()}</div>
-              <div>Total Actual PCS: {totals.actualSlicedPcs.toLocaleString()}</div>
-              <div>Total Packs: {totals.packs.toLocaleString()}</div>
-              <div>Total Butal: {totals.butal.toLocaleString()}</div>
-              <div>Total Variance: {totals.variance.toLocaleString()}</div>
-            </div>
+        }
+      >
+        {isLoadingStandards ? (
+          <div className="flex h-56 items-center justify-center">
+            <Loader2 className="h-7 w-7 animate-spin text-slate-500" />
           </div>
+        ) : (
+          <div className="space-y-4">
+            {rows.map((row, index) => {
+              const computed = calculateRow(row);
+              return (
+                <ErpMobileCard key={index} className="bg-slate-50/60">
+                  <div className="mb-4 flex items-center justify-between gap-3">
+                    <div>
+                      <div className="text-sm font-black text-slate-950">Item #{index + 1}</div>
+                      <p className="text-xs text-slate-500">{row.wholeChickenName && row.productName ? `${row.wholeChickenName} to ${row.productName}` : "Select slicing standard"}</p>
+                    </div>
+                    <Button type="button" size="sm" variant="destructive" onClick={() => removeRow(index)} disabled={rows.length === 1}>
+                      <Trash2 className="mr-2 h-4 w-4" />
+                      Remove
+                    </Button>
+                  </div>
 
-          <div className="flex justify-end gap-2">
-            <Button type="button" variant="outline" onClick={() => router.push("/slicing")}>
-              Cancel
-            </Button>
-            <Button type="button" onClick={saveAll} disabled={isSaving}>
-              {isSaving ? (
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              ) : (
-                <Save className="mr-2 h-4 w-4" />
-              )}
-              Save All
-            </Button>
+                  <div className="grid gap-4 lg:grid-cols-4">
+                    <div className="lg:col-span-2">
+                      <Label>Standard</Label>
+                      <StandardPicker standards={standards} value={row.standardId} onSelect={(standard) => selectStandard(index, standard)} />
+                      <p className="mt-2 text-xs text-slate-500">
+                        Std Slice: {formatWholeNumber(row.standardSlice)} pcs/head • Pack Size: {formatWholeNumber(row.standardPacking)} pcs/pack
+                      </p>
+                    </div>
+                    <ErpField label="Bags">
+                      <Input type="number" min="0" value={row.bags} onChange={(event) => updateRow(index, "bags", event.target.value)} />
+                    </ErpField>
+                    <ErpField label="Heads">
+                      <Input type="number" min="0" value={row.heads} onChange={(event) => updateRow(index, "heads", event.target.value)} />
+                    </ErpField>
+                    <ErpField label="Kilos">
+                      <Input type="number" min="0" step="0.01" value={row.kilos} onChange={(event) => updateRow(index, "kilos", event.target.value)} />
+                    </ErpField>
+                    <ErpField label="Actual Sliced PCS">
+                      <Input type="number" min="0" value={row.actualSlicedPcs} onChange={(event) => updateRow(index, "actualSlicedPcs", event.target.value)} />
+                    </ErpField>
+                    <ErpField label="Std PCS">
+                      <Input value={computed.totalStdPcs} readOnly />
+                    </ErpField>
+                    <ErpField label="Full Packs">
+                      <Input value={computed.actualPacks} readOnly />
+                    </ErpField>
+                    <ErpField label="Loose PCS">
+                      <Input value={computed.butal} readOnly />
+                    </ErpField>
+                    <ErpField label="Variance">
+                      <Input
+                        value={computed.variance}
+                        readOnly
+                        className={cn(computed.variance < 0 ? "font-bold text-red-600" : computed.variance > 0 ? "font-bold text-emerald-700" : "")}
+                      />
+                    </ErpField>
+                  </div>
+
+                  <div className="mt-4 grid gap-3 md:grid-cols-5">
+                    <ErpKeyValue label="Standard Slice" value={`${formatWholeNumber(row.standardSlice)} pcs/head`} />
+                    <ErpKeyValue label="Pack Size" value={`${formatWholeNumber(row.standardPacking)} pcs/pack`} />
+                    <ErpKeyValue label="Actual Packs" value={formatWholeNumber(computed.actualPacks)} />
+                    <ErpKeyValue label="Loose PCS" value={formatWholeNumber(computed.butal)} />
+                    <ErpKeyValue label="Yield" value={formatPercent(computed.yieldRate)} />
+                  </div>
+                </ErpMobileCard>
+              );
+            })}
           </div>
-        </CardContent>
-      </Card>
-    </div>
+        )}
+
+        <div className="mt-5 rounded-3xl border border-slate-200 bg-slate-50 p-4 text-sm">
+          <div className="grid gap-3 md:grid-cols-3 lg:grid-cols-7">
+            <div>Total Heads: <span className="font-bold">{formatWholeNumber(totals.heads)}</span></div>
+            <div>Total Kilos: <span className="font-bold">{formatDecimal(totals.kilos, 2)}</span></div>
+            <div>Std PCS: <span className="font-bold">{formatWholeNumber(totals.totalStdPcs)}</span></div>
+            <div>Actual PCS: <span className="font-bold">{formatWholeNumber(totals.actualSlicedPcs)}</span></div>
+            <div>Packs: <span className="font-bold">{formatWholeNumber(totals.packs)}</span></div>
+            <div>Loose: <span className="font-bold">{formatWholeNumber(totals.butal)}</span></div>
+            <div>Variance: <span className={cn("font-bold", totals.variance < 0 ? "text-red-600" : "text-emerald-700")}>{formatWholeNumber(totals.variance)}</span></div>
+          </div>
+        </div>
+
+        <div className="mt-5 flex justify-end gap-2">
+          <Button type="button" variant="outline" onClick={() => router.push("/slicing")}>
+            Cancel
+          </Button>
+          <Button type="button" onClick={saveAll} disabled={isSaving}>
+            {isSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
+            Save All
+          </Button>
+        </div>
+      </ErpSection>
+    </ErpPage>
   );
 }

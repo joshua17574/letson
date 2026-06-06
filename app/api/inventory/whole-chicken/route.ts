@@ -1,126 +1,200 @@
-// app/api/inventory/whole-chicken/route.ts
 import { NextRequest, NextResponse } from "next/server";
-import type { QueryFilter } from "mongoose";
 
 import dbConnect from "@/lib/mongodb";
 import { requireApiAuth } from "@/lib/require-auth";
 import { cleanString, escapeRegex } from "@/lib/crud-utils";
-import ProductModel, { IProduct } from "@/models/Product";
-import InventoryTransactionModel from "@/models/InventoryTransaction";
+import BodegaProductModel from "@/models/BodegaProduct";
+import BodegaStockTransactionModel from "@/models/BodegaStockTransaction";
+import StandardPackingModel from "@/models/StandardPacking";
 
-function isInMovement(transaction: any) {
-  return Number(transaction.newStock || 0) > Number(transaction.previousStock || 0);
+function numberValue(value: unknown) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : 0;
 }
 
-function isOutMovement(transaction: any) {
-  return Number(transaction.newStock || 0) < Number(transaction.previousStock || 0);
+function objectIdString(value: unknown) {
+  if (!value) return "";
+  if (typeof value === "string") return value;
+  if (typeof value === "object" && value !== null && "toString" in value) {
+    return String((value as { toString: () => string }).toString());
+  }
+  return String(value);
+}
+
+function getDirection(transaction: any): "IN" | "OUT" | "NONE" {
+  const previousStock = numberValue(transaction.previousStock);
+  const newStock = numberValue(transaction.newStock);
+
+  if (newStock > previousStock) return "IN";
+  if (newStock < previousStock) return "OUT";
+
+  const type = String(transaction.type || "").toUpperCase();
+  if (type === "STOCK_IN" || type === "VOID_REVERSAL") return "IN";
+  if (["STOCK_OUT", "SALE", "DAMAGED", "EXPIRED"].includes(type)) return "OUT";
+
+  return "NONE";
+}
+
+function getMovementQuantity(transaction: any) {
+  const explicitQuantity = numberValue(transaction.quantity);
+  if (explicitQuantity > 0) return explicitQuantity;
+
+  return Math.abs(numberValue(transaction.newStock) - numberValue(transaction.previousStock));
+}
+
+async function getWholeChickenProductIds() {
+  const standards = await (StandardPackingModel as any)
+    .find({ isActive: true, wholeChickenId: { $exists: true, $ne: null } })
+    .select("wholeChickenId")
+    .lean();
+
+  return Array.from(
+    new Set(
+      (standards as any[])
+        .map((standard) => objectIdString(standard.wholeChickenId))
+        .filter(Boolean)
+    )
+  );
 }
 
 export async function GET(req: NextRequest) {
   const { response } = await requireApiAuth();
-
   if (response) return response;
 
   await dbConnect();
 
   const { searchParams } = new URL(req.url);
-
   const search = cleanString(searchParams.get("search"));
   const dateFrom = cleanString(searchParams.get("dateFrom"));
   const dateTo = cleanString(searchParams.get("dateTo"));
 
-  const productFilter: QueryFilter<IProduct> = {
+  const wholeChickenProductIds = await getWholeChickenProductIds();
+  const productFilter: Record<string, any> = {
     isActive: true,
+    _id: { $in: wholeChickenProductIds },
   };
 
   if (search) {
-    productFilter.name = {
-      $regex: escapeRegex(search),
-      $options: "i",
-    };
+    productFilter.name = { $regex: escapeRegex(search), $options: "i" };
   }
 
-  const products = await ProductModel.find(productFilter).sort({ name: 1 }).lean();
+  const products = await (BodegaProductModel as any)
+    .find(productFilter)
+    .sort({ name: 1 })
+    .lean();
 
-  const data = [];
+  const productIds = (products as any[])
+    .map((product) => objectIdString(product._id))
+    .filter(Boolean);
 
-  let totalInPcs = 0;
-  let totalInBags = 0;
-  let totalInKilos = 0;
-  let totalOutQty = 0;
-  let totalCurrentPcs = 0;
+  const transactionFilter: Record<string, any> = {
+    bodegaProductId: { $in: productIds },
+  };
 
-  for (const product of products) {
-    const transactionFilter: any = {
-      productId: product._id,
+  if (dateFrom || dateTo) {
+    transactionFilter.createdAt = {};
+    if (dateFrom) transactionFilter.createdAt.$gte = new Date(`${dateFrom}T00:00:00.000Z`);
+    if (dateTo) transactionFilter.createdAt.$lte = new Date(`${dateTo}T23:59:59.999Z`);
+  }
+
+  const transactions = await (BodegaStockTransactionModel as any)
+    .find(transactionFilter)
+    .sort({ createdAt: -1 })
+    .lean();
+
+  const movementMap = new Map<
+    string,
+    {
+      stockIn: number;
+      stockOut: number;
+      latestDate?: Date;
+    }
+  >();
+
+  for (const transaction of transactions as any[]) {
+    const productId = objectIdString(transaction.bodegaProductId);
+    if (!productId) continue;
+
+    const direction = getDirection(transaction);
+    const quantity = getMovementQuantity(transaction);
+    const current = movementMap.get(productId) || {
+      stockIn: 0,
+      stockOut: 0,
+      latestDate: undefined,
     };
 
-    if (dateFrom || dateTo) {
-      transactionFilter.createdAt = {};
+    if (direction === "IN") current.stockIn += quantity;
+    if (direction === "OUT") current.stockOut += quantity;
 
-      if (dateFrom) {
-        transactionFilter.createdAt.$gte = new Date(`${dateFrom}T00:00:00.000Z`);
-      }
-
-      if (dateTo) {
-        transactionFilter.createdAt.$lte = new Date(`${dateTo}T23:59:59.999Z`);
-      }
+    if (
+      transaction.createdAt &&
+      (!current.latestDate || new Date(transaction.createdAt) > new Date(current.latestDate))
+    ) {
+      current.latestDate = transaction.createdAt;
     }
 
-    const transactions = await InventoryTransactionModel.find(transactionFilter)
-      .sort({ createdAt: -1 })
-      .lean();
+    movementMap.set(productId, current);
+  }
 
-    let inPcs = 0;
-    let inBags = 0;
-    let inKilos = 0;
-    let outQty = 0;
+  const data = (products as any[]).map((product) => {
+    const id = objectIdString(product._id);
+    const movement = movementMap.get(id) || {
+      stockIn: 0,
+      stockOut: 0,
+      latestDate: product.updatedAt || product.createdAt,
+    };
 
-    for (const transaction of transactions) {
-      const qty = Number(transaction.quantity || 0);
-
-      if (isInMovement(transaction)) {
-        if (transaction.unit === "PCS") inPcs += qty;
-        if (transaction.unit === "BAGS") inBags += qty;
-        if (transaction.unit === "KILOS") inKilos += qty;
-      }
-
-      if (isOutMovement(transaction)) {
-        if (transaction.unit === "PCS") outQty += qty;
-      }
-    }
-
-    totalInPcs += inPcs;
-    totalInBags += inBags;
-    totalInKilos += inKilos;
-    totalOutQty += outQty;
-    totalCurrentPcs += Number(product.stockPcs || 0);
-
-    data.push({
-      _id: product._id.toString(),
+    return {
+      _id: id,
       product: product.name,
-      inPcs,
-      inBags,
-      inKilos,
-      outQty,
-      currentPcs: Number(product.stockPcs || 0),
-      currentBags: Number(product.stockBags || 0),
-      currentKilos: Number(product.stockKilos || 0),
-      updated: product.updatedAt
-        ? new Date(product.updatedAt).toISOString()
-        : undefined,
-    });
-  }
+      productName: product.name,
 
-  return NextResponse.json({
-    success: true,
-    data,
-    totals: {
-      inPcs: totalInPcs,
-      inBags: totalInBags,
-      inKilos: totalInKilos,
-      outQty: totalOutQty,
-      currentPcs: totalCurrentPcs,
-    },
+      // Compatibility with the existing UI names.
+      inPcs: numberValue(movement.stockIn),
+      inBags: 0,
+      inKilos: 0,
+      outQty: numberValue(movement.stockOut),
+      currentPcs: numberValue(product.stockQty),
+      currentBags: 0,
+      currentKilos: 0,
+
+      // Clear owner-facing names.
+      stockInHeads: numberValue(movement.stockIn),
+      stockOutHeads: numberValue(movement.stockOut),
+      currentHeads: numberValue(product.stockQty),
+
+      updated: movement.latestDate
+        ? new Date(movement.latestDate).toISOString()
+        : product.updatedAt
+          ? new Date(product.updatedAt).toISOString()
+          : product.createdAt
+            ? new Date(product.createdAt).toISOString()
+            : undefined,
+    };
   });
+
+  const totals = data.reduce(
+    (sum, row) => ({
+      inPcs: sum.inPcs + row.inPcs,
+      inBags: 0,
+      inKilos: 0,
+      outQty: sum.outQty + row.outQty,
+      currentPcs: sum.currentPcs + row.currentPcs,
+      stockInHeads: sum.stockInHeads + row.stockInHeads,
+      stockOutHeads: sum.stockOutHeads + row.stockOutHeads,
+      currentHeads: sum.currentHeads + row.currentHeads,
+    }),
+    {
+      inPcs: 0,
+      inBags: 0,
+      inKilos: 0,
+      outQty: 0,
+      currentPcs: 0,
+      stockInHeads: 0,
+      stockOutHeads: 0,
+      currentHeads: 0,
+    }
+  );
+
+  return NextResponse.json({ success: true, data, totals });
 }

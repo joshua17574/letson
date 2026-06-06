@@ -10,6 +10,9 @@ import SlicingBatchModel from "@/models/SlicingBatch";
 import SlicingItemModel from "@/models/SlicingItem";
 import StandardPackingModel from "@/models/StandardPacking";
 
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
 type SlicingItemInput = {
   standardId?: string;
   standardPackingId?: string;
@@ -20,6 +23,50 @@ type SlicingItemInput = {
   kilos?: number;
   actualSlicedPcs?: number;
 };
+
+class ApiError extends Error {
+  constructor(public status: number, message: string) {
+    super(message);
+  }
+}
+
+function fail(status: number, message: string): never {
+  throw new ApiError(status, message);
+}
+
+function toNumber(value: unknown) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function buildDateFilter(dateFrom: string, dateTo: string) {
+  const filter: Record<string, any> = {};
+
+  if (dateFrom || dateTo) {
+    filter.slicingDate = {};
+
+    if (dateFrom) {
+      filter.slicingDate.$gte = new Date(`${dateFrom}T00:00:00.000Z`);
+    }
+
+    if (dateTo) {
+      filter.slicingDate.$lte = new Date(`${dateTo}T23:59:59.999Z`);
+    }
+  }
+
+  return filter;
+}
+
+function uniqueClean(values: unknown[]) {
+  return Array.from(
+    new Set(
+      values
+        .flat()
+        .map((value) => String(value || "").trim())
+        .filter(Boolean)
+    )
+  );
+}
 
 function serializeSlicingItem(item: any) {
   const batchId = item.batchId?._id?.toString?.() || item.batchId?.toString?.() || "";
@@ -46,40 +93,6 @@ function serializeSlicingItem(item: any) {
     slicer: item.batchId?.slicer || "",
     packer: item.batchId?.packer || "",
   };
-}
-
-function buildDateFilter(dateFrom: string, dateTo: string) {
-  const filter: Record<string, any> = {};
-
-  if (dateFrom || dateTo) {
-    filter.slicingDate = {};
-
-    if (dateFrom) {
-      filter.slicingDate.$gte = new Date(`${dateFrom}T00:00:00.000Z`);
-    }
-
-    if (dateTo) {
-      filter.slicingDate.$lte = new Date(`${dateTo}T23:59:59.999Z`);
-    }
-  }
-
-  return filter;
-}
-
-function toNumber(value: unknown) {
-  const parsed = Number(value);
-  return Number.isFinite(parsed) ? parsed : 0;
-}
-
-function uniqueClean(values: unknown[]) {
-  return Array.from(
-    new Set(
-      values
-        .flat()
-        .map((value) => String(value || "").trim())
-        .filter(Boolean)
-    )
-  );
 }
 
 export async function GET(req: NextRequest) {
@@ -196,7 +209,8 @@ export async function GET(req: NextRequest) {
     );
 
     const aggregated = await SlicingItemModel.aggregate(pipeline);
-    const dailyRecords = aggregated.map((record) => {
+
+    const dailyRecords = aggregated.map((record: any) => {
       const uniqueBatchIds = new Set(
         (record.batchIds || []).flat().map((id: any) => id?.toString?.() || String(id))
       );
@@ -211,7 +225,9 @@ export async function GET(req: NextRequest) {
       return {
         _id: record._id,
         date: record._id,
-        slicingDate: record.slicingDate ? new Date(record.slicingDate).toISOString() : record._id,
+        slicingDate: record.slicingDate
+          ? new Date(record.slicingDate).toISOString()
+          : record._id,
         transactionName: `Daily Slicing - ${record._id}`,
         mainProductName:
           mainProductNames.length === 1 ? mainProductNames[0] : `${mainProductNames.length} products`,
@@ -262,17 +278,26 @@ export async function GET(req: NextRequest) {
       }
     );
 
-    return NextResponse.json({
-      success: true,
-      data: pagedRecords,
-      summary,
-      meta: {
-        page,
-        limit,
-        total: dailyRecords.length,
-        totalPages: Math.max(Math.ceil(dailyRecords.length / limit), 1),
+    return NextResponse.json(
+      {
+        success: true,
+        data: pagedRecords,
+        summary,
+        meta: {
+          page,
+          limit,
+          total: dailyRecords.length,
+          totalPages: Math.max(Math.ceil(dailyRecords.length / limit), 1),
+        },
       },
-    });
+      {
+        headers: {
+          "Cache-Control": "no-store, no-cache, must-revalidate, proxy-revalidate",
+          Pragma: "no-cache",
+          Expires: "0",
+        },
+      }
+    );
   }
 
   const batchFilter: Record<string, any> = {
@@ -281,7 +306,7 @@ export async function GET(req: NextRequest) {
   };
 
   const batches = await SlicingBatchModel.find(batchFilter).select("_id").lean();
-  const batchIds = batches.map((item) => item._id);
+  const batchIds = (batches as any[]).map((item) => item._id);
 
   const itemFilter: Record<string, any> = {
     batchId: { $in: batchIds },
@@ -301,16 +326,25 @@ export async function GET(req: NextRequest) {
     SlicingItemModel.countDocuments(itemFilter),
   ]);
 
-  return NextResponse.json({
-    success: true,
-    data: items.map(serializeSlicingItem),
-    meta: {
-      page,
-      limit,
-      total,
-      totalPages: Math.max(Math.ceil(total / limit), 1),
+  return NextResponse.json(
+    {
+      success: true,
+      data: (items as any[]).map(serializeSlicingItem),
+      meta: {
+        page,
+        limit,
+        total,
+        totalPages: Math.max(Math.ceil(total / limit), 1),
+      },
     },
-  });
+    {
+      headers: {
+        "Cache-Control": "no-store, no-cache, must-revalidate, proxy-revalidate",
+        Pragma: "no-cache",
+        Expires: "0",
+      },
+    }
+  );
 }
 
 export async function POST(req: NextRequest) {
@@ -318,7 +352,6 @@ export async function POST(req: NextRequest) {
   if (response) return response;
 
   await dbConnect();
-  void BodegaProductModel;
 
   const body = await req.json();
   const slicingDate = cleanString(body.slicingDate);
@@ -385,7 +418,7 @@ export async function POST(req: NextRequest) {
     const standard = await StandardPackingModel.findOne({
       _id: standardId,
       isActive: true,
-    });
+    }).lean();
 
     if (!standard) {
       return NextResponse.json(
@@ -395,8 +428,8 @@ export async function POST(req: NextRequest) {
     }
 
     const [mainProduct, slicedProduct] = await Promise.all([
-      BodegaProductModel.findOne({ _id: standard.wholeChickenId, isActive: true }),
-      BodegaProductModel.findOne({ _id: standard.productId, isActive: true }),
+      BodegaProductModel.findOne({ _id: (standard as any).wholeChickenId, isActive: true }).lean(),
+      BodegaProductModel.findOne({ _id: (standard as any).productId, isActive: true }).lean(),
     ]);
 
     if (!mainProduct || !slicedProduct) {
@@ -428,25 +461,25 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const availableStock = Number(mainProduct.stockQty || 0);
+    const availableStock = toNumber((mainProduct as any).stockQty);
     if (heads > availableStock) {
       return NextResponse.json(
         {
           success: false,
-          message: `${mainProduct.name} has only ${availableStock} available stock. Cannot slice ${heads}.`,
+          message: `${(mainProduct as any).name} has only ${availableStock} available stock. Cannot slice ${heads}.`,
         },
         { status: 400 }
       );
     }
 
-    const standardSlice = Number(standard.standardSlice || 0);
-    const standardPacking = Number(standard.standardPacking || 0);
+    const standardSlice = toNumber((standard as any).standardSlice);
+    const standardPacking = toNumber((standard as any).standardPacking);
 
     if (standardSlice <= 0 || standardPacking <= 0) {
       return NextResponse.json(
         {
           success: false,
-          message: `Invalid standard values for ${mainProduct.name} -> ${slicedProduct.name}.`,
+          message: `Invalid standard values for ${(mainProduct as any).name} -> ${(slicedProduct as any).name}.`,
         },
         { status: 400 }
       );
@@ -466,13 +499,11 @@ export async function POST(req: NextRequest) {
     totalVariance += variance;
 
     preparedItems.push({
-      standardId: standard._id,
-      mainProduct,
-      slicedProduct,
-      mainProductId: mainProduct._id,
-      slicedProductId: slicedProduct._id,
-      mainProductName: mainProduct.name,
-      slicedProductName: slicedProduct.name,
+      standardId: (standard as any)._id,
+      mainProductId: (mainProduct as any)._id,
+      slicedProductId: (slicedProduct as any)._id,
+      mainProductName: (mainProduct as any).name,
+      slicedProductName: (slicedProduct as any).name,
       bags,
       heads,
       kilos,
@@ -486,94 +517,161 @@ export async function POST(req: NextRequest) {
     });
   }
 
-  const batch = await SlicingBatchModel.create({
-    slicingDate: new Date(slicingDate),
-    slicer,
-    packer,
-    totalHeads,
-    totalKilos,
-    totalStdPcs,
-    totalActualPcs,
-    totalPacks,
-    totalButal,
-    totalVariance,
-    createdBy: session?.user?.id,
-  });
+  const mongoSession = await mongoose.startSession();
 
-  const slicingItemsToInsert = [];
-  const bodegaStockTransactions = [];
+  try {
+    let batchId: any;
 
-  for (const item of preparedItems) {
-    const mainProduct = item.mainProduct;
-    const slicedProduct = item.slicedProduct;
+    await mongoSession.withTransaction(async () => {
+      const [batch] = await SlicingBatchModel.create(
+        [
+          {
+            slicingDate: new Date(slicingDate),
+            slicer,
+            packer,
+            totalHeads,
+            totalKilos,
+            totalStdPcs,
+            totalActualPcs,
+            totalPacks,
+            totalButal,
+            totalVariance,
+            createdBy: session?.user?.id,
+          },
+        ],
+        { session: mongoSession }
+      );
 
-    slicingItemsToInsert.push({
-      batchId: batch._id,
-      standardId: item.standardId,
-      mainProductId: item.mainProductId,
-      slicedProductId: item.slicedProductId,
-      mainProductName: item.mainProductName,
-      slicedProductName: item.slicedProductName,
-      bags: item.bags,
-      heads: item.heads,
-      kilos: item.kilos,
-      standardSlice: item.standardSlice,
-      standardPacking: item.standardPacking,
-      totalStdPcs: item.totalStdPcs,
-      actualSlicedPcs: item.actualSlicedPcs,
-      actualPacks: item.actualPacks,
-      butal: item.butal,
-      variance: item.variance,
+      batchId = batch._id;
+
+      const slicingItemsToInsert = [];
+      const stockTransactions = [];
+
+      for (const item of preparedItems) {
+        const updatedMainProduct = await BodegaProductModel.findOneAndUpdate(
+          {
+            _id: item.mainProductId,
+            isActive: true,
+            stockQty: { $gte: item.heads },
+          },
+          { $inc: { stockQty: -item.heads } },
+          { new: true, session: mongoSession }
+        );
+
+        if (!updatedMainProduct) {
+          fail(
+            400,
+            `${item.mainProductName} does not have enough stock for slicing.`
+          );
+        }
+
+        const mainNewStock = toNumber((updatedMainProduct as any).stockQty);
+        const mainPreviousStock = mainNewStock + item.heads;
+
+        const updatedSlicedProduct = await BodegaProductModel.findOneAndUpdate(
+          {
+            _id: item.slicedProductId,
+            isActive: true,
+          },
+          { $inc: { stockQty: item.actualSlicedPcs } },
+          { new: true, session: mongoSession }
+        );
+
+        if (!updatedSlicedProduct) {
+          fail(404, `${item.slicedProductName} was not found.`);
+        }
+
+        const slicedNewStock = toNumber((updatedSlicedProduct as any).stockQty);
+        const slicedPreviousStock = slicedNewStock - item.actualSlicedPcs;
+
+        slicingItemsToInsert.push({
+          batchId: batch._id,
+          standardId: item.standardId,
+          mainProductId: item.mainProductId,
+          slicedProductId: item.slicedProductId,
+          mainProductName: item.mainProductName,
+          slicedProductName: item.slicedProductName,
+          bags: item.bags,
+          heads: item.heads,
+          kilos: item.kilos,
+          standardSlice: item.standardSlice,
+          standardPacking: item.standardPacking,
+          totalStdPcs: item.totalStdPcs,
+          actualSlicedPcs: item.actualSlicedPcs,
+          actualPacks: item.actualPacks,
+          butal: item.butal,
+          variance: item.variance,
+        });
+
+        stockTransactions.push(
+          {
+            bodegaProductId: item.mainProductId,
+            type: "STOCK_OUT",
+            quantity: item.heads,
+            previousStock: mainPreviousStock,
+            newStock: mainNewStock,
+            remarks: `SLICING OUT ${batch._id.toString()}`,
+            referenceType: "SLICING_BATCH",
+            referenceId: batch._id,
+            createdBy: session?.user?.id,
+          },
+          {
+            bodegaProductId: item.slicedProductId,
+            type: "STOCK_IN",
+            quantity: item.actualSlicedPcs,
+            previousStock: slicedPreviousStock,
+            newStock: slicedNewStock,
+            remarks: `SLICING IN ${batch._id.toString()}`,
+            referenceType: "SLICING_BATCH",
+            referenceId: batch._id,
+            createdBy: session?.user?.id,
+          }
+        );
+      }
+
+      if (slicingItemsToInsert.length > 0) {
+        await SlicingItemModel.insertMany(slicingItemsToInsert, {
+          session: mongoSession,
+        });
+      }
+
+      if (stockTransactions.length > 0) {
+        await BodegaStockTransactionModel.insertMany(stockTransactions, {
+          session: mongoSession,
+        });
+      }
     });
 
-    if (item.heads > 0) {
-      const previousStock = Number(mainProduct.stockQty || 0);
-      mainProduct.stockQty = Math.max(previousStock - item.heads, 0);
-      bodegaStockTransactions.push({
-        bodegaProductId: mainProduct._id,
-        type: "STOCK_OUT",
-        quantity: item.heads,
-        previousStock,
-        newStock: mainProduct.stockQty,
-        remarks: `SLICING OUT ${batch._id.toString()}`,
-        referenceType: "SLICING_BATCH",
-        referenceId: batch._id,
-        createdBy: session?.user?.id,
-      });
+    return NextResponse.json(
+      {
+        success: true,
+        message: "Slicing records saved successfully.",
+        data: { _id: batchId?.toString?.() || String(batchId) },
+      },
+      {
+        status: 201,
+        headers: {
+          "Cache-Control": "no-store, no-cache, must-revalidate, proxy-revalidate",
+          Pragma: "no-cache",
+          Expires: "0",
+        },
+      }
+    );
+  } catch (error) {
+    if (error instanceof ApiError) {
+      return NextResponse.json(
+        { success: false, message: error.message },
+        { status: error.status }
+      );
     }
 
-    if (item.actualSlicedPcs > 0) {
-      const previousStock = Number(slicedProduct.stockQty || 0);
-      slicedProduct.stockQty = previousStock + item.actualSlicedPcs;
-      bodegaStockTransactions.push({
-        bodegaProductId: slicedProduct._id,
-        type: "STOCK_IN",
-        quantity: item.actualSlicedPcs,
-        previousStock,
-        newStock: slicedProduct.stockQty,
-        remarks: `SLICING IN ${batch._id.toString()}`,
-        referenceType: "SLICING_BATCH",
-        referenceId: batch._id,
-        createdBy: session?.user?.id,
-      });
-    }
+    console.error(error);
 
-    await mainProduct.save();
-    await slicedProduct.save();
+    return NextResponse.json(
+      { success: false, message: "Unable to save slicing records." },
+      { status: 500 }
+    );
+  } finally {
+    await mongoSession.endSession();
   }
-
-  await SlicingItemModel.insertMany(slicingItemsToInsert);
-
-  if (bodegaStockTransactions.length > 0) {
-    await BodegaStockTransactionModel.insertMany(bodegaStockTransactions);
-  }
-
-  return NextResponse.json(
-    {
-      success: true,
-      message: "Slicing records saved successfully.",
-      data: { _id: batch._id.toString() },
-    },
-    { status: 201 }
-  );
 }

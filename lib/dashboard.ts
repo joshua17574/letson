@@ -7,9 +7,103 @@ import ExpenseModel from "@/models/Expense";
 import PaymentModel from "@/models/Payment";
 import PurchaseBatchModel from "@/models/PurchaseBatch";
 import SaleModel from "@/models/Sale";
+import SupplierModel from "@/models/Supplier";
 import SlicingBatchModel from "@/models/SlicingBatch";
 import StandardPackingModel from "@/models/StandardPacking";
-import SupplierModel from "@/models/Supplier";
+
+type AnyRecord = Record<string, any>;
+
+export type DashboardStockProduct = {
+  id: string;
+  name: string;
+  kind: "SLICED" | "WHOLE" | "REGULAR";
+  stockQty: number;
+  packSize: number;
+  packs: number;
+  loosePcs: number;
+  display: string;
+  detail: string;
+  buyingPrice: number;
+  sellingPrice: number;
+  inventoryCostValue: number;
+  inventorySellingValue: number;
+  status: "good" | "low" | "out";
+};
+
+export type DashboardActivityItem = {
+  id: string;
+  title: string;
+  subtitle: string;
+  amount?: number;
+  date: string;
+  status?: string;
+};
+
+export type DashboardSummary = {
+  generatedAt: string;
+  totalCustomers: number;
+  totalSuppliers: number;
+  totalSales: number;
+  totalPayments: number;
+  totalExpenses: number;
+  outstandingReceivables: number;
+  totalSupplierDeliveries: number;
+  totalPurchaseBatches: number;
+  totalStockInPurchases: number;
+  totalDeliveries: number;
+  today: {
+    sales: number;
+    payments: number;
+    expenses: number;
+    operatingCash: number;
+    supplierDeliveries: number;
+    purchaseBatches: number;
+    stockInPurchases: number;
+    slicingHeads: number;
+    slicingPacks: number;
+    slicingActualPcs: number;
+    salesCount: number;
+    paymentCount: number;
+    expenseCount: number;
+    slicingCount: number;
+  };
+  yesterday: {
+    sales: number;
+    payments: number;
+    expenses: number;
+    operatingCash: number;
+  };
+  thisMonth: {
+    sales: number;
+    payments: number;
+    expenses: number;
+    operatingCash: number;
+    supplierDeliveries: number;
+    purchaseBatches: number;
+    stockInPurchases: number;
+    slicingHeads: number;
+    slicingPacks: number;
+    slicingActualPcs: number;
+  };
+  bodegaStock: {
+    totalPcs: number;
+    totalCostValue: number;
+    totalSellingValue: number;
+    slicedProductCount: number;
+    wholeChickenCount: number;
+    regularProductCount: number;
+    lowStockCount: number;
+    outOfStockCount: number;
+    lowStockProducts: DashboardStockProduct[];
+    topInventoryProducts: DashboardStockProduct[];
+  };
+  recent: {
+    sales: DashboardActivityItem[];
+    payments: DashboardActivityItem[];
+    expenses: DashboardActivityItem[];
+    slicing: DashboardActivityItem[];
+  };
+};
 
 const paymentAmountExpression = {
   $ifNull: [
@@ -30,17 +124,15 @@ function numberValue(value: unknown) {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
+function roundMoney(value: number) {
+  return Math.round(numberValue(value) * 100) / 100;
+}
+
 function notVoidedFilter() {
   return {
     $or: [
-      {
-        isVoided: {
-          $exists: false,
-        },
-      },
-      {
-        isVoided: false,
-      },
+      { isVoided: { $exists: false } },
+      { isVoided: false },
     ],
   };
 }
@@ -87,15 +179,11 @@ async function sumAmount(
   amountExpression: any
 ) {
   const result = await model.aggregate([
-    {
-      $match: match,
-    },
+    { $match: match },
     {
       $group: {
         _id: null,
-        total: {
-          $sum: amountExpression,
-        },
+        total: { $sum: amountExpression },
       },
     },
   ]);
@@ -103,201 +191,262 @@ async function sumAmount(
   return numberValue(result[0]?.total);
 }
 
-function formatStockBreakdown(stockQty: number, packSize: number) {
+async function countDocuments(model: any, match: Record<string, unknown>) {
+  return numberValue(await model.countDocuments(match));
+}
+
+function objectIdString(value: unknown) {
+  if (!value) return "";
+  if (typeof value === "string") return value;
+  if (typeof value === "object" && value !== null && "toString" in value) {
+    return String(value.toString());
+  }
+  return String(value);
+}
+
+function formatPackStock(stockQty: number, packSize: number) {
   const totalPcs = Math.max(0, Math.trunc(numberValue(stockQty)));
   const pcsPerPack = Math.max(0, Math.trunc(numberValue(packSize)));
 
-  if (pcsPerPack > 1) {
-    const packs = Math.floor(totalPcs / pcsPerPack);
-    const loosePcs = totalPcs % pcsPerPack;
-
+  if (pcsPerPack <= 0) {
     return {
-      isPackBased: true,
-      packs,
-      loosePcs,
-      totalPcs,
-      packSize: pcsPerPack,
-      display: `${packs.toLocaleString()} packs${loosePcs ? ` / ${loosePcs.toLocaleString()} pcs` : ""}`,
-      detail: `${totalPcs.toLocaleString()} pcs total`,
+      packs: 0,
+      loosePcs: totalPcs,
+      display: `${totalPcs.toLocaleString("en-PH")} pcs`,
+      detail: "No pack size configured",
     };
   }
 
+  const packs = Math.floor(totalPcs / pcsPerPack);
+  const loosePcs = totalPcs % pcsPerPack;
+
   return {
-    isPackBased: false,
-    packs: 0,
-    loosePcs: 0,
-    totalPcs,
-    packSize: 0,
-    display: totalPcs.toLocaleString(),
-    detail: "stock qty",
+    packs,
+    loosePcs,
+    display: `${packs.toLocaleString("en-PH")} packs / ${loosePcs.toLocaleString("en-PH")} pcs loose`,
+    detail: `${totalPcs.toLocaleString("en-PH")} pcs total - ${pcsPerPack.toLocaleString("en-PH")} pcs/pack`,
   };
 }
 
-function plainDate(value: unknown) {
-  if (!value) return "";
-  const date = new Date(value as string | number | Date);
-  if (Number.isNaN(date.getTime())) return "";
+function stockStatus(kind: "SLICED" | "WHOLE" | "REGULAR", stockQty: number, packSize: number) {
+  if (stockQty <= 0) return "out" as const;
 
-  return date.toISOString();
+  if (kind === "SLICED" && packSize > 0) {
+    return stockQty <= packSize * 3 ? "low" as const : "good" as const;
+  }
+
+  return stockQty <= 10 ? "low" as const : "good" as const;
 }
 
-async function getBodegaStockSummary() {
-  const [products, standards] = await Promise.all([
-    BodegaProductModel.find({ isActive: true })
-      .select("name stockQty buyingPrice sellingPrice")
-      .sort({ name: 1 })
-      .lean(),
-    StandardPackingModel.find({ isActive: true })
-      .select("productId standardPacking")
-      .lean(),
-  ]);
+async function buildBodegaStockSummary() {
+  const products = await (BodegaProductModel as any)
+    .find({ isActive: true })
+    .select("name stockQty buyingPrice sellingPrice")
+    .sort({ name: 1 })
+    .lean();
 
-  const packSizeByProductId = new Map<string, number>();
+  const standards = await (StandardPackingModel as any)
+    .find({ isActive: true })
+    .select("wholeChickenId productId standardPacking")
+    .lean();
 
-  for (const standard of standards as any[]) {
-    const productId = String(standard.productId || "");
-    const standardPacking = Math.trunc(numberValue(standard.standardPacking));
+  const slicedPackSizeByProductId = new Map<string, number>();
+  const wholeChickenProductIds = new Set<string>();
 
-    if (productId && standardPacking > 1) {
-      packSizeByProductId.set(productId, standardPacking);
+  for (const standard of standards as AnyRecord[]) {
+    const productId = objectIdString(standard.productId);
+    const wholeChickenId = objectIdString(standard.wholeChickenId);
+    const packSize = Math.max(0, Math.trunc(numberValue(standard.standardPacking)));
+
+    if (productId && packSize > 0 && !slicedPackSizeByProductId.has(productId)) {
+      slicedPackSizeByProductId.set(productId, packSize);
+    }
+
+    if (wholeChickenId) {
+      wholeChickenProductIds.add(wholeChickenId);
     }
   }
 
-  const stockRows = (products as any[]).map((product) => {
-    const productId = String(product._id);
-    const stockQty = numberValue(product.stockQty);
+  const stockProducts = (products as AnyRecord[]).map((product) => {
+    const id = objectIdString(product._id);
+    const stockQty = Math.max(0, Math.trunc(numberValue(product.stockQty)));
     const buyingPrice = numberValue(product.buyingPrice);
     const sellingPrice = numberValue(product.sellingPrice);
-    const packSize = packSizeByProductId.get(productId) || 0;
-    const stock = formatStockBreakdown(stockQty, packSize);
-    const inventoryCostValue = stockQty * buyingPrice;
-    const inventorySellingValue = stock.isPackBased
-      ? stock.packs * sellingPrice + stock.loosePcs * (sellingPrice / stock.packSize)
-      : stockQty * sellingPrice;
+    const packSize = numberValue(slicedPackSizeByProductId.get(id));
+    const kind: "SLICED" | "WHOLE" | "REGULAR" = packSize > 0
+      ? "SLICED"
+      : wholeChickenProductIds.has(id)
+        ? "WHOLE"
+        : "REGULAR";
 
-    const lowStockThreshold = stock.isPackBased ? stock.packSize * 2 : 10;
+    const packStock = kind === "SLICED"
+      ? formatPackStock(stockQty, packSize)
+      : {
+          packs: 0,
+          loosePcs: 0,
+          display: `${stockQty.toLocaleString("en-PH")} ${kind === "WHOLE" ? "heads" : "pcs"}`,
+          detail: kind === "WHOLE" ? "Whole chicken stock" : "Regular bodega stock",
+        };
+
+    const status = stockStatus(kind, stockQty, packSize);
+    const inventoryCostValue = roundMoney(stockQty * buyingPrice);
+    const sellingUnitPrice = kind === "SLICED" && packSize > 0
+      ? sellingPrice / packSize
+      : sellingPrice;
+    const inventorySellingValue = roundMoney(stockQty * sellingUnitPrice);
 
     return {
-      _id: productId,
-      name: String(product.name || ""),
+      id,
+      name: String(product.name || "Unnamed Product"),
+      kind,
       stockQty,
+      packSize,
+      packs: packStock.packs,
+      loosePcs: packStock.loosePcs,
+      display: packStock.display,
+      detail: packStock.detail,
       buyingPrice,
       sellingPrice,
       inventoryCostValue,
       inventorySellingValue,
-      isPackBased: stock.isPackBased,
-      packSize: stock.packSize,
-      packs: stock.packs,
-      loosePcs: stock.loosePcs,
-      display: stock.display,
-      detail: stock.detail,
-      isLowStock: stockQty > 0 && stockQty <= lowStockThreshold,
-      isOutOfStock: stockQty <= 0,
-    };
+      status,
+    } satisfies DashboardStockProduct;
   });
 
-  const totalCostValue = stockRows.reduce(
+  const totalPcs = stockProducts.reduce((sum, product) => sum + product.stockQty, 0);
+  const totalCostValue = stockProducts.reduce(
     (sum, product) => sum + product.inventoryCostValue,
     0
   );
-  const totalSellingValue = stockRows.reduce(
+  const totalSellingValue = stockProducts.reduce(
     (sum, product) => sum + product.inventorySellingValue,
     0
   );
-  const totalStockPcs = stockRows.reduce((sum, product) => sum + product.stockQty, 0);
-  const slicedProducts = stockRows.filter((product) => product.isPackBased);
-  const regularProducts = stockRows.filter((product) => !product.isPackBased);
-  const lowStockProducts = stockRows
-    .filter((product) => product.isLowStock || product.isOutOfStock)
-    .sort((a, b) => a.stockQty - b.stockQty)
-    .slice(0, 8);
-  const topInventoryProducts = stockRows
-    .sort((a, b) => b.inventoryCostValue - a.inventoryCostValue)
-    .slice(0, 8);
 
   return {
-    totalProducts: stockRows.length,
-    totalStockPcs,
-    totalCostValue,
-    totalSellingValue,
-    possibleMarkupValue: Math.max(totalSellingValue - totalCostValue, 0),
-    slicedProductCount: slicedProducts.length,
-    regularProductCount: regularProducts.length,
-    lowStockCount: stockRows.filter((product) => product.isLowStock).length,
-    outOfStockCount: stockRows.filter((product) => product.isOutOfStock).length,
-    lowStockProducts,
-    topInventoryProducts,
+    totalPcs,
+    totalCostValue: roundMoney(totalCostValue),
+    totalSellingValue: roundMoney(totalSellingValue),
+    slicedProductCount: stockProducts.filter((product) => product.kind === "SLICED").length,
+    wholeChickenCount: stockProducts.filter((product) => product.kind === "WHOLE").length,
+    regularProductCount: stockProducts.filter((product) => product.kind === "REGULAR").length,
+    lowStockCount: stockProducts.filter((product) => product.status === "low").length,
+    outOfStockCount: stockProducts.filter((product) => product.status === "out").length,
+    lowStockProducts: stockProducts
+      .filter((product) => product.status !== "good")
+      .sort((first, second) => {
+        if (first.status === second.status) return first.stockQty - second.stockQty;
+        return first.status === "out" ? -1 : 1;
+      })
+      .slice(0, 6),
+    topInventoryProducts: stockProducts
+      .sort((first, second) => second.inventoryCostValue - first.inventoryCostValue)
+      .slice(0, 6),
   };
 }
 
-async function getRecentActivity() {
-  const [recentSales, recentPayments, recentExpenses, recentSlicing] =
-    await Promise.all([
-      SaleModel.find(notVoidedFilter())
-        .select("receiptNumber totalAmount paidAmount balance status source saleDate createdAt customerId")
-        .populate("customerId", "name")
-        .sort({ createdAt: -1 })
-        .limit(5)
-        .lean(),
-      PaymentModel.find(notVoidedFilter())
-        .select("amount appliedAmount unappliedAmount referenceNumber paymentDate createdAt customerId")
-        .populate("customerId", "name")
-        .sort({ createdAt: -1 })
-        .limit(5)
-        .lean(),
-      ExpenseModel.find({ isActive: true })
-        .select("name type amount expenseDate createdAt")
-        .sort({ expenseDate: -1, createdAt: -1 })
-        .limit(5)
-        .lean(),
-      SlicingBatchModel.find(notVoidedFilter())
-        .select("slicingDate totalHeads totalActualPcs totalPacks totalVariance slicer packer createdAt")
-        .sort({ slicingDate: -1, createdAt: -1 })
-        .limit(5)
-        .lean(),
-    ]);
+function activityDate(value: unknown) {
+  const date = value instanceof Date ? value : new Date(String(value || ""));
+  if (Number.isNaN(date.getTime())) return new Date().toISOString();
+  return date.toISOString();
+}
+
+async function recentSales() {
+  const rows = await (SaleModel as any)
+    .find(notVoidedFilter())
+    .select("receiptNumber totalAmount balance status saleDate createdAt")
+    .sort({ createdAt: -1 })
+    .limit(5)
+    .lean();
+
+  return (rows as AnyRecord[]).map((sale) => ({
+    id: objectIdString(sale._id),
+    title: sale.receiptNumber ? `Sale ${sale.receiptNumber}` : "Sale",
+    subtitle: `${String(sale.status || "OPEN")} - Balance ${roundMoney(numberValue(sale.balance)).toLocaleString("en-PH")}`,
+    amount: numberValue(sale.totalAmount),
+    date: activityDate(sale.saleDate || sale.createdAt),
+    status: String(sale.status || ""),
+  }));
+}
+
+async function recentPayments() {
+  const rows = await (PaymentModel as any)
+    .find(notVoidedFilter())
+    .select("referenceNumber amount amountReceived amountPaid paymentDate createdAt")
+    .sort({ createdAt: -1 })
+    .limit(5)
+    .lean();
+
+  return (rows as AnyRecord[]).map((payment) => ({
+    id: objectIdString(payment._id),
+    title: payment.referenceNumber ? `Payment ${payment.referenceNumber}` : "Payment Received",
+    subtitle: "Customer collection",
+    amount: numberValue(payment.amountReceived ?? payment.amountPaid ?? payment.amount),
+    date: activityDate(payment.paymentDate || payment.createdAt),
+  }));
+}
+
+async function recentExpenses() {
+  const rows = await (ExpenseModel as any)
+    .find({ isActive: true })
+    .select("name type amount expenseDate createdAt")
+    .sort({ expenseDate: -1, createdAt: -1 })
+    .limit(5)
+    .lean();
+
+  return (rows as AnyRecord[]).map((expense) => ({
+    id: objectIdString(expense._id),
+    title: String(expense.name || "Expense"),
+    subtitle: String(expense.type || "OTHERS").replaceAll("_", " "),
+    amount: numberValue(expense.amount),
+    date: activityDate(expense.expenseDate || expense.createdAt),
+  }));
+}
+
+async function recentSlicing() {
+  const rows = await (SlicingBatchModel as any)
+    .find(notVoidedFilter())
+    .select("slicingDate slicer packer totalHeads totalActualPcs totalPacks createdAt")
+    .sort({ slicingDate: -1, createdAt: -1 })
+    .limit(5)
+    .lean();
+
+  return (rows as AnyRecord[]).map((batch) => ({
+    id: objectIdString(batch._id),
+    title: `${numberValue(batch.totalPacks).toLocaleString("en-PH")} packs produced`,
+    subtitle: `${numberValue(batch.totalHeads).toLocaleString("en-PH")} heads - ${numberValue(batch.totalActualPcs).toLocaleString("en-PH")} pcs`,
+    date: activityDate(batch.slicingDate || batch.createdAt),
+  }));
+}
+
+async function sumSlicing(
+  startDate: Date,
+  endDate: Date
+): Promise<{ heads: number; packs: number; actualPcs: number; count: number }> {
+  const result = await (SlicingBatchModel as any).aggregate([
+    {
+      $match: withDateRange(notVoidedFilter(), "slicingDate", startDate, endDate),
+    },
+    {
+      $group: {
+        _id: null,
+        heads: { $sum: "$totalHeads" },
+        packs: { $sum: "$totalPacks" },
+        actualPcs: { $sum: "$totalActualPcs" },
+        count: { $sum: 1 },
+      },
+    },
+  ]);
 
   return {
-    sales: (recentSales as any[]).map((sale) => ({
-      _id: String(sale._id),
-      title: String(sale.receiptNumber || "Sale"),
-      name: String(sale.customerId?.name || "Customer"),
-      amount: numberValue(sale.totalAmount),
-      balance: numberValue(sale.balance),
-      status: String(sale.status || ""),
-      source: String(sale.source || ""),
-      date: plainDate(sale.saleDate || sale.createdAt),
-    })),
-    payments: (recentPayments as any[]).map((payment) => ({
-      _id: String(payment._id),
-      title: String(payment.referenceNumber || "Payment"),
-      name: String(payment.customerId?.name || "Customer"),
-      amount: numberValue(payment.amount || payment.appliedAmount),
-      unappliedAmount: numberValue(payment.unappliedAmount),
-      date: plainDate(payment.paymentDate || payment.createdAt),
-    })),
-    expenses: (recentExpenses as any[]).map((expense) => ({
-      _id: String(expense._id),
-      title: String(expense.name || "Expense"),
-      type: String(expense.type || "OTHERS"),
-      amount: numberValue(expense.amount),
-      date: plainDate(expense.expenseDate || expense.createdAt),
-    })),
-    slicing: (recentSlicing as any[]).map((batch) => ({
-      _id: String(batch._id),
-      title: `${numberValue(batch.totalHeads).toLocaleString()} heads sliced`,
-      totalHeads: numberValue(batch.totalHeads),
-      totalActualPcs: numberValue(batch.totalActualPcs),
-      totalPacks: numberValue(batch.totalPacks),
-      totalVariance: numberValue(batch.totalVariance),
-      slicer: String(batch.slicer || ""),
-      packer: String(batch.packer || ""),
-      date: plainDate(batch.slicingDate || batch.createdAt),
-    })),
+    heads: numberValue(result[0]?.heads),
+    packs: numberValue(result[0]?.packs),
+    actualPcs: numberValue(result[0]?.actualPcs),
+    count: numberValue(result[0]?.count),
   };
 }
 
-export async function getDashboardSummary() {
+export async function getDashboardSummary(): Promise<DashboardSummary> {
   await dbConnect();
 
   const {
@@ -314,179 +463,131 @@ export async function getDashboardSummary() {
   const deliveryFilter = notVoidedFilter();
   const purchaseBatchFilter = notVoidedFilter();
   const expenseFilter = { isActive: true };
-  const slicingFilter = notVoidedFilter();
 
   const [
     totalCustomers,
     totalSuppliers,
     totalSales,
     totalPayments,
+    totalExpenses,
     totalSupplierDeliveries,
     totalPurchaseBatches,
-    totalExpenses,
     todaySales,
     todayPayments,
+    todayExpenses,
     todaySupplierDeliveries,
     todayPurchaseBatches,
-    todayExpenses,
-    todaySlicingHeads,
-    todaySlicingPacks,
     yesterdaySales,
     yesterdayPayments,
     yesterdayExpenses,
     thisMonthSales,
     thisMonthPayments,
+    thisMonthExpenses,
     thisMonthSupplierDeliveries,
     thisMonthPurchaseBatches,
-    thisMonthExpenses,
-    thisMonthSlicingHeads,
-    thisMonthSlicingPacks,
+    todaySalesCount,
+    todayPaymentCount,
+    todayExpenseCount,
+    todaySlicing,
+    thisMonthSlicing,
     bodegaStock,
-    recent,
+    salesActivity,
+    paymentsActivity,
+    expensesActivity,
+    slicingActivity,
   ] = await Promise.all([
-    CustomerModel.countDocuments(activeFilter),
-    SupplierModel.countDocuments(activeFilter),
+    countDocuments(CustomerModel, activeFilter),
+    countDocuments(SupplierModel, activeFilter),
     sumAmount(SaleModel, saleFilter, "$totalAmount"),
     sumAmount(PaymentModel, paymentFilter, paymentAmountExpression),
+    sumAmount(ExpenseModel, expenseFilter, "$amount"),
     sumAmount(DeliveryModel, deliveryFilter, "$totalAmount"),
     sumAmount(PurchaseBatchModel, purchaseBatchFilter, "$totalAmount"),
-    sumAmount(ExpenseModel, expenseFilter, "$amount"),
-    sumAmount(
-      SaleModel,
-      withDateRange(saleFilter, "createdAt", todayStart, tomorrowStart),
-      "$totalAmount"
-    ),
-    sumAmount(
-      PaymentModel,
-      withDateRange(paymentFilter, "createdAt", todayStart, tomorrowStart),
-      paymentAmountExpression
-    ),
-    sumAmount(
-      DeliveryModel,
-      withDateRange(deliveryFilter, "createdAt", todayStart, tomorrowStart),
-      "$totalAmount"
-    ),
-    sumAmount(
-      PurchaseBatchModel,
-      withDateRange(purchaseBatchFilter, "createdAt", todayStart, tomorrowStart),
-      "$totalAmount"
-    ),
-    sumAmount(
-      ExpenseModel,
-      withDateRange(expenseFilter, "expenseDate", todayStart, tomorrowStart),
-      "$amount"
-    ),
-    sumAmount(
-      SlicingBatchModel,
-      withDateRange(slicingFilter, "slicingDate", todayStart, tomorrowStart),
-      "$totalHeads"
-    ),
-    sumAmount(
-      SlicingBatchModel,
-      withDateRange(slicingFilter, "slicingDate", todayStart, tomorrowStart),
-      "$totalPacks"
-    ),
-    sumAmount(
-      SaleModel,
-      withDateRange(saleFilter, "createdAt", yesterdayStart, todayStart),
-      "$totalAmount"
-    ),
-    sumAmount(
-      PaymentModel,
-      withDateRange(paymentFilter, "createdAt", yesterdayStart, todayStart),
-      paymentAmountExpression
-    ),
-    sumAmount(
-      ExpenseModel,
-      withDateRange(expenseFilter, "expenseDate", yesterdayStart, todayStart),
-      "$amount"
-    ),
-    sumAmount(
-      SaleModel,
-      withDateRange(saleFilter, "createdAt", monthStart, nextMonthStart),
-      "$totalAmount"
-    ),
-    sumAmount(
-      PaymentModel,
-      withDateRange(paymentFilter, "createdAt", monthStart, nextMonthStart),
-      paymentAmountExpression
-    ),
-    sumAmount(
-      DeliveryModel,
-      withDateRange(deliveryFilter, "createdAt", monthStart, nextMonthStart),
-      "$totalAmount"
-    ),
-    sumAmount(
-      PurchaseBatchModel,
-      withDateRange(purchaseBatchFilter, "createdAt", monthStart, nextMonthStart),
-      "$totalAmount"
-    ),
-    sumAmount(
-      ExpenseModel,
-      withDateRange(expenseFilter, "expenseDate", monthStart, nextMonthStart),
-      "$amount"
-    ),
-    sumAmount(
-      SlicingBatchModel,
-      withDateRange(slicingFilter, "slicingDate", monthStart, nextMonthStart),
-      "$totalHeads"
-    ),
-    sumAmount(
-      SlicingBatchModel,
-      withDateRange(slicingFilter, "slicingDate", monthStart, nextMonthStart),
-      "$totalPacks"
-    ),
-    getBodegaStockSummary(),
-    getRecentActivity(),
+    sumAmount(SaleModel, withDateRange(saleFilter, "createdAt", todayStart, tomorrowStart), "$totalAmount"),
+    sumAmount(PaymentModel, withDateRange(paymentFilter, "createdAt", todayStart, tomorrowStart), paymentAmountExpression),
+    sumAmount(ExpenseModel, withDateRange(expenseFilter, "expenseDate", todayStart, tomorrowStart), "$amount"),
+    sumAmount(DeliveryModel, withDateRange(deliveryFilter, "createdAt", todayStart, tomorrowStart), "$totalAmount"),
+    sumAmount(PurchaseBatchModel, withDateRange(purchaseBatchFilter, "createdAt", todayStart, tomorrowStart), "$totalAmount"),
+    sumAmount(SaleModel, withDateRange(saleFilter, "createdAt", yesterdayStart, todayStart), "$totalAmount"),
+    sumAmount(PaymentModel, withDateRange(paymentFilter, "createdAt", yesterdayStart, todayStart), paymentAmountExpression),
+    sumAmount(ExpenseModel, withDateRange(expenseFilter, "expenseDate", yesterdayStart, todayStart), "$amount"),
+    sumAmount(SaleModel, withDateRange(saleFilter, "createdAt", monthStart, nextMonthStart), "$totalAmount"),
+    sumAmount(PaymentModel, withDateRange(paymentFilter, "createdAt", monthStart, nextMonthStart), paymentAmountExpression),
+    sumAmount(ExpenseModel, withDateRange(expenseFilter, "expenseDate", monthStart, nextMonthStart), "$amount"),
+    sumAmount(DeliveryModel, withDateRange(deliveryFilter, "createdAt", monthStart, nextMonthStart), "$totalAmount"),
+    sumAmount(PurchaseBatchModel, withDateRange(purchaseBatchFilter, "createdAt", monthStart, nextMonthStart), "$totalAmount"),
+    countDocuments(SaleModel, withDateRange(saleFilter, "createdAt", todayStart, tomorrowStart)),
+    countDocuments(PaymentModel, withDateRange(paymentFilter, "createdAt", todayStart, tomorrowStart)),
+    countDocuments(ExpenseModel, withDateRange(expenseFilter, "expenseDate", todayStart, tomorrowStart)),
+    sumSlicing(todayStart, tomorrowStart),
+    sumSlicing(monthStart, nextMonthStart),
+    buildBodegaStockSummary(),
+    recentSales(),
+    recentPayments(),
+    recentExpenses(),
+    recentSlicing(),
   ]);
 
   const totalStockInPurchases = totalSupplierDeliveries + totalPurchaseBatches;
   const todayStockInPurchases = todaySupplierDeliveries + todayPurchaseBatches;
-  const thisMonthStockInPurchases =
-    thisMonthSupplierDeliveries + thisMonthPurchaseBatches;
+  const thisMonthStockInPurchases = thisMonthSupplierDeliveries + thisMonthPurchaseBatches;
   const outstandingReceivables = Math.max(totalSales - totalPayments, 0);
   const todayOperatingCash = todayPayments - todayExpenses;
-  const thisMonthOperatingCash = thisMonthPayments - thisMonthExpenses;
+  const yesterdayOperatingCash = yesterdayPayments - yesterdayExpenses;
+  const monthOperatingCash = thisMonthPayments - thisMonthExpenses;
 
   return {
+    generatedAt: new Date().toISOString(),
     totalCustomers,
     totalSuppliers,
-    totalSales,
-    totalPayments,
-    totalExpenses,
-    outstandingReceivables,
-    totalSupplierDeliveries,
-    totalPurchaseBatches,
-    totalStockInPurchases,
-    totalDeliveries: totalSupplierDeliveries,
+    totalSales: roundMoney(totalSales),
+    totalPayments: roundMoney(totalPayments),
+    totalExpenses: roundMoney(totalExpenses),
+    outstandingReceivables: roundMoney(outstandingReceivables),
+    totalSupplierDeliveries: roundMoney(totalSupplierDeliveries),
+    totalPurchaseBatches: roundMoney(totalPurchaseBatches),
+    totalStockInPurchases: roundMoney(totalStockInPurchases),
+    totalDeliveries: roundMoney(totalSupplierDeliveries),
     today: {
-      sales: todaySales,
-      payments: todayPayments,
-      supplierDeliveries: todaySupplierDeliveries,
-      purchaseBatches: todayPurchaseBatches,
-      stockInPurchases: todayStockInPurchases,
-      expenses: todayExpenses,
-      operatingCash: todayOperatingCash,
-      slicingHeads: todaySlicingHeads,
-      slicingPacks: todaySlicingPacks,
+      sales: roundMoney(todaySales),
+      payments: roundMoney(todayPayments),
+      expenses: roundMoney(todayExpenses),
+      operatingCash: roundMoney(todayOperatingCash),
+      supplierDeliveries: roundMoney(todaySupplierDeliveries),
+      purchaseBatches: roundMoney(todayPurchaseBatches),
+      stockInPurchases: roundMoney(todayStockInPurchases),
+      slicingHeads: numberValue(todaySlicing.heads),
+      slicingPacks: numberValue(todaySlicing.packs),
+      slicingActualPcs: numberValue(todaySlicing.actualPcs),
+      salesCount: numberValue(todaySalesCount),
+      paymentCount: numberValue(todayPaymentCount),
+      expenseCount: numberValue(todayExpenseCount),
+      slicingCount: numberValue(todaySlicing.count),
     },
     yesterday: {
-      sales: yesterdaySales,
-      payments: yesterdayPayments,
-      expenses: yesterdayExpenses,
+      sales: roundMoney(yesterdaySales),
+      payments: roundMoney(yesterdayPayments),
+      expenses: roundMoney(yesterdayExpenses),
+      operatingCash: roundMoney(yesterdayOperatingCash),
     },
     thisMonth: {
-      sales: thisMonthSales,
-      payments: thisMonthPayments,
-      supplierDeliveries: thisMonthSupplierDeliveries,
-      purchaseBatches: thisMonthPurchaseBatches,
-      stockInPurchases: thisMonthStockInPurchases,
-      expenses: thisMonthExpenses,
-      operatingCash: thisMonthOperatingCash,
-      slicingHeads: thisMonthSlicingHeads,
-      slicingPacks: thisMonthSlicingPacks,
+      sales: roundMoney(thisMonthSales),
+      payments: roundMoney(thisMonthPayments),
+      expenses: roundMoney(thisMonthExpenses),
+      operatingCash: roundMoney(monthOperatingCash),
+      supplierDeliveries: roundMoney(thisMonthSupplierDeliveries),
+      purchaseBatches: roundMoney(thisMonthPurchaseBatches),
+      stockInPurchases: roundMoney(thisMonthStockInPurchases),
+      slicingHeads: numberValue(thisMonthSlicing.heads),
+      slicingPacks: numberValue(thisMonthSlicing.packs),
+      slicingActualPcs: numberValue(thisMonthSlicing.actualPcs),
     },
     bodegaStock,
-    recent,
+    recent: {
+      sales: salesActivity,
+      payments: paymentsActivity,
+      expenses: expensesActivity,
+      slicing: slicingActivity,
+    },
   };
 }

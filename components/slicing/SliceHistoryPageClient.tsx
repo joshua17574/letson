@@ -1,20 +1,32 @@
 "use client";
 
 import Link from "next/link";
-import { Fragment, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
-  ChevronDown,
-  ChevronUp,
+  CalendarDays,
   Loader2,
   PlusCircle,
   Printer,
   RefreshCcw,
   Search,
+  Trash2,
 } from "lucide-react";
 import { toast } from "sonner";
 
+import {
+  ErpEmptyState,
+  ErpField,
+  ErpKeyValue,
+  ErpMetricCard,
+  ErpMobileCard,
+  ErpPage,
+  ErpPageHeader,
+  ErpSection,
+  ErpToolbar,
+} from "@/components/erp/ErpShell";
+import { formatDecimal, formatWholeNumber, numberValue } from "@/components/erp/StockDisplay";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -32,47 +44,32 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { cn } from "@/lib/utils";
 
 type ProductOption = {
   _id: string;
   name: string;
 };
 
-type DailyProductBreakdown = {
-  mainProductName: string;
-  slicedProductName: string;
-  standardPacking: number;
-  bags: number;
-  heads: number;
-  kilos: number;
-  totalStdPcs: number;
-  actualSlicedPcs: number;
-  actualPacks: number;
-  butal: number;
-  variance: number;
-  activityCount: number;
-};
-
-type DailySlicingRecord = {
+type SlicingHistoryItem = {
   _id: string;
-  date: string;
-  slicingDate?: string;
-  transactionName: string;
+  batchId?: string;
   mainProductName: string;
   slicedProductName: string;
-  batchCount: number;
-  activityCount: number;
-  bags: number;
-  heads: number;
-  kilos: number;
-  totalStdPcs: number;
+  qtyToSlice: number;
+  heads?: number;
   actualSlicedPcs: number;
+  standardSlice?: number;
+  standardPacking: number;
+  totalStdPcs?: number;
   actualPacks: number;
-  butal: number;
+  butal?: number;
   variance: number;
-  slicers: string[];
-  packers: string[];
-  products: DailyProductBreakdown[];
+  kilos: number;
+  bags: number;
+  slicingDate?: string;
+  slicer?: string;
+  packer?: string;
 };
 
 type ApiMeta = {
@@ -82,74 +79,50 @@ type ApiMeta = {
   totalPages: number;
 };
 
-type DailySummary = {
-  dayCount: number;
-  batchCount: number;
-  activityCount: number;
-  heads: number;
-  kilos: number;
-  totalStdPcs: number;
-  actualSlicedPcs: number;
-  actualPacks: number;
-  butal: number;
-  variance: number;
-};
-
-const emptySummary: DailySummary = {
-  dayCount: 0,
-  batchCount: 0,
-  activityCount: 0,
-  heads: 0,
-  kilos: 0,
-  totalStdPcs: 0,
-  actualSlicedPcs: 0,
-  actualPacks: 0,
-  butal: 0,
-  variance: 0,
-};
-
-function numberValue(value: unknown) {
-  const parsed = Number(value);
-  return Number.isFinite(parsed) ? parsed : 0;
-}
-
-function formatNumber(value: unknown, decimals = 0) {
-  return numberValue(value).toLocaleString(undefined, {
-    minimumFractionDigits: decimals,
-    maximumFractionDigits: decimals,
-  });
-}
-
 function formatDate(value?: string) {
   if (!value) return "-";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  return date.toISOString().slice(0, 10);
+  return new Date(value).toISOString().slice(0, 10);
 }
 
-function formatPeople(values: string[]) {
-  if (!values || values.length === 0) return "-";
-  if (values.length <= 2) return values.join(", ");
-  return `${values.slice(0, 2).join(", ")} +${values.length - 2}`;
+function formatPercent(value: number) {
+  return `${numberValue(value).toFixed(2)}%`;
 }
 
-function formatPacks(packs: number, loosePcs: number) {
-  const packText = `${formatNumber(packs)} ${numberValue(packs) === 1 ? "pack" : "packs"}`;
-  const looseText = `${formatNumber(loosePcs)} pcs`;
-  return `${packText} / ${looseText}`;
+function getStdPcs(record: SlicingHistoryItem) {
+  const existing = numberValue(record.totalStdPcs);
+  if (existing > 0) return existing;
+  const heads = numberValue(record.heads ?? record.qtyToSlice);
+  const standardSlice = numberValue(record.standardSlice);
+  return heads * standardSlice;
+}
+
+function getLoosePcs(record: SlicingHistoryItem) {
+  if (typeof record.butal !== "undefined") return Math.max(0, Math.trunc(numberValue(record.butal)));
+  const actualPcs = Math.max(0, Math.trunc(numberValue(record.actualSlicedPcs)));
+  const packSize = Math.max(0, Math.trunc(numberValue(record.standardPacking)));
+  if (packSize <= 0) return actualPcs;
+  return actualPcs % packSize;
+}
+
+function getYieldRate(record: SlicingHistoryItem) {
+  const stdPcs = getStdPcs(record);
+  if (stdPcs <= 0) return 0;
+  return (numberValue(record.actualSlicedPcs) / stdPcs) * 100;
+}
+
+function getDayKey(record: SlicingHistoryItem) {
+  return formatDate(record.slicingDate);
 }
 
 export function SliceHistoryPageClient() {
-  const [records, setRecords] = useState<DailySlicingRecord[]>([]);
+  const [records, setRecords] = useState<SlicingHistoryItem[]>([]);
   const [products, setProducts] = useState<ProductOption[]>([]);
-  const [summary, setSummary] = useState<DailySummary>(emptySummary);
   const [meta, setMeta] = useState<ApiMeta>({
     page: 1,
     limit: 50,
     total: 0,
     totalPages: 1,
   });
-
   const [page, setPage] = useState(1);
   const [limit, setLimit] = useState("50");
   const [slicedProductId, setSlicedProductId] = useState("ALL");
@@ -160,83 +133,104 @@ export function SliceHistoryPageClient() {
     dateFrom: "",
     dateTo: "",
   });
-  const [expandedDate, setExpandedDate] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
-  const rangeLabel = useMemo(() => {
-    if (appliedFilters.dateFrom && appliedFilters.dateTo) {
-      return `${appliedFilters.dateFrom} to ${appliedFilters.dateTo}`;
+  const totals = useMemo(() => {
+    const computed = records.reduce(
+      (sum, record) => {
+        const stdPcs = getStdPcs(record);
+        return {
+          heads: sum.heads + numberValue(record.heads ?? record.qtyToSlice),
+          kilos: sum.kilos + numberValue(record.kilos),
+          stdPcs: sum.stdPcs + stdPcs,
+          actualPcs: sum.actualPcs + numberValue(record.actualSlicedPcs),
+          packs: sum.packs + numberValue(record.actualPacks),
+          loosePcs: sum.loosePcs + getLoosePcs(record),
+          variance: sum.variance + numberValue(record.variance),
+        };
+      },
+      { heads: 0, kilos: 0, stdPcs: 0, actualPcs: 0, packs: 0, loosePcs: 0, variance: 0 }
+    );
+
+    return {
+      ...computed,
+      yieldRate: computed.stdPcs > 0 ? (computed.actualPcs / computed.stdPcs) * 100 : 0,
+    };
+  }, [records]);
+
+  const dayGroups = useMemo(() => {
+    const map = new Map<
+      string,
+      {
+        date: string;
+        rows: number;
+        heads: number;
+        kilos: number;
+        stdPcs: number;
+        actualPcs: number;
+        packs: number;
+        loosePcs: number;
+        variance: number;
+      }
+    >();
+
+    for (const record of records) {
+      const date = getDayKey(record);
+      const current = map.get(date) || {
+        date,
+        rows: 0,
+        heads: 0,
+        kilos: 0,
+        stdPcs: 0,
+        actualPcs: 0,
+        packs: 0,
+        loosePcs: 0,
+        variance: 0,
+      };
+      current.rows += 1;
+      current.heads += numberValue(record.heads ?? record.qtyToSlice);
+      current.kilos += numberValue(record.kilos);
+      current.stdPcs += getStdPcs(record);
+      current.actualPcs += numberValue(record.actualSlicedPcs);
+      current.packs += numberValue(record.actualPacks);
+      current.loosePcs += getLoosePcs(record);
+      current.variance += numberValue(record.variance);
+      map.set(date, current);
     }
-    if (appliedFilters.dateFrom) return `${appliedFilters.dateFrom} onwards`;
-    if (appliedFilters.dateTo) return `Until ${appliedFilters.dateTo}`;
-    return "All dates";
-  }, [appliedFilters.dateFrom, appliedFilters.dateTo]);
+
+    return Array.from(map.values()).sort((a, b) => b.date.localeCompare(a.date));
+  }, [records]);
 
   async function loadProducts() {
     try {
-      const res = await fetch("/api/bodega-products?limit=1000", {
-        cache: "no-store",
-      });
+      const res = await fetch("/api/bodega-products?limit=1000", { cache: "no-store" });
       const json = await res.json();
-
-      if (res.ok && json.success) {
-        const data = Array.isArray(json.data)
-          ? json.data
-          : Array.isArray(json.data?.items)
-            ? json.data.items
-            : [];
-        setProducts(data);
-      }
+      if (res.ok && json.success) setProducts(json.data || []);
     } catch {
-      toast.error("Failed to load sliced products.");
+      toast.error("Failed to load bodega products.");
     }
   }
 
   async function loadRecords() {
     setIsLoading(true);
 
-    const params = new URLSearchParams({
-      groupBy: "daily",
-      page: String(page),
-      limit,
-    });
-
-    if (appliedFilters.slicedProductId !== "ALL") {
-      params.set("slicedProductId", appliedFilters.slicedProductId);
-    }
-
-    if (appliedFilters.dateFrom) {
-      params.set("dateFrom", appliedFilters.dateFrom);
-    }
-
-    if (appliedFilters.dateTo) {
-      params.set("dateTo", appliedFilters.dateTo);
-    }
+    const params = new URLSearchParams({ page: String(page), limit });
+    if (appliedFilters.slicedProductId !== "ALL") params.set("slicedProductId", appliedFilters.slicedProductId);
+    if (appliedFilters.dateFrom) params.set("dateFrom", appliedFilters.dateFrom);
+    if (appliedFilters.dateTo) params.set("dateTo", appliedFilters.dateTo);
 
     try {
-      const res = await fetch(`/api/slicing?${params.toString()}`, {
-        cache: "no-store",
-      });
+      const res = await fetch(`/api/slicing?${params.toString()}`, { cache: "no-store" });
       const json = await res.json();
 
       if (!res.ok || !json.success) {
-        throw new Error(json.message || "Failed to load daily slicing history.");
+        throw new Error(json.message || "Failed to load slicing records.");
       }
 
       setRecords(json.data || []);
-      setSummary(json.summary || emptySummary);
-      setMeta(
-        json.meta || {
-          page,
-          limit: Number(limit),
-          total: 0,
-          totalPages: 1,
-        }
-      );
+      setMeta(json.meta || { page, limit: Number(limit), total: 0, totalPages: 1 });
     } catch (error) {
-      toast.error(
-        error instanceof Error ? error.message : "Failed to load daily slicing history."
-      );
+      toast.error(error instanceof Error ? error.message : "Failed to load slicing records.");
     } finally {
       setIsLoading(false);
     }
@@ -251,13 +245,28 @@ export function SliceHistoryPageClient() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [page, limit, appliedFilters]);
 
+  async function handleDelete(record: SlicingHistoryItem) {
+    const batchId = record.batchId || record._id;
+    const confirmed = window.confirm("Are you sure you want to void this slicing batch?");
+    if (!confirmed) return;
+
+    try {
+      const res = await fetch(`/api/slicing/${batchId}`, { method: "DELETE" });
+      const json = await res.json();
+
+      if (!res.ok || !json.success) {
+        throw new Error(json.message || "Failed to void slicing batch.");
+      }
+
+      toast.success(json.message || "Slicing batch voided successfully.");
+      await loadRecords();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to void slicing batch.");
+    }
+  }
+
   function applyFilters() {
-    setAppliedFilters({
-      slicedProductId,
-      dateFrom,
-      dateTo,
-    });
-    setExpandedDate(null);
+    setAppliedFilters({ slicedProductId, dateFrom, dateTo });
     setPage(1);
   }
 
@@ -265,393 +274,252 @@ export function SliceHistoryPageClient() {
     setSlicedProductId("ALL");
     setDateFrom("");
     setDateTo("");
-    setAppliedFilters({
-      slicedProductId: "ALL",
-      dateFrom: "",
-      dateTo: "",
-    });
-    setExpandedDate(null);
+    setAppliedFilters({ slicedProductId: "ALL", dateFrom: "", dateTo: "" });
     setPage(1);
   }
 
-  function printPage() {
-    window.print();
-  }
-
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-        <div>
-          <h1 className="text-3xl font-black tracking-tight">
-            Daily Slicing History
-          </h1>
-          <p className="text-sm text-muted-foreground">
-            One transaction row per day. All slicing activities for the same day are added together.
-          </p>
-        </div>
-        <div className="flex gap-2">
-          <Button variant="outline" onClick={printPage}>
-            <Printer className="mr-2 h-4 w-4" />
-            Print
-          </Button>
-          <Button asChild>
-            <Link href="/slicing/new">
-              <PlusCircle className="mr-2 h-4 w-4" />
-              Add New Slicing
-            </Link>
-          </Button>
-        </div>
+    <ErpPage>
+      <ErpPageHeader
+        eyebrow="Production"
+        title="Slicing History"
+        description="Daily production history for slicing activities. Profit and price information stays hidden from this employee-facing page."
+        actions={
+          <>
+            <Button asChild>
+              <Link href="/slicing/new">
+                <PlusCircle className="mr-2 h-4 w-4" />
+                Add New Slicing
+              </Link>
+            </Button>
+            <Button variant="secondary" onClick={() => window.print()}>
+              <Printer className="mr-2 h-4 w-4" />
+              Print
+            </Button>
+          </>
+        }
+      />
+
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <ErpMetricCard label="Total Heads" value={formatWholeNumber(totals.heads)} description="Whole chickens sliced" tone="blue" />
+        <ErpMetricCard label="Actual PCS" value={formatWholeNumber(totals.actualPcs)} description={`${formatWholeNumber(totals.stdPcs)} standard PCS`} tone="violet" />
+        <ErpMetricCard label="Full Packs" value={formatWholeNumber(totals.packs)} description={`${formatWholeNumber(totals.loosePcs)} loose PCS`} tone="emerald" />
+        <ErpMetricCard
+          label="Yield"
+          value={formatPercent(totals.yieldRate)}
+          description={`Variance ${formatWholeNumber(totals.variance)} PCS`}
+          tone={totals.variance < 0 ? "rose" : "amber"}
+          icon={<CalendarDays className="h-5 w-5" />}
+        />
       </div>
 
-      <div className="grid gap-3 md:grid-cols-4 xl:grid-cols-8">
-        <Card>
-          <CardContent className="p-4">
-            <p className="text-xs font-semibold uppercase text-muted-foreground">
-              Days
-            </p>
-            <p className="text-2xl font-bold">{formatNumber(summary.dayCount)}</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-4">
-            <p className="text-xs font-semibold uppercase text-muted-foreground">
-              Activities
-            </p>
-            <p className="text-2xl font-bold">{formatNumber(summary.activityCount)}</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-4">
-            <p className="text-xs font-semibold uppercase text-muted-foreground">
-              Heads
-            </p>
-            <p className="text-2xl font-bold">{formatNumber(summary.heads)}</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-4">
-            <p className="text-xs font-semibold uppercase text-muted-foreground">
-              Kilos
-            </p>
-            <p className="text-2xl font-bold">{formatNumber(summary.kilos, 2)}</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-4">
-            <p className="text-xs font-semibold uppercase text-muted-foreground">
-              Std PCS
-            </p>
-            <p className="text-2xl font-bold">{formatNumber(summary.totalStdPcs)}</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-4">
-            <p className="text-xs font-semibold uppercase text-muted-foreground">
-              Actual PCS
-            </p>
-            <p className="text-2xl font-bold">{formatNumber(summary.actualSlicedPcs)}</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-4">
-            <p className="text-xs font-semibold uppercase text-muted-foreground">
-              Full Packs
-            </p>
-            <p className="text-2xl font-bold">{formatNumber(summary.actualPacks)}</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-4">
-            <p className="text-xs font-semibold uppercase text-muted-foreground">
-              Loose PCS
-            </p>
-            <p className="text-2xl font-bold">{formatNumber(summary.butal)}</p>
-          </CardContent>
-        </Card>
-      </div>
-
-      <Card>
-        <CardContent className="grid gap-4 p-5 md:grid-cols-[140px_1fr_1fr_1fr_auto_auto] md:items-end">
-          <div>
-            <Label>Show</Label>
-            <Select
-              value={limit}
-              onValueChange={(value) => {
-                setLimit(value);
-                setPage(1);
-              }}
-            >
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="10">10</SelectItem>
-                <SelectItem value="25">25</SelectItem>
-                <SelectItem value="50">50</SelectItem>
-                <SelectItem value="100">100</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-
-          <div>
-            <Label>Sliced Product</Label>
-            <Select value={slicedProductId} onValueChange={setSlicedProductId}>
-              <SelectTrigger>
-                <SelectValue placeholder="All" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="ALL">All</SelectItem>
-                {products.map((product) => (
-                  <SelectItem key={product._id} value={product._id}>
-                    {product.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-
-          <div>
-            <Label>From</Label>
-            <Input
-              type="date"
-              value={dateFrom}
-              onChange={(event) => setDateFrom(event.target.value)}
-            />
-          </div>
-
-          <div>
-            <Label>To</Label>
-            <Input
-              type="date"
-              value={dateTo}
-              onChange={(event) => setDateTo(event.target.value)}
-            />
-          </div>
-
-          <Button onClick={applyFilters}>
+      <ErpToolbar>
+        <ErpField label="Show Entries">
+          <Select
+            value={limit}
+            onValueChange={(value) => {
+              setLimit(value);
+              setPage(1);
+            }}
+          >
+            <SelectTrigger>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="10">10</SelectItem>
+              <SelectItem value="25">25</SelectItem>
+              <SelectItem value="50">50</SelectItem>
+              <SelectItem value="100">100</SelectItem>
+            </SelectContent>
+          </Select>
+        </ErpField>
+        <ErpField label="Sliced Product">
+          <Select value={slicedProductId} onValueChange={setSlicedProductId}>
+            <SelectTrigger>
+              <SelectValue placeholder="All products" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="ALL">All Products</SelectItem>
+              {products.map((product) => (
+                <SelectItem key={product._id} value={product._id}>
+                  {product.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </ErpField>
+        <ErpField label="Date Begin">
+          <Input type="date" value={dateFrom} onChange={(event) => setDateFrom(event.target.value)} />
+        </ErpField>
+        <ErpField label="Date End">
+          <Input type="date" value={dateTo} onChange={(event) => setDateTo(event.target.value)} />
+        </ErpField>
+        <div className="flex items-end gap-2">
+          <Button onClick={applyFilters} className="flex-1">
             <Search className="mr-2 h-4 w-4" />
             Filter
           </Button>
-
-          <Button variant="secondary" onClick={resetFilters}>
+          <Button variant="secondary" onClick={resetFilters} className="flex-1">
             <RefreshCcw className="mr-2 h-4 w-4" />
             Reset
           </Button>
-        </CardContent>
-      </Card>
+        </div>
+      </ErpToolbar>
 
-      <Card>
-        <CardHeader className="flex flex-col gap-1 md:flex-row md:items-center md:justify-between">
-          <div>
-            <CardTitle>Daily Slicing Transactions</CardTitle>
-            <p className="text-sm text-muted-foreground">
-              Filters: {rangeLabel} · Showing {records.length} of {meta.total} daily records
-            </p>
+      <ErpSection title="Daily Slicing Summary" description="All slicing activity within the same date is grouped into one daily production view.">
+        {isLoading ? (
+          <div className="flex h-40 items-center justify-center">
+            <Loader2 className="h-7 w-7 animate-spin text-slate-500" />
           </div>
-        </CardHeader>
-        <CardContent>
-          <div className="overflow-hidden rounded-xl border">
-            <Table>
-              <TableHeader className="bg-slate-950">
-                <TableRow>
-                  <TableHead className="text-white">Date</TableHead>
-                  <TableHead className="text-white">Activities</TableHead>
-                  <TableHead className="text-white">Products</TableHead>
-                  <TableHead className="text-right text-white">Heads</TableHead>
-                  <TableHead className="text-right text-white">Kilos</TableHead>
-                  <TableHead className="text-right text-white">Std PCS</TableHead>
-                  <TableHead className="text-right text-white">Actual PCS</TableHead>
-                  <TableHead className="text-right text-white">Packs / Loose</TableHead>
-                  <TableHead className="text-right text-white">Variance</TableHead>
-                  <TableHead className="text-white">Slicer / Packer</TableHead>
-                  <TableHead className="text-center text-white">Details</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {isLoading ? (
-                  <TableRow>
-                    <TableCell colSpan={11} className="h-32 text-center">
-                      <Loader2 className="mx-auto h-6 w-6 animate-spin" />
-                    </TableCell>
-                  </TableRow>
-                ) : records.length === 0 ? (
-                  <TableRow>
-                    <TableCell colSpan={11} className="h-32 text-center text-muted-foreground">
-                      No daily slicing transactions found.
-                    </TableCell>
-                  </TableRow>
-                ) : (
-                  records.map((record) => {
-                    const expanded = expandedDate === record._id;
+        ) : dayGroups.length === 0 ? (
+          <ErpEmptyState title="No daily slicing summary" description="Add slicing records or change your filters." />
+        ) : (
+          <div className="grid gap-3 lg:grid-cols-2 xl:grid-cols-3">
+            {dayGroups.map((day) => (
+              <div key={day.date} className="rounded-3xl border border-slate-200 bg-slate-50 p-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <div className="text-lg font-black text-slate-950">{day.date}</div>
+                    <p className="text-sm text-slate-500">{day.rows} slicing transaction{day.rows === 1 ? "" : "s"}</p>
+                  </div>
+                  <Badge className="rounded-full bg-slate-950 text-white hover:bg-slate-950">
+                    {formatWholeNumber(day.packs)} packs
+                  </Badge>
+                </div>
+                <div className="mt-4 grid grid-cols-2 gap-3">
+                  <ErpKeyValue label="Heads" value={formatWholeNumber(day.heads)} />
+                  <ErpKeyValue label="Kilos" value={formatDecimal(day.kilos, 2)} />
+                  <ErpKeyValue label="Actual PCS" value={formatWholeNumber(day.actualPcs)} />
+                  <ErpKeyValue label="Loose PCS" value={formatWholeNumber(day.loosePcs)} />
+                  <ErpKeyValue label="Std PCS" value={formatWholeNumber(day.stdPcs)} />
+                  <ErpKeyValue label="Variance" value={<span className={day.variance < 0 ? "text-red-600" : "text-emerald-700"}>{formatWholeNumber(day.variance)}</span>} />
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </ErpSection>
 
+      <ErpSection title="Slicing Transactions" description="Detailed line-level slicing activity.">
+        {isLoading ? (
+          <div className="flex h-56 items-center justify-center">
+            <Loader2 className="h-7 w-7 animate-spin text-slate-500" />
+          </div>
+        ) : records.length === 0 ? (
+          <ErpEmptyState title="No slicing records found" description="Try changing your filters or add a new slicing transaction." />
+        ) : (
+          <>
+            <div className="hidden overflow-x-auto rounded-2xl border border-slate-200 lg:block">
+              <Table>
+                <TableHeader className="bg-slate-950">
+                  <TableRow>
+                    <TableHead className="text-white">Date</TableHead>
+                    <TableHead className="text-white">Main Product</TableHead>
+                    <TableHead className="text-white">Sliced Product</TableHead>
+                    <TableHead className="text-right text-white">Heads</TableHead>
+                    <TableHead className="text-right text-white">Kilos</TableHead>
+                    <TableHead className="text-right text-white">Std PCS</TableHead>
+                    <TableHead className="text-right text-white">Actual PCS</TableHead>
+                    <TableHead className="text-right text-white">Pack Size</TableHead>
+                    <TableHead className="text-right text-white">Full Packs / Loose</TableHead>
+                    <TableHead className="text-right text-white">Yield</TableHead>
+                    <TableHead className="text-right text-white">Variance</TableHead>
+                    <TableHead className="text-white">Staff</TableHead>
+                    <TableHead className="text-center text-white">Action</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {records.map((record) => {
+                    const stdPcs = getStdPcs(record);
+                    const loosePcs = getLoosePcs(record);
+                    const yieldRate = getYieldRate(record);
+                    const variance = numberValue(record.variance);
                     return (
-                      <Fragment key={record._id}>
-                        <TableRow key={record._id} className="align-top">
-                          <TableCell className="font-semibold">
-                            {formatDate(record.slicingDate || record.date)}
-                          </TableCell>
-                          <TableCell>
-                            <div className="font-semibold">
-                              {formatNumber(record.activityCount)} items
-                            </div>
-                            <div className="text-xs text-muted-foreground">
-                              {formatNumber(record.batchCount)} batches
-                            </div>
-                          </TableCell>
-                          <TableCell>
-                            <div className="font-semibold">{record.slicedProductName}</div>
-                            <div className="text-xs text-muted-foreground">
-                              From {record.mainProductName}
-                            </div>
-                          </TableCell>
-                          <TableCell className="text-right">{formatNumber(record.heads)}</TableCell>
-                          <TableCell className="text-right">{formatNumber(record.kilos, 2)}</TableCell>
-                          <TableCell className="text-right">{formatNumber(record.totalStdPcs)}</TableCell>
-                          <TableCell className="text-right font-semibold">
-                            {formatNumber(record.actualSlicedPcs)}
-                          </TableCell>
-                          <TableCell className="text-right">
-                            <div className="font-semibold">
-                              {formatPacks(record.actualPacks, record.butal)}
-                            </div>
-                            <div className="text-xs text-muted-foreground">
-                              {formatNumber(record.actualSlicedPcs)} pcs total
-                            </div>
-                          </TableCell>
-                          <TableCell
-                            className={
-                              record.variance < 0
-                                ? "text-right font-semibold text-red-600"
-                                : record.variance > 0
-                                  ? "text-right font-semibold text-emerald-700"
-                                  : "text-right"
-                            }
-                          >
-                            {formatNumber(record.variance)}
-                          </TableCell>
-                          <TableCell>
-                            <div>{formatPeople(record.slicers)}</div>
-                            <div className="text-xs text-muted-foreground">
-                              {formatPeople(record.packers)}
-                            </div>
-                          </TableCell>
-                          <TableCell className="text-center">
-                            <Button
-                              type="button"
-                              variant="outline"
-                              size="sm"
-                              onClick={() => setExpandedDate(expanded ? null : record._id)}
-                            >
-                              {expanded ? (
-                                <ChevronUp className="mr-1 h-4 w-4" />
-                              ) : (
-                                <ChevronDown className="mr-1 h-4 w-4" />
-                              )}
-                              View
-                            </Button>
-                          </TableCell>
-                        </TableRow>
-
-                        {expanded ? (
-                          <TableRow key={`${record._id}-details`}>
-                            <TableCell colSpan={11} className="bg-slate-50 p-4">
-                              <div className="overflow-hidden rounded-xl border bg-white">
-                                <Table>
-                                  <TableHeader>
-                                    <TableRow>
-                                      <TableHead>Main Product</TableHead>
-                                      <TableHead>Sliced Product</TableHead>
-                                      <TableHead className="text-right">Pack Size</TableHead>
-                                      <TableHead className="text-right">Heads</TableHead>
-                                      <TableHead className="text-right">Kilos</TableHead>
-                                      <TableHead className="text-right">Std PCS</TableHead>
-                                      <TableHead className="text-right">Actual PCS</TableHead>
-                                      <TableHead className="text-right">Packs / Loose</TableHead>
-                                      <TableHead className="text-right">Variance</TableHead>
-                                    </TableRow>
-                                  </TableHeader>
-                                  <TableBody>
-                                    {record.products.map((product, index) => (
-                                      <TableRow
-                                        key={`${record._id}-${product.mainProductName}-${product.slicedProductName}-${index}`}
-                                      >
-                                        <TableCell>{product.mainProductName}</TableCell>
-                                        <TableCell className="font-semibold">
-                                          {product.slicedProductName}
-                                        </TableCell>
-                                        <TableCell className="text-right">
-                                          {formatNumber(product.standardPacking)} pcs
-                                        </TableCell>
-                                        <TableCell className="text-right">
-                                          {formatNumber(product.heads)}
-                                        </TableCell>
-                                        <TableCell className="text-right">
-                                          {formatNumber(product.kilos, 2)}
-                                        </TableCell>
-                                        <TableCell className="text-right">
-                                          {formatNumber(product.totalStdPcs)}
-                                        </TableCell>
-                                        <TableCell className="text-right font-semibold">
-                                          {formatNumber(product.actualSlicedPcs)}
-                                        </TableCell>
-                                        <TableCell className="text-right">
-                                          {formatPacks(product.actualPacks, product.butal)}
-                                        </TableCell>
-                                        <TableCell
-                                          className={
-                                            product.variance < 0
-                                              ? "text-right font-semibold text-red-600"
-                                              : product.variance > 0
-                                                ? "text-right font-semibold text-emerald-700"
-                                                : "text-right"
-                                          }
-                                        >
-                                          {formatNumber(product.variance)}
-                                        </TableCell>
-                                      </TableRow>
-                                    ))}
-                                  </TableBody>
-                                </Table>
-                              </div>
-                            </TableCell>
-                          </TableRow>
-                        ) : null}
-                      </Fragment>
+                      <TableRow key={record._id}>
+                        <TableCell>{formatDate(record.slicingDate)}</TableCell>
+                        <TableCell className="font-bold text-slate-950">{record.mainProductName}</TableCell>
+                        <TableCell>{record.slicedProductName}</TableCell>
+                        <TableCell className="text-right">{formatWholeNumber(record.heads ?? record.qtyToSlice)}</TableCell>
+                        <TableCell className="text-right">{formatDecimal(record.kilos, 2)}</TableCell>
+                        <TableCell className="text-right">{formatWholeNumber(stdPcs)}</TableCell>
+                        <TableCell className="text-right font-bold">{formatWholeNumber(record.actualSlicedPcs)}</TableCell>
+                        <TableCell className="text-right">{formatWholeNumber(record.standardPacking)} pcs</TableCell>
+                        <TableCell className="text-right">
+                          {formatWholeNumber(record.actualPacks)} packs / {formatWholeNumber(loosePcs)} pcs
+                        </TableCell>
+                        <TableCell className="text-right">{formatPercent(yieldRate)}</TableCell>
+                        <TableCell className={cn("text-right font-bold", variance < 0 ? "text-red-600" : variance > 0 ? "text-emerald-700" : "text-slate-700")}>
+                          {formatWholeNumber(variance)}
+                        </TableCell>
+                        <TableCell>
+                          <div className="text-sm">
+                            <div>{record.slicer || "-"}</div>
+                            <div className="text-slate-500">{record.packer || "-"}</div>
+                          </div>
+                        </TableCell>
+                        <TableCell className="text-center">
+                          <Button size="icon" variant="ghost" onClick={() => handleDelete(record)}>
+                            <Trash2 className="h-4 w-4 text-red-600" />
+                          </Button>
+                        </TableCell>
+                      </TableRow>
                     );
-                  })
-                )}
-              </TableBody>
-            </Table>
-          </div>
-
-          <div className="mt-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-            <p className="text-sm text-muted-foreground">
-              Showing {records.length} of {meta.total} daily records
-            </p>
-            <div className="flex items-center gap-2">
-              <Button
-                variant="outline"
-                disabled={page <= 1 || isLoading}
-                onClick={() => setPage((current) => Math.max(current - 1, 1))}
-              >
-                Previous
-              </Button>
-              <Button variant="outline" disabled>
-                Page {meta.page} of {meta.totalPages}
-              </Button>
-              <Button
-                variant="outline"
-                disabled={page >= meta.totalPages || isLoading}
-                onClick={() =>
-                  setPage((current) => Math.min(current + 1, meta.totalPages))
-                }
-              >
-                Next
-              </Button>
+                  })}
+                </TableBody>
+              </Table>
             </div>
+
+            <div className="space-y-3 lg:hidden">
+              {records.map((record) => {
+                const stdPcs = getStdPcs(record);
+                const loosePcs = getLoosePcs(record);
+                const yieldRate = getYieldRate(record);
+                const variance = numberValue(record.variance);
+                return (
+                  <ErpMobileCard key={record._id}>
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <p className="text-xs font-bold uppercase tracking-wide text-slate-500">{formatDate(record.slicingDate)}</p>
+                        <h3 className="mt-1 font-black text-slate-950">{record.mainProductName} to {record.slicedProductName}</h3>
+                      </div>
+                      <Button size="icon" variant="ghost" onClick={() => handleDelete(record)}>
+                        <Trash2 className="h-4 w-4 text-red-600" />
+                      </Button>
+                    </div>
+                    <div className="mt-4 grid grid-cols-2 gap-3">
+                      <ErpKeyValue label="Heads" value={formatWholeNumber(record.heads ?? record.qtyToSlice)} />
+                      <ErpKeyValue label="Kilos" value={formatDecimal(record.kilos, 2)} />
+                      <ErpKeyValue label="Std PCS" value={formatWholeNumber(stdPcs)} />
+                      <ErpKeyValue label="Actual PCS" value={formatWholeNumber(record.actualSlicedPcs)} />
+                      <ErpKeyValue label="Packs / Loose" value={`${formatWholeNumber(record.actualPacks)} / ${formatWholeNumber(loosePcs)}`} />
+                      <ErpKeyValue label="Yield" value={formatPercent(yieldRate)} />
+                      <ErpKeyValue label="Variance" value={<span className={variance < 0 ? "text-red-600" : "text-emerald-700"}>{formatWholeNumber(variance)}</span>} />
+                      <ErpKeyValue label="Staff" value={`${record.slicer || "-"} / ${record.packer || "-"}`} />
+                    </div>
+                  </ErpMobileCard>
+                );
+              })}
+            </div>
+          </>
+        )}
+
+        <div className="mt-4 flex flex-col gap-3 text-sm text-slate-500 md:flex-row md:items-center md:justify-between">
+          <div>
+            Showing <span className="font-bold text-slate-900">{records.length}</span> of <span className="font-bold text-slate-900">{meta.total}</span> records
           </div>
-        </CardContent>
-      </Card>
-    </div>
+          <div className="flex items-center gap-2">
+            <Button variant="outline" disabled={page <= 1 || isLoading} onClick={() => setPage((current) => Math.max(current - 1, 1))}>
+              Previous
+            </Button>
+            <span className="rounded-full bg-slate-100 px-3 py-2 text-xs font-bold text-slate-700">
+              Page {meta.page} of {meta.totalPages}
+            </span>
+            <Button variant="outline" disabled={page >= meta.totalPages || isLoading} onClick={() => setPage((current) => Math.min(current + 1, meta.totalPages))}>
+              Next
+            </Button>
+          </div>
+        </div>
+      </ErpSection>
+    </ErpPage>
   );
 }

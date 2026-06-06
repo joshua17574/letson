@@ -1,26 +1,39 @@
 // components/app-shell/ModuleHeader.tsx
-import { ReactNode } from "react";
+import type { ReactNode } from "react";
+
+import { cn } from "@/lib/utils";
 
 type Props = {
   title: string;
   description?: string;
   actions?: ReactNode;
+  eyebrow?: string;
+  className?: string;
 };
 
-export function ModuleHeader({ title, description, actions }: Props) {
+export function ModuleHeader({ title, description, actions, eyebrow, className }: Props) {
   return (
-    <div className="mb-6 flex flex-col justify-between gap-4 border-b border-slate-200 pb-5 lg:flex-row lg:items-center">
-      <div>
-        <h1 className="text-3xl font-black tracking-tight text-slate-950">
+    <div
+      className={cn(
+        "mb-5 flex flex-col gap-4 rounded-[1.75rem] border border-slate-200 bg-white p-5 shadow-sm sm:flex-row sm:items-center sm:justify-between",
+        className
+      )}
+    >
+      <div className="min-w-0 space-y-1">
+        {eyebrow ? (
+          <p className="text-xs font-black uppercase tracking-[0.2em] text-rose-600">
+            {eyebrow}
+          </p>
+        ) : null}
+        <h1 className="truncate text-2xl font-black tracking-tight text-slate-950 sm:text-3xl">
           {title}
         </h1>
-
         {description ? (
-          <p className="mt-1 text-sm text-slate-500">{description}</p>
+          <p className="max-w-3xl text-sm leading-6 text-slate-500">{description}</p>
         ) : null}
       </div>
 
-      {actions ? <div className="flex flex-wrap gap-2">{actions}</div> : null}
+      {actions ? <div className="flex shrink-0 flex-wrap items-center gap-2">{actions}</div> : null}
     </div>
   );
 }

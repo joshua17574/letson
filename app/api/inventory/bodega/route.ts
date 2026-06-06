@@ -7,16 +7,6 @@ import BodegaProductModel from "@/models/BodegaProduct";
 import BodegaStockTransactionModel from "@/models/BodegaStockTransaction";
 import StandardPackingModel from "@/models/StandardPacking";
 
-function getTransactionSign(type: string) {
-  if (type === "STOCK_IN") return "IN";
-  if (type === "STOCK_OUT") return "OUT";
-  if (type === "SALE") return "OUT";
-  if (type === "DAMAGED") return "OUT";
-  if (type === "EXPIRED") return "OUT";
-  if (type === "VOID_REVERSAL") return "OUT";
-  return "NONE";
-}
-
 function toNumber(value: unknown) {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : 0;
@@ -24,6 +14,15 @@ function toNumber(value: unknown) {
 
 function toWhole(value: unknown) {
   return Math.max(0, Math.trunc(toNumber(value)));
+}
+
+function objectIdString(value: unknown) {
+  if (!value) return "";
+  if (typeof value === "string") return value;
+  if (typeof value === "object" && value !== null && "toString" in value) {
+    return String((value as { toString: () => string }).toString());
+  }
+  return String(value);
 }
 
 function getPackBreakdown(totalPcsValue: unknown, packSizeValue: unknown) {
@@ -50,6 +49,55 @@ function getPackBreakdown(totalPcsValue: unknown, packSizeValue: unknown) {
   };
 }
 
+function getMovementDirection(transaction: any): "IN" | "OUT" | "NONE" {
+  const previousStock = toNumber(transaction.previousStock);
+  const newStock = toNumber(transaction.newStock);
+
+  if (newStock > previousStock) return "IN";
+  if (newStock < previousStock) return "OUT";
+
+  const type = String(transaction.type || "").toUpperCase();
+  if (type === "STOCK_IN" || type === "VOID_REVERSAL") return "IN";
+  if (["STOCK_OUT", "SALE", "DAMAGED", "EXPIRED"].includes(type)) return "OUT";
+
+  return "NONE";
+}
+
+function getMovementQuantity(transaction: any) {
+  const explicitQuantity = toNumber(transaction.quantity);
+  if (explicitQuantity > 0) return explicitQuantity;
+
+  const previousStock = toNumber(transaction.previousStock);
+  const newStock = toNumber(transaction.newStock);
+  return Math.abs(newStock - previousStock);
+}
+
+async function buildPackSizeMap(productIds: string[]) {
+  const packSizeMap = new Map<string, number>();
+  if (productIds.length === 0) return packSizeMap;
+
+  const standards = await (StandardPackingModel as any)
+    .find({
+      isActive: true,
+      productId: { $in: productIds },
+      standardPacking: { $gt: 0 },
+    })
+    .sort({ updatedAt: -1 })
+    .lean();
+
+  for (const standard of standards as any[]) {
+    const productId = objectIdString(standard.productId);
+    const packSize = toWhole(standard.standardPacking);
+
+    if (!productId || packSize <= 0) continue;
+    if (!packSizeMap.has(productId)) {
+      packSizeMap.set(productId, packSize);
+    }
+  }
+
+  return packSizeMap;
+}
+
 export async function GET(req: NextRequest) {
   const { response } = await requireApiAuth();
   if (response) return response;
@@ -61,20 +109,18 @@ export async function GET(req: NextRequest) {
   const dateFrom = cleanString(searchParams.get("dateFrom"));
   const dateTo = cleanString(searchParams.get("dateTo"));
 
-  const productFilter: Record<string, any> = {
-    isActive: true,
-  };
-
+  const productFilter: Record<string, any> = { isActive: true };
   if (search) {
     productFilter.name = { $regex: escapeRegex(search), $options: "i" };
   }
 
-  const products = await BodegaProductModel.find(productFilter)
+  const products = await (BodegaProductModel as any)
+    .find(productFilter)
     .sort({ name: 1 })
     .lean();
 
-  const productIds = products
-    .map((product: any) => product._id)
+  const productIds = (products as any[])
+    .map((product) => objectIdString(product._id))
     .filter(Boolean);
 
   const transactionFilter: Record<string, any> = {
@@ -91,35 +137,13 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  const [transactions, standardPackings] = await Promise.all([
-    BodegaStockTransactionModel.find(transactionFilter)
+  const [transactions, packSizeMap] = await Promise.all([
+    (BodegaStockTransactionModel as any)
+      .find(transactionFilter)
       .sort({ createdAt: -1 })
       .lean(),
-    (StandardPackingModel as any)
-      .find({
-        isActive: true,
-        productId: { $in: productIds },
-        standardPacking: { $gt: 0 },
-      })
-      .sort({ updatedAt: -1 })
-      .lean(),
+    buildPackSizeMap(productIds),
   ]);
-
-  const packSizeMap = new Map<string, number>();
-
-  for (const standard of standardPackings as any[]) {
-    const productId = standard.productId?.toString?.() || "";
-    const packSize = toWhole(standard.standardPacking);
-
-    if (!productId || packSize <= 0) continue;
-
-    // If the same sliced product appears in multiple standards, keep the most
-    // recently updated active standard. Standard packing should normally be the
-    // same per output product.
-    if (!packSizeMap.has(productId)) {
-      packSizeMap.set(productId, packSize);
-    }
-  }
 
   const movementMap = new Map<
     string,
@@ -131,27 +155,23 @@ export async function GET(req: NextRequest) {
   >();
 
   for (const transaction of transactions as any[]) {
-    const productId = transaction.bodegaProductId?.toString?.() || "";
-    const sign = getTransactionSign(transaction.type);
-    const quantity = toNumber(transaction.quantity);
+    const productId = objectIdString(transaction.bodegaProductId);
+    if (!productId) continue;
+
+    const direction = getMovementDirection(transaction);
+    const quantity = getMovementQuantity(transaction);
     const current = movementMap.get(productId) || {
       stockIn: 0,
       stockOut: 0,
       latestDate: undefined,
     };
 
-    if (sign === "IN") {
-      current.stockIn += quantity;
-    }
-
-    if (sign === "OUT") {
-      current.stockOut += quantity;
-    }
+    if (direction === "IN") current.stockIn += quantity;
+    if (direction === "OUT") current.stockOut += quantity;
 
     if (
       transaction.createdAt &&
-      (!current.latestDate ||
-        new Date(transaction.createdAt) > new Date(current.latestDate))
+      (!current.latestDate || new Date(transaction.createdAt) > new Date(current.latestDate))
     ) {
       current.latestDate = transaction.createdAt;
     }
@@ -159,12 +179,12 @@ export async function GET(req: NextRequest) {
     movementMap.set(productId, current);
   }
 
-  const data = products.map((product: any) => {
-    const id = product._id.toString();
+  const data = (products as any[]).map((product) => {
+    const id = objectIdString(product._id);
     const movement = movementMap.get(id) || {
       stockIn: 0,
       stockOut: 0,
-      latestDate: product.createdAt,
+      latestDate: product.updatedAt || product.createdAt,
     };
 
     const packSize = packSizeMap.get(id) || 0;
@@ -178,61 +198,81 @@ export async function GET(req: NextRequest) {
     return {
       _id: id,
       product: product.name,
+      productName: product.name,
+
       stockIn: toNumber(movement.stockIn),
       stockOut: toNumber(movement.stockOut),
       currentStock: toNumber(product.stockQty),
+      currentStockPcs: currentBreakdown.totalPcs,
+
       price,
       pricePerPack: isPackProduct ? price : 0,
       pricePerPcs,
       stockUnit: isPackProduct ? "PACK_PCS" : "UNIT",
       isPackProduct,
       packSize,
+
+      stockInPcs: stockInBreakdown.totalPcs,
       stockInPacks: stockInBreakdown.packs,
       stockInLoosePcs: stockInBreakdown.loosePcs,
+      stockOutPcs: stockOutBreakdown.totalPcs,
       stockOutPacks: stockOutBreakdown.packs,
       stockOutLoosePcs: stockOutBreakdown.loosePcs,
+
       currentPacks: currentBreakdown.packs,
       currentLoosePcs: currentBreakdown.loosePcs,
+      currentStockPacks: currentBreakdown.packs,
+      currentStockLoosePcs: currentBreakdown.loosePcs,
+
       dateAdded: movement.latestDate
         ? new Date(movement.latestDate).toISOString()
-        : product.createdAt
-          ? new Date(product.createdAt).toISOString()
-          : undefined,
+        : product.updatedAt
+          ? new Date(product.updatedAt).toISOString()
+          : product.createdAt
+            ? new Date(product.createdAt).toISOString()
+            : undefined,
     };
   });
 
   const totals = data.reduce(
-    (sum, row) => ({
-      stockIn: sum.stockIn + row.stockIn,
-      stockOut: sum.stockOut + row.stockOut,
-      currentStock: sum.currentStock + row.currentStock,
-      slicedStockInPcs:
-        sum.slicedStockInPcs + (row.isPackProduct ? row.stockIn : 0),
-      slicedStockOutPcs:
-        sum.slicedStockOutPcs + (row.isPackProduct ? row.stockOut : 0),
-      slicedCurrentPcs:
-        sum.slicedCurrentPcs + (row.isPackProduct ? row.currentStock : 0),
-      unitStockIn: sum.unitStockIn + (!row.isPackProduct ? row.stockIn : 0),
-      unitStockOut: sum.unitStockOut + (!row.isPackProduct ? row.stockOut : 0),
-      unitCurrentStock:
-        sum.unitCurrentStock + (!row.isPackProduct ? row.currentStock : 0),
-    }),
+    (sum, row) => {
+      sum.raw.stockIn += row.stockIn;
+      sum.raw.stockOut += row.stockOut;
+      sum.raw.currentStock += row.currentStock;
+
+      if (row.isPackProduct) {
+        sum.sliced.stockInPcs += row.stockIn;
+        sum.sliced.stockOutPcs += row.stockOut;
+        sum.sliced.currentPcs += row.currentStock;
+      } else {
+        sum.whole.stockIn += row.stockIn;
+        sum.whole.stockOut += row.stockOut;
+        sum.whole.currentStock += row.currentStock;
+      }
+
+      return sum;
+    },
     {
-      stockIn: 0,
-      stockOut: 0,
-      currentStock: 0,
-      slicedStockInPcs: 0,
-      slicedStockOutPcs: 0,
-      slicedCurrentPcs: 0,
-      unitStockIn: 0,
-      unitStockOut: 0,
-      unitCurrentStock: 0,
+      raw: { stockIn: 0, stockOut: 0, currentStock: 0 },
+      sliced: { stockInPcs: 0, stockOutPcs: 0, currentPcs: 0 },
+      whole: { stockIn: 0, stockOut: 0, currentStock: 0 },
     }
   );
 
   return NextResponse.json({
     success: true,
     data,
-    totals,
+    totals: {
+      ...totals,
+      stockIn: totals.raw.stockIn,
+      stockOut: totals.raw.stockOut,
+      currentStock: totals.raw.currentStock,
+      slicedStockInPcs: totals.sliced.stockInPcs,
+      slicedStockOutPcs: totals.sliced.stockOutPcs,
+      slicedCurrentPcs: totals.sliced.currentPcs,
+      unitStockIn: totals.whole.stockIn,
+      unitStockOut: totals.whole.stockOut,
+      unitCurrentStock: totals.whole.currentStock,
+    },
   });
 }

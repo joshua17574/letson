@@ -9,18 +9,27 @@ import {
   ChevronDown,
   ChevronLeft,
   ChevronRight,
-  ChevronUp,
   Flame,
+  PanelLeftClose,
+  PanelLeftOpen,
+  X,
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { appNavItems, AppNavItem } from "./nav-config";
+
+import { appNavItems, type AppNavItem } from "./nav-config";
 
 type Props = {
   collapsed: boolean;
   onToggle: () => void;
+  mobile?: boolean;
+  onNavigate?: () => void;
 };
+
+type SectionName = NonNullable<AppNavItem["section"]>;
+
+const sections: SectionName[] = ["Workspace", "Operations", "Finance", "Admin"];
 
 function isRouteActive(pathname: string, href: string) {
   if (href === "/dashboard") return pathname === "/dashboard";
@@ -33,10 +42,7 @@ function isRouteActive(pathname: string, href: string) {
 }
 
 function isItemActive(pathname: string, item: AppNavItem) {
-  if (item.href) {
-    return isRouteActive(pathname, item.href);
-  }
-
+  if (item.href) return isRouteActive(pathname, item.href);
   if (item.children) {
     return item.children.some((child) => isRouteActive(pathname, child.href));
   }
@@ -51,7 +57,6 @@ function hasPermission(
 ) {
   if (isAdmin) return true;
   if (!requiredPermission) return true;
-
   return userPermissions.includes(requiredPermission);
 }
 
@@ -65,12 +70,7 @@ function filterNavItemsByPermissions(
       const visibleChildren = item.children?.filter((child) =>
         hasPermission(userPermissions, child.permission, isAdmin)
       );
-
-      const canViewParent = hasPermission(
-        userPermissions,
-        item.permission,
-        isAdmin
-      );
+      const canViewParent = hasPermission(userPermissions, item.permission, isAdmin);
 
       if (visibleChildren && visibleChildren.length > 0) {
         return {
@@ -79,9 +79,7 @@ function filterNavItemsByPermissions(
         };
       }
 
-      if (canViewParent && !item.children) {
-        return item;
-      }
+      if (canViewParent && !item.children) return item;
 
       return null;
     })
@@ -97,195 +95,187 @@ function getActiveParentTitle(pathname: string, navItems: AppNavItem[]) {
   return activeParent?.title || null;
 }
 
-export function AppSidebar({ collapsed, onToggle }: Props) {
+export function AppSidebar({ collapsed, onToggle, mobile = false, onNavigate }: Props) {
   const pathname = usePathname();
   const { data: session, status } = useSession();
-
   const [openGroup, setOpenGroup] = useState<string | null>(null);
 
   const userPermissions = useMemo(() => {
-    return (((session?.user as any)?.permissions || []) as string[]).filter(
-      Boolean
-    );
+    return (((session?.user as { permissions?: string[] } | undefined)?.permissions || []) as string[]).filter(Boolean);
   }, [session]);
 
-  const legacyRole = String((session?.user as any)?.role || "").toUpperCase();
-  const roleName = String((session?.user as any)?.roleName || "").toUpperCase();
-
+  const legacyRole = String((session?.user as { role?: string } | undefined)?.role || "").toUpperCase();
+  const roleName = String((session?.user as { roleName?: string } | undefined)?.roleName || "").toUpperCase();
   const isAdmin = legacyRole === "ADMIN" || roleName === "ADMIN";
 
   const visibleNavItems = useMemo(() => {
     if (status === "loading") return [];
-
     return filterNavItemsByPermissions(appNavItems, userPermissions, isAdmin);
   }, [status, userPermissions, isAdmin]);
 
   useEffect(() => {
     const activeParentTitle = getActiveParentTitle(pathname, visibleNavItems);
-    setOpenGroup(activeParentTitle);
+    if (activeParentTitle) setOpenGroup(activeParentTitle);
   }, [pathname, visibleNavItems]);
 
-  function handleMainNavClick() {
-    setOpenGroup(null);
-  }
+  const groupedItems = useMemo(() => {
+    return sections.map((section) => ({
+      section,
+      items: visibleNavItems.filter((item) => (item.section || "Workspace") === section),
+    }));
+  }, [visibleNavItems]);
 
   function handleGroupClick(title: string) {
+    if (collapsed && !mobile) return;
     setOpenGroup((current) => (current === title ? null : title));
+  }
+
+  function renderNavItem(item: AppNavItem) {
+    const active = isItemActive(pathname, item);
+    const Icon = item.icon;
+    const isOpen = openGroup === item.title;
+
+    if (!item.children) {
+      return (
+        <Link
+          key={item.title}
+          href={item.href || "#"}
+          onClick={onNavigate}
+          title={collapsed && !mobile ? item.title : undefined}
+          className={cn(
+            "group flex h-11 items-center gap-3 rounded-2xl px-3 text-sm font-semibold transition-all",
+            active
+              ? "bg-white text-slate-950 shadow-sm shadow-slate-950/10"
+              : "text-white/80 hover:bg-white/12 hover:text-white",
+            collapsed && !mobile && "justify-center px-0"
+          )}
+        >
+          <Icon className={cn("h-5 w-5 shrink-0", active ? "text-rose-600" : "text-white/80 group-hover:text-white")} />
+          {!collapsed || mobile ? <span className="truncate">{item.title}</span> : null}
+        </Link>
+      );
+    }
+
+    return (
+      <div key={item.title} className="space-y-1">
+        <button
+          type="button"
+          onClick={() => handleGroupClick(item.title)}
+          title={collapsed && !mobile ? item.title : undefined}
+          className={cn(
+            "group flex h-11 w-full items-center gap-3 rounded-2xl px-3 text-left text-sm font-semibold transition-all",
+            active || isOpen
+              ? "bg-white/16 text-white"
+              : "text-white/80 hover:bg-white/12 hover:text-white",
+            collapsed && !mobile && "justify-center px-0"
+          )}
+        >
+          <Icon className="h-5 w-5 shrink-0 text-white/85 group-hover:text-white" />
+          {!collapsed || mobile ? (
+            <>
+              <span className="min-w-0 flex-1 truncate">{item.title}</span>
+              <ChevronDown className={cn("h-4 w-4 shrink-0 transition", isOpen && "rotate-180")} />
+            </>
+          ) : null}
+        </button>
+
+        {(!collapsed || mobile) && isOpen ? (
+          <div className="ml-5 space-y-1 border-l border-white/10 pl-3">
+            {item.children.map((child) => {
+              const ChildIcon = child.icon;
+              const childActive = isRouteActive(pathname, child.href);
+
+              return (
+                <Link
+                  key={child.href}
+                  href={child.href}
+                  onClick={onNavigate}
+                  className={cn(
+                    "flex min-h-10 items-center gap-2 rounded-xl px-3 py-2 text-sm transition-all",
+                    childActive
+                      ? "bg-white text-slate-950 shadow-sm"
+                      : "text-white/70 hover:bg-white/12 hover:text-white"
+                  )}
+                >
+                  {ChildIcon ? <ChildIcon className={cn("h-4 w-4", childActive ? "text-rose-600" : "text-white/70")} /> : null}
+                  <span className="truncate">{child.title}</span>
+                </Link>
+              );
+            })}
+          </div>
+        ) : null}
+      </div>
+    );
   }
 
   return (
     <aside
       className={cn(
-        "fixed left-0 top-0 z-40 flex h-screen flex-col border-r border-red-200 bg-gradient-to-b from-[#ff1f1f] via-[#ff5a00] to-[#ffb000] text-white shadow-xl transition-all duration-300",
-        collapsed ? "w-[84px]" : "w-[292px]"
+        "flex h-full flex-col overflow-hidden border-r border-white/10 bg-slate-950 text-white shadow-2xl shadow-slate-950/20",
+        mobile ? "w-[318px] max-w-[86vw]" : collapsed ? "w-20" : "w-[280px]"
       )}
     >
-      <div className="flex h-20 items-center justify-between px-4">
-        <Link
-          href="/dashboard"
-          className="flex items-center gap-3"
-          onClick={handleMainNavClick}
-        >
-          <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-white shadow-md">
-            <Flame className="h-7 w-7 text-red-600" />
+      <div className="flex h-20 items-center gap-3 border-b border-white/10 px-4">
+        <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-rose-500 to-orange-400 shadow-lg shadow-rose-950/30">
+          <Flame className="h-6 w-6" />
+        </div>
+
+        {!collapsed || mobile ? (
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-base font-black tracking-tight">ISAY Fried Chicken</p>
+            <p className="truncate text-xs font-medium text-white/55">POS & Inventory ERP</p>
           </div>
-
-          {!collapsed ? (
-            <div className="leading-tight">
-              <p className="text-2xl font-black tracking-tight text-white">
-                ISAY
-              </p>
-              <p className="text-xs font-semibold text-white/80">
-                Fried Chicken
-              </p>
-            </div>
-          ) : null}
-        </Link>
-
-        {!collapsed ? (
-          <Button
-            type="button"
-            size="icon"
-            variant="ghost"
-            onClick={onToggle}
-            className="h-9 w-9 rounded-xl text-white hover:bg-white/20 hover:text-white"
-          >
-            <ChevronLeft className="h-5 w-5" />
-          </Button>
         ) : null}
+
+        <Button
+          type="button"
+          size="icon"
+          variant="ghost"
+          onClick={onToggle}
+          className="h-9 w-9 shrink-0 rounded-xl text-white hover:bg-white/12 hover:text-white"
+          title={mobile ? "Close menu" : collapsed ? "Expand menu" : "Collapse menu"}
+        >
+          {mobile ? (
+            <X className="h-5 w-5" />
+          ) : collapsed ? (
+            <ChevronRight className="h-5 w-5" />
+          ) : (
+            <ChevronLeft className="h-5 w-5" />
+          )}
+        </Button>
       </div>
 
-      {collapsed ? (
-        <div className="px-4 pb-3">
-          <Button
-            type="button"
-            size="icon"
-            variant="ghost"
-            onClick={onToggle}
-            className="h-10 w-10 rounded-xl bg-white/15 text-white hover:bg-white/25 hover:text-white"
-          >
-            <ChevronRight className="h-5 w-5" />
-          </Button>
-        </div>
-      ) : null}
-
-      <nav className="flex-1 space-y-1 overflow-y-auto px-3 pb-6">
-        {visibleNavItems.map((item) => {
-          const active = isItemActive(pathname, item);
-          const Icon = item.icon;
-          const isOpen = openGroup === item.title;
-
-          if (!item.children) {
-            return (
-              <Link
-                key={item.title}
-                href={item.href || "#"}
-                onClick={handleMainNavClick}
-                className={cn(
-                  "group flex h-12 items-center gap-3 rounded-2xl px-3 text-sm font-semibold transition",
-                  active
-                    ? "bg-white text-red-600 shadow-md"
-                    : "text-white/95 hover:bg-white/18 hover:text-white",
-                  collapsed && "justify-center px-0"
-                )}
-                title={collapsed ? item.title : undefined}
-              >
-                <Icon
-                  className={cn(
-                    "h-5 w-5 shrink-0",
-                    active ? "text-red-600" : "text-white"
-                  )}
-                />
-
-                {!collapsed ? <span>{item.title}</span> : null}
-              </Link>
-            );
-          }
+      <nav className="flex-1 space-y-6 overflow-y-auto px-3 py-4">
+        {groupedItems.map(({ section, items }) => {
+          if (items.length === 0) return null;
 
           return (
-            <div key={item.title} className="space-y-1">
-              <button
-                type="button"
-                onClick={() => handleGroupClick(item.title)}
-                className={cn(
-                  "flex h-12 w-full items-center gap-3 rounded-2xl px-3 text-left text-sm font-semibold transition",
-                  active || isOpen
-                    ? "bg-white/25 text-white"
-                    : "text-white/95 hover:bg-white/18",
-                  collapsed && "justify-center px-0"
-                )}
-                title={collapsed ? item.title : undefined}
-              >
-                <Icon className="h-5 w-5 shrink-0 text-white" />
-
-                {!collapsed ? (
-                  <>
-                    <span className="flex-1">{item.title}</span>
-                    {isOpen ? (
-                      <ChevronUp className="h-4 w-4 text-white/80" />
-                    ) : (
-                      <ChevronDown className="h-4 w-4 text-white/80" />
-                    )}
-                  </>
-                ) : null}
-              </button>
-
-              {!collapsed && isOpen ? (
-                <div className="ml-4 space-y-1 border-l border-white/20 pl-3">
-                  {item.children.map((child) => {
-                    const ChildIcon = child.icon;
-                    const childActive = isRouteActive(pathname, child.href);
-
-                    return (
-                      <Link
-                        key={child.href}
-                        href={child.href}
-                        className={cn(
-                          "flex h-10 items-center gap-3 rounded-xl px-3 text-sm font-medium transition",
-                          childActive
-                            ? "bg-white text-red-600 shadow-sm"
-                            : "text-white/90 hover:bg-white/18 hover:text-white"
-                        )}
-                      >
-                        {ChildIcon ? (
-                          <ChildIcon
-                            className={cn(
-                              "h-4 w-4 shrink-0",
-                              childActive ? "text-red-600" : "text-white"
-                            )}
-                          />
-                        ) : null}
-
-                        <span>{child.title}</span>
-                      </Link>
-                    );
-                  })}
-                </div>
+            <div key={section} className="space-y-2">
+              {!collapsed || mobile ? (
+                <p className="px-3 text-[11px] font-black uppercase tracking-[0.18em] text-white/35">
+                  {section}
+                </p>
               ) : null}
+
+              <div className="space-y-1">{items.map(renderNavItem)}</div>
             </div>
           );
         })}
       </nav>
+
+      <div className="border-t border-white/10 p-3">
+        <button
+          type="button"
+          onClick={onToggle}
+          className={cn(
+            "flex w-full items-center gap-3 rounded-2xl bg-white/8 px-3 py-3 text-sm font-semibold text-white/85 transition hover:bg-white/14 hover:text-white",
+            collapsed && !mobile && "justify-center px-0"
+          )}
+        >
+          {collapsed && !mobile ? <PanelLeftOpen className="h-5 w-5" /> : <PanelLeftClose className="h-5 w-5" />}
+          {!collapsed || mobile ? <span>{mobile ? "Close menu" : "Desktop mode"}</span> : null}
+        </button>
+      </div>
     </aside>
   );
 }

@@ -1,8 +1,8 @@
-// components/bodega-products/BodegaProductsPageClient.tsx
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
+  Boxes,
   Loader2,
   PackagePlus,
   Pencil,
@@ -14,13 +14,24 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 
-import { Button } from "@/components/ui/button";
 import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+  ErpEmptyState,
+  ErpField,
+  ErpKeyValue,
+  ErpMetricCard,
+  ErpMobileCard,
+  ErpPage,
+  ErpPageHeader,
+  ErpSection,
+  ErpToolbar,
+} from "@/components/erp/ErpShell";
+import {
+  formatDecimal,
+  formatWholeNumber,
+  PackStockDisplay,
+  numberValue,
+} from "@/components/erp/StockDisplay";
+import { Button } from "@/components/ui/button";
 import {
   Dialog,
   DialogContent,
@@ -56,11 +67,9 @@ type CategoryOption = {
 type BodegaProductItem = {
   _id: string;
   name: string;
-  categoryId: string;
-  categoryName: string;
+  categoryId?: string;
+  categoryName?: string;
   stockQty: number;
-  buyingPrice: number;
-  sellingPrice: number;
   isPackProduct?: boolean;
   packSize?: number;
   stockPcs?: number;
@@ -69,6 +78,8 @@ type BodegaProductItem = {
   stockDisplay?: string;
   pricePerPack?: number;
   pricePerPcs?: number;
+  buyingPrice: number;
+  sellingPrice: number;
 };
 
 type ApiMeta = {
@@ -91,38 +102,28 @@ const emptyStockForm = {
   remarks: "",
 };
 
-function formatWholeNumber(value: number | undefined) {
-  return Number(value || 0).toLocaleString(undefined, {
-    maximumFractionDigits: 0,
-  });
+function getStockPcs(product: BodegaProductItem) {
+  return numberValue(product.stockPcs ?? product.stockQty);
 }
 
-function renderStockSummary(product: BodegaProductItem) {
-  if (!product.isPackProduct || !product.packSize) {
-    return (
-      <div className="text-right">
-        <div className="font-semibold">{formatWholeNumber(product.stockQty)}</div>
-        <div className="text-xs text-muted-foreground">base units</div>
-      </div>
-    );
+function getPackSize(product: BodegaProductItem) {
+  return numberValue(product.packSize);
+}
+
+function getPricePerPack(product: BodegaProductItem) {
+  return numberValue(product.pricePerPack ?? product.sellingPrice);
+}
+
+function getPricePerPcs(product: BodegaProductItem) {
+  const pricePerPcs = numberValue(product.pricePerPcs);
+  if (pricePerPcs > 0) return pricePerPcs;
+
+  const packSize = getPackSize(product);
+  if (product.isPackProduct && packSize > 0) {
+    return getPricePerPack(product) / packSize;
   }
 
-  return (
-    <div className="text-right leading-tight">
-      <div className="font-semibold text-slate-950">
-        {formatWholeNumber(product.stockPacks)} packs
-        {Number(product.stockLoosePcs || 0) > 0
-          ? ` / ${formatWholeNumber(product.stockLoosePcs)} pcs loose`
-          : ""}
-      </div>
-      <div className="text-xs text-muted-foreground">
-        {formatWholeNumber(product.stockPcs)} pcs total
-      </div>
-      <div className="text-xs text-muted-foreground">
-        {formatWholeNumber(product.packSize)} pcs / pack
-      </div>
-    </div>
-  );
+  return numberValue(product.sellingPrice);
 }
 
 export function BodegaProductsPageClient() {
@@ -148,11 +149,28 @@ export function BodegaProductsPageClient() {
   const [form, setForm] = useState(emptyForm);
   const [stockForm, setStockForm] = useState(emptyStockForm);
 
+  const summary = useMemo(() => {
+    return products.reduce(
+      (sum, product) => {
+        const stockPcs = getStockPcs(product);
+        const packSize = getPackSize(product);
+        const fullPacks = packSize > 0 ? Math.floor(stockPcs / packSize) : 0;
+        const loosePcs = packSize > 0 ? stockPcs - fullPacks * packSize : 0;
+        return {
+          products: sum.products + 1,
+          packProducts: sum.packProducts + (product.isPackProduct ? 1 : 0),
+          fullPacks: sum.fullPacks + fullPacks,
+          loosePcs: sum.loosePcs + loosePcs,
+          totalPcs: sum.totalPcs + stockPcs,
+        };
+      },
+      { products: 0, packProducts: 0, fullPacks: 0, loosePcs: 0, totalPcs: 0 }
+    );
+  }, [products]);
+
   async function loadCategories() {
     try {
-      const res = await fetch("/api/categories?limit=100", {
-        cache: "no-store",
-      });
+      const res = await fetch("/api/categories?limit=100", { cache: "no-store" });
       const json = await res.json();
 
       if (!res.ok || !json.success) {
@@ -168,11 +186,7 @@ export function BodegaProductsPageClient() {
   async function loadProducts() {
     setIsLoading(true);
 
-    const params = new URLSearchParams({
-      page: String(page),
-      limit,
-    });
-
+    const params = new URLSearchParams({ page: String(page), limit });
     if (search) params.set("search", search);
     if (categoryId !== "ALL") params.set("categoryId", categoryId);
 
@@ -212,17 +226,11 @@ export function BodegaProductsPageClient() {
   }, [page, limit, search, categoryId]);
 
   function updateForm(name: keyof typeof emptyForm, value: string) {
-    setForm((current) => ({
-      ...current,
-      [name]: value,
-    }));
+    setForm((current) => ({ ...current, [name]: value }));
   }
 
   function updateStockForm(name: keyof typeof emptyStockForm, value: string) {
-    setStockForm((current) => ({
-      ...current,
-      [name]: value,
-    }));
+    setStockForm((current) => ({ ...current, [name]: value }));
   }
 
   function openCreateDialog() {
@@ -264,9 +272,7 @@ export function BodegaProductsPageClient() {
         : "/api/bodega-products";
       const res = await fetch(url, {
         method: editingProduct ? "PATCH" : "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
       const json = await res.json();
@@ -288,15 +294,12 @@ export function BodegaProductsPageClient() {
   async function handleStockIn(event: React.FormEvent) {
     event.preventDefault();
     if (!stockProduct) return;
-
     setIsSaving(true);
 
     try {
       const res = await fetch(`/api/bodega-products/${stockProduct._id}/stock-in`, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify(stockForm),
       });
       const json = await res.json();
@@ -320,9 +323,7 @@ export function BodegaProductsPageClient() {
     if (!confirmed) return;
 
     try {
-      const res = await fetch(`/api/bodega-products/${product._id}`, {
-        method: "DELETE",
-      });
+      const res = await fetch(`/api/bodega-products/${product._id}`, { method: "DELETE" });
       const json = await res.json();
 
       if (!res.ok || !json.success) {
@@ -348,275 +349,297 @@ export function BodegaProductsPageClient() {
     setPage(1);
   }
 
-  function handlePrint() {
-    window.print();
-  }
-
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight">Bodega Products</h1>
-          <p className="text-sm text-muted-foreground">
-            Owner-friendly stock display: packs and loose pcs are calculated from total PCS.
-          </p>
-        </div>
-        <Button onClick={openCreateDialog}>
-          <Plus className="mr-2 h-4 w-4" />
-          Add Product
-        </Button>
+    <ErpPage>
+      <ErpPageHeader
+        eyebrow="Inventory Master"
+        title="Bodega Products"
+        description="Manage bodega products with owner-friendly pack and loose-piece stock display. Sliced products remain stored as PCS, then displayed as packs plus loose PCS."
+        actions={
+          <>
+            <Button variant="secondary" onClick={() => window.print()}>
+              <Printer className="mr-2 h-4 w-4" />
+              Print
+            </Button>
+            <Button onClick={openCreateDialog}>
+              <Plus className="mr-2 h-4 w-4" />
+              Add Product
+            </Button>
+          </>
+        }
+      />
+
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <ErpMetricCard
+          label="Products"
+          value={formatWholeNumber(summary.products)}
+          description="Visible in current filter"
+          icon={<Boxes className="h-5 w-5" />}
+        />
+        <ErpMetricCard
+          label="Pack Products"
+          value={formatWholeNumber(summary.packProducts)}
+          description="Products with pack size standard"
+          tone="blue"
+        />
+        <ErpMetricCard
+          label="Full Packs"
+          value={formatWholeNumber(summary.fullPacks)}
+          description={`${formatWholeNumber(summary.loosePcs)} loose pcs across filtered items`}
+          tone="emerald"
+        />
+        <ErpMetricCard
+          label="Total PCS"
+          value={formatWholeNumber(summary.totalPcs)}
+          description="Raw system stock quantity"
+          tone="violet"
+        />
       </div>
 
-      <Card>
-        <CardContent className="grid gap-4 p-5 md:grid-cols-4">
-          <div>
-            <Label>Search Product</Label>
-            <Input
-              value={draftSearch}
-              onChange={(event) => setDraftSearch(event.target.value)}
-              placeholder="Enter keyword..."
-              onKeyDown={(event) => {
-                if (event.key === "Enter") applySearch();
-              }}
-            />
-          </div>
-
-          <div>
-            <Label>Category</Label>
-            <Select
-              value={categoryId}
-              onValueChange={(value) => {
-                setCategoryId(value);
-                setPage(1);
-              }}
-            >
-              <SelectTrigger>
-                <SelectValue placeholder="All" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="ALL">All</SelectItem>
-                {categories.map((category) => (
-                  <SelectItem key={category._id} value={category._id}>
-                    {category.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-
-          <div>
-            <Label>Show entries</Label>
-            <Select
-              value={limit}
-              onValueChange={(value) => {
-                setLimit(value);
-                setPage(1);
-              }}
-            >
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="10">10</SelectItem>
-                <SelectItem value="25">25</SelectItem>
-                <SelectItem value="50">50</SelectItem>
-                <SelectItem value="100">100</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-
-          <div className="flex items-end gap-2">
-            <Button onClick={applySearch} className="flex-1">
-              <Search className="mr-2 h-4 w-4" />
-              Search
-            </Button>
-            <Button variant="secondary" onClick={resetFilters}>
-              <RefreshCcw className="mr-2 h-4 w-4" />
-              Reset
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader className="flex flex-row items-center justify-between">
-          <CardTitle>All Bodega Products</CardTitle>
-          <Button variant="outline" onClick={handlePrint}>
-            <Printer className="mr-2 h-4 w-4" />
-            Print
+      <ErpToolbar>
+        <ErpField label="Search Product">
+          <Input
+            value={draftSearch}
+            onChange={(event) => setDraftSearch(event.target.value)}
+            placeholder="Enter product keyword..."
+            onKeyDown={(event) => {
+              if (event.key === "Enter") applySearch();
+            }}
+          />
+        </ErpField>
+        <ErpField label="Category">
+          <Select
+            value={categoryId}
+            onValueChange={(value) => {
+              setCategoryId(value);
+              setPage(1);
+            }}
+          >
+            <SelectTrigger>
+              <SelectValue placeholder="All categories" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="ALL">All Categories</SelectItem>
+              {categories.map((category) => (
+                <SelectItem key={category._id} value={category._id}>
+                  {category.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </ErpField>
+        <ErpField label="Show Entries">
+          <Select
+            value={limit}
+            onValueChange={(value) => {
+              setLimit(value);
+              setPage(1);
+            }}
+          >
+            <SelectTrigger>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="10">10</SelectItem>
+              <SelectItem value="25">25</SelectItem>
+              <SelectItem value="50">50</SelectItem>
+              <SelectItem value="100">100</SelectItem>
+            </SelectContent>
+          </Select>
+        </ErpField>
+        <div className="flex items-end gap-2 xl:col-span-2">
+          <Button onClick={applySearch} className="flex-1 md:flex-none">
+            <Search className="mr-2 h-4 w-4" />
+            Filter
           </Button>
-        </CardHeader>
-        <CardContent>
-          <div className="overflow-x-auto rounded-md border">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Product Name</TableHead>
-                  <TableHead>Category</TableHead>
-                  <TableHead className="text-right">Stock Summary</TableHead>
-                  <TableHead className="text-right">Buying Price</TableHead>
-                  <TableHead className="text-right">Price / PCS</TableHead>
-                  <TableHead className="text-right">Price / Pack</TableHead>
-                  <TableHead className="text-center">Action</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {isLoading ? (
+          <Button variant="secondary" onClick={resetFilters} className="flex-1 md:flex-none">
+            <RefreshCcw className="mr-2 h-4 w-4" />
+            Reset
+          </Button>
+        </div>
+      </ErpToolbar>
+
+      <ErpSection
+        title="Bodega Product List"
+        description="Professional stock display: pack products show full packs, loose PCS, and total PCS."
+      >
+        {isLoading ? (
+          <div className="flex h-56 items-center justify-center">
+            <Loader2 className="h-7 w-7 animate-spin text-slate-500" />
+          </div>
+        ) : products.length === 0 ? (
+          <ErpEmptyState
+            title="No bodega products found"
+            description="Try changing your search or category filter."
+            action={<Button onClick={openCreateDialog}>Add Product</Button>}
+          />
+        ) : (
+          <>
+            <div className="hidden overflow-x-auto rounded-2xl border border-slate-200 md:block">
+              <Table>
+                <TableHeader className="bg-slate-950">
                   <TableRow>
-                    <TableCell colSpan={7} className="h-32 text-center">
-                      <Loader2 className="mx-auto h-5 w-5 animate-spin" />
-                    </TableCell>
+                    <TableHead className="text-white">Product</TableHead>
+                    <TableHead className="text-white">Category</TableHead>
+                    <TableHead className="text-white">Owner Stock View</TableHead>
+                    <TableHead className="text-right text-white">Pack Size</TableHead>
+                    <TableHead className="text-right text-white">Buying Price</TableHead>
+                    <TableHead className="text-right text-white">Price / Pack</TableHead>
+                    <TableHead className="text-right text-white">Price / PCS</TableHead>
+                    <TableHead className="text-center text-white">Action</TableHead>
                   </TableRow>
-                ) : products.length === 0 ? (
-                  <TableRow>
-                    <TableCell colSpan={7} className="h-32 text-center text-muted-foreground">
-                      No bodega products found.
-                    </TableCell>
-                  </TableRow>
-                ) : (
-                  products.map((product) => (
+                </TableHeader>
+                <TableBody>
+                  {products.map((product) => (
                     <TableRow key={product._id}>
-                      <TableCell className="font-medium">{product.name}</TableCell>
+                      <TableCell className="font-bold text-slate-950">{product.name}</TableCell>
                       <TableCell>{product.categoryName || "-"}</TableCell>
-                      <TableCell>{renderStockSummary(product)}</TableCell>
-                      <TableCell className="text-right">{formatPeso(product.buyingPrice)}</TableCell>
-                      <TableCell className="text-right">
-                        {product.isPackProduct ? formatPeso(product.pricePerPcs || 0) : "-"}
+                      <TableCell>
+                        <PackStockDisplay
+                          stockPcs={getStockPcs(product)}
+                          packSize={product.isPackProduct ? getPackSize(product) : 0}
+                        />
                       </TableCell>
                       <TableCell className="text-right">
-                        {product.isPackProduct
-                          ? formatPeso(product.pricePerPack || 0)
-                          : formatPeso(product.sellingPrice)}
+                        {product.isPackProduct ? `${formatWholeNumber(getPackSize(product))} pcs` : "-"}
+                      </TableCell>
+                      <TableCell className="text-right">{formatPeso(product.buyingPrice)}</TableCell>
+                      <TableCell className="text-right">{formatPeso(getPricePerPack(product))}</TableCell>
+                      <TableCell className="text-right">
+                        {product.isPackProduct ? formatPeso(getPricePerPcs(product)) : "-"}
                       </TableCell>
                       <TableCell>
                         <div className="flex justify-center gap-2">
-                          <Button size="icon" variant="outline" onClick={() => openStockDialog(product)}>
+                          <Button size="icon" variant="secondary" onClick={() => openStockDialog(product)} title="Add stock">
                             <PackagePlus className="h-4 w-4" />
                           </Button>
-                          <Button size="icon" variant="outline" onClick={() => openEditDialog(product)}>
+                          <Button size="icon" variant="outline" onClick={() => openEditDialog(product)} title="Edit product">
                             <Pencil className="h-4 w-4" />
                           </Button>
-                          <Button size="icon" variant="destructive" onClick={() => handleDelete(product)}>
+                          <Button size="icon" variant="destructive" onClick={() => handleDelete(product)} title="Delete product">
                             <Trash2 className="h-4 w-4" />
                           </Button>
                         </div>
                       </TableCell>
                     </TableRow>
-                  ))
-                )}
-              </TableBody>
-            </Table>
-          </div>
-
-          <div className="mt-4 flex items-center justify-between text-sm text-muted-foreground">
-            <span>Showing {products.length} of {meta.total} records</span>
-            <div className="flex items-center gap-2">
-              <Button
-                size="sm"
-                variant="outline"
-                disabled={page <= 1 || isLoading}
-                onClick={() => setPage((current) => Math.max(current - 1, 1))}
-              >
-                Previous
-              </Button>
-              <span>
-                Page {meta.page} of {meta.totalPages}
-              </span>
-              <Button
-                size="sm"
-                variant="outline"
-                disabled={page >= meta.totalPages || isLoading}
-                onClick={() => setPage((current) => Math.min(current + 1, meta.totalPages))}
-              >
-                Next
-              </Button>
+                  ))}
+                </TableBody>
+              </Table>
             </div>
+
+            <div className="space-y-3 md:hidden">
+              {products.map((product) => (
+                <ErpMobileCard key={product._id}>
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <h3 className="font-black text-slate-950">{product.name}</h3>
+                      <p className="text-sm text-slate-500">{product.categoryName || "No category"}</p>
+                    </div>
+                    <div className="flex gap-1">
+                      <Button size="icon" variant="secondary" onClick={() => openStockDialog(product)}>
+                        <PackagePlus className="h-4 w-4" />
+                      </Button>
+                      <Button size="icon" variant="outline" onClick={() => openEditDialog(product)}>
+                        <Pencil className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  </div>
+                  <div className="mt-4">
+                    <PackStockDisplay
+                      stockPcs={getStockPcs(product)}
+                      packSize={product.isPackProduct ? getPackSize(product) : 0}
+                    />
+                  </div>
+                  <div className="mt-4 grid grid-cols-2 gap-3">
+                    <ErpKeyValue label="Buying" value={formatPeso(product.buyingPrice)} />
+                    <ErpKeyValue label="Price / Pack" value={formatPeso(getPricePerPack(product))} />
+                    <ErpKeyValue label="Price / PCS" value={product.isPackProduct ? formatPeso(getPricePerPcs(product)) : "-"} />
+                    <ErpKeyValue label="Total PCS" value={formatDecimal(getStockPcs(product), 0)} />
+                  </div>
+                  <Button variant="destructive" className="mt-4 w-full" onClick={() => handleDelete(product)}>
+                    <Trash2 className="mr-2 h-4 w-4" />
+                    Delete
+                  </Button>
+                </ErpMobileCard>
+              ))}
+            </div>
+          </>
+        )}
+
+        <div className="mt-4 flex flex-col gap-3 text-sm text-slate-500 md:flex-row md:items-center md:justify-between">
+          <div>
+            Showing <span className="font-bold text-slate-900">{products.length}</span> of{" "}
+            <span className="font-bold text-slate-900">{meta.total}</span> records
           </div>
-        </CardContent>
-      </Card>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              disabled={page <= 1 || isLoading}
+              onClick={() => setPage((current) => Math.max(current - 1, 1))}
+            >
+              Previous
+            </Button>
+            <span className="rounded-full bg-slate-100 px-3 py-2 text-xs font-bold text-slate-700">
+              Page {meta.page} of {meta.totalPages}
+            </span>
+            <Button
+              variant="outline"
+              disabled={page >= meta.totalPages || isLoading}
+              onClick={() => setPage((current) => Math.min(current + 1, meta.totalPages))}
+            >
+              Next
+            </Button>
+          </div>
+        </div>
+      </ErpSection>
 
       <Dialog open={formDialogOpen} onOpenChange={setFormDialogOpen}>
-        <DialogContent>
+        <DialogContent className="sm:max-w-2xl">
           <DialogHeader>
             <DialogTitle>{editingProduct ? "Edit Bodega Product" : "Add Bodega Product"}</DialogTitle>
           </DialogHeader>
-
           <form onSubmit={handleSubmit} className="space-y-4">
-            <div>
-              <Label>Product Name</Label>
-              <Input
-                value={form.name}
-                onChange={(event) => updateForm("name", event.target.value)}
-                placeholder="e.g. C10"
-                required
-              />
-            </div>
-
-            <div>
-              <Label>Category</Label>
-              <Select value={form.categoryId} onValueChange={(value) => updateForm("categoryId", value)}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Select category" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="NONE">No Category</SelectItem>
-                  {categories.map((category) => (
-                    <SelectItem key={category._id} value={category._id}>
-                      {category.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="grid gap-4 md:grid-cols-3">
-              <div>
-                <Label>Stock QTY</Label>
-                <Input
-                  type="number"
-                  min="0"
-                  step="1"
-                  value={form.stockQty}
-                  onChange={(event) => updateForm("stockQty", event.target.value)}
-                />
-                <p className="mt-1 text-xs text-muted-foreground">
-                  For sliced products, enter total PCS. Packs are calculated from Standard PCS & Packs.
-                </p>
+            <div className="grid gap-4 md:grid-cols-2">
+              <div className="space-y-2 md:col-span-2">
+                <Label>Product Name</Label>
+                <Input value={form.name} onChange={(event) => updateForm("name", event.target.value)} required />
               </div>
-
-              <div>
+              <div className="space-y-2 md:col-span-2">
+                <Label>Category</Label>
+                <Select value={form.categoryId} onValueChange={(value) => updateForm("categoryId", value)}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select category" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="NONE">No Category</SelectItem>
+                    {categories.map((category) => (
+                      <SelectItem key={category._id} value={category._id}>
+                        {category.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label>Total Stock PCS</Label>
+                <Input type="number" min="0" step="1" value={form.stockQty} onChange={(event) => updateForm("stockQty", event.target.value)} />
+                <p className="text-xs text-slate-500">For sliced products, enter total PCS. Packs are displayed from Standard PCS & Packs.</p>
+              </div>
+              <div className="space-y-2">
                 <Label>Buying Price</Label>
-                <Input
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  value={form.buyingPrice}
-                  onChange={(event) => updateForm("buyingPrice", event.target.value)}
-                />
+                <Input type="number" min="0" step="0.01" value={form.buyingPrice} onChange={(event) => updateForm("buyingPrice", event.target.value)} />
               </div>
-
-              <div>
+              <div className="space-y-2 md:col-span-2">
                 <Label>Selling Price</Label>
-                <Input
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  value={form.sellingPrice}
-                  onChange={(event) => updateForm("sellingPrice", event.target.value)}
-                />
-                <p className="mt-1 text-xs text-muted-foreground">
-                  For sliced products, this is price per pack.
-                </p>
+                <Input type="number" min="0" step="0.01" value={form.sellingPrice} onChange={(event) => updateForm("sellingPrice", event.target.value)} />
+                <p className="text-xs text-slate-500">For sliced products with a standard, this is the price per pack.</p>
               </div>
             </div>
-
             <DialogFooter>
-              <Button type="button" variant="outline" onClick={() => setFormDialogOpen(false)} disabled={isSaving}>
+              <Button type="button" variant="secondary" onClick={() => setFormDialogOpen(false)} disabled={isSaving}>
                 Cancel
               </Button>
-              <Button type="submit" disabled={isSaving}>
-                {isSaving ? "Saving..." : "Save"}
-              </Button>
+              <Button type="submit" disabled={isSaving}>{isSaving ? "Saving..." : "Save"}</Button>
             </DialogFooter>
           </form>
         </DialogContent>
@@ -627,42 +650,34 @@ export function BodegaProductsPageClient() {
           <DialogHeader>
             <DialogTitle>Add Stock: {stockProduct?.name}</DialogTitle>
           </DialogHeader>
-
           <form onSubmit={handleStockIn} className="space-y-4">
-            <div>
-              <Label>Quantity</Label>
-              <Input
-                type="number"
-                min="0"
-                step="1"
-                value={stockForm.quantity}
-                onChange={(event) => updateStockForm("quantity", event.target.value)}
-              />
-              {stockProduct?.isPackProduct ? (
-                <p className="mt-1 text-xs text-muted-foreground">
-                  Enter PCS. Example: 30 pcs now plus 20 pcs later becomes 1 full pack automatically.
-                </p>
-              ) : null}
+            {stockProduct ? (
+              <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                <p className="mb-2 text-xs font-bold uppercase tracking-wide text-slate-500">Current Stock</p>
+                <PackStockDisplay
+                  stockPcs={getStockPcs(stockProduct)}
+                  packSize={stockProduct.isPackProduct ? getPackSize(stockProduct) : 0}
+                />
+              </div>
+            ) : null}
+            <div className="space-y-2">
+              <Label>Quantity to Add</Label>
+              <Input type="number" min="0" step="1" value={stockForm.quantity} onChange={(event) => updateStockForm("quantity", event.target.value)} />
+              <p className="text-xs text-slate-500">Enter PCS for sliced products. Example: 1 pack of C10 = 50 pcs.</p>
             </div>
-            <div>
+            <div className="space-y-2">
               <Label>Remarks</Label>
-              <Textarea
-                value={stockForm.remarks}
-                onChange={(event) => updateStockForm("remarks", event.target.value)}
-                placeholder="Optional remarks"
-              />
+              <Textarea value={stockForm.remarks} onChange={(event) => updateStockForm("remarks", event.target.value)} placeholder="Optional remarks" />
             </div>
             <DialogFooter>
               <Button type="button" variant="outline" onClick={() => setStockDialogOpen(false)} disabled={isSaving}>
                 Cancel
               </Button>
-              <Button type="submit" disabled={isSaving}>
-                {isSaving ? "Adding..." : "Add Stock"}
-              </Button>
+              <Button type="submit" disabled={isSaving}>{isSaving ? "Saving..." : "Add Stock"}</Button>
             </DialogFooter>
           </form>
         </DialogContent>
       </Dialog>
-    </div>
+    </ErpPage>
   );
 }

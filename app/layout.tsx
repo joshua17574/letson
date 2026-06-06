@@ -5,7 +5,7 @@ import { Providers } from "@/components/providers";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "LETSON Inventory",
+  title: "ISAY Fried Chicken System",
   description: "Inventory, sales, delivery, and bodega management system.",
 };
 

@@ -6,10 +6,7 @@ import { Loader2, RefreshCcw, Search } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-} from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -25,8 +22,7 @@ type ProductSummary = {
   _id: string;
   name: string;
   currentPcs: number;
-  currentBags: number;
-  currentKilos: number;
+  currentHeads?: number;
   lastUpdated?: string;
 };
 
@@ -36,9 +32,10 @@ type MovementDetail = {
   type: "IN" | "OUT";
   reference: string;
   qtyPcs: number;
-  qtyBags: number;
-  qtyKilos: number;
   qtyOut: number;
+  qtyHeads?: number;
+  previousStock?: number;
+  newStock?: number;
   unit: string;
   remarks: string;
 };
@@ -50,38 +47,22 @@ type Props = {
 export function WholeChickenMovementDetailsPageClient({ productId }: Props) {
   const [product, setProduct] = useState<ProductSummary | null>(null);
   const [rows, setRows] = useState<MovementDetail[]>([]);
-
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
-
-  const [appliedFilters, setAppliedFilters] = useState({
-    dateFrom: "",
-    dateTo: "",
-  });
-
+  const [appliedFilters, setAppliedFilters] = useState({ dateFrom: "", dateTo: "" });
   const [isLoading, setIsLoading] = useState(true);
 
   async function loadDetails() {
     setIsLoading(true);
 
     const params = new URLSearchParams();
-
-    if (appliedFilters.dateFrom) {
-      params.set("dateFrom", appliedFilters.dateFrom);
-    }
-
-    if (appliedFilters.dateTo) {
-      params.set("dateTo", appliedFilters.dateTo);
-    }
+    if (appliedFilters.dateFrom) params.set("dateFrom", appliedFilters.dateFrom);
+    if (appliedFilters.dateTo) params.set("dateTo", appliedFilters.dateTo);
 
     try {
-      const res = await fetch(
-        `/api/inventory/whole-chicken/${productId}?${params.toString()}`,
-        {
-          cache: "no-store",
-        }
-      );
-
+      const res = await fetch(`/api/inventory/whole-chicken/${productId}?${params.toString()}`, {
+        cache: "no-store",
+      });
       const json = await res.json();
 
       if (!res.ok || !json.success) {
@@ -92,9 +73,7 @@ export function WholeChickenMovementDetailsPageClient({ productId }: Props) {
       setRows(json.data || []);
     } catch (error) {
       toast.error(
-        error instanceof Error
-          ? error.message
-          : "Failed to load stock movement details."
+        error instanceof Error ? error.message : "Failed to load stock movement details."
       );
     } finally {
       setIsLoading(false);
@@ -107,22 +86,16 @@ export function WholeChickenMovementDetailsPageClient({ productId }: Props) {
   }, [productId, appliedFilters]);
 
   function applyFilters() {
-    setAppliedFilters({
-      dateFrom,
-      dateTo,
-    });
+    setAppliedFilters({ dateFrom, dateTo });
   }
 
   function resetFilters() {
     setDateFrom("");
     setDateTo("");
-    setAppliedFilters({
-      dateFrom: "",
-      dateTo: "",
-    });
+    setAppliedFilters({ dateFrom: "", dateTo: "" });
   }
 
-  function formatNumber(value: number, decimals = 2) {
+  function formatNumber(value: number | undefined, decimals = 0) {
     return Number(value || 0).toLocaleString(undefined, {
       minimumFractionDigits: decimals,
       maximumFractionDigits: decimals,
@@ -130,7 +103,7 @@ export function WholeChickenMovementDetailsPageClient({ productId }: Props) {
   }
 
   function formatDate(value?: string) {
-    if (!value) return "—";
+    if (!value) return "-";
     return new Date(value).toISOString().slice(0, 10);
   }
 
@@ -143,12 +116,23 @@ export function WholeChickenMovementDetailsPageClient({ productId }: Props) {
     return <span className={className}>{type}</span>;
   }
 
+  function rowQuantity(row: MovementDetail) {
+    return Number(row.qtyHeads ?? (row.type === "IN" ? row.qtyPcs : row.qtyOut) ?? 0);
+  }
+
+  const currentHeads = Number(product?.currentHeads ?? product?.currentPcs ?? 0);
+
   return (
     <div className="space-y-5">
       <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
-        <h1 className="text-3xl font-bold tracking-tight text-slate-900">
-          Stock Movement Details
-        </h1>
+        <div>
+          <h1 className="text-3xl font-bold tracking-tight text-slate-900">
+            Whole Chicken Movement Details
+          </h1>
+          <p className="text-sm text-muted-foreground">
+            Delivery and slicing movements for one whole-chicken bodega product.
+          </p>
+        </div>
 
         <Button variant="secondary" asChild>
           <Link href="/inventory/whole-chicken">Back</Link>
@@ -156,29 +140,19 @@ export function WholeChickenMovementDetailsPageClient({ productId }: Props) {
       </div>
 
       <Card>
-        <CardContent className="grid gap-4 p-5 md:grid-cols-2 xl:grid-cols-5">
+        <CardContent className="grid gap-4 p-5 md:grid-cols-3">
           <div>
-            <p className="text-sm font-semibold">Product</p>
-            <p>{product?.name || "—"}</p>
+            <p className="text-sm font-semibold text-muted-foreground">Product</p>
+            <p className="text-lg font-bold">{product?.name || "-"}</p>
           </div>
 
           <div>
-            <p className="text-sm font-semibold">Current Pcs</p>
-            <p>{formatNumber(product?.currentPcs || 0)}</p>
+            <p className="text-sm font-semibold text-muted-foreground">Current Heads</p>
+            <p className="text-lg font-bold">{formatNumber(currentHeads)}</p>
           </div>
 
           <div>
-            <p className="text-sm font-semibold">Current Bags</p>
-            <p>{formatNumber(product?.currentBags || 0)}</p>
-          </div>
-
-          <div>
-            <p className="text-sm font-semibold">Current Kilos</p>
-            <p>{formatNumber(product?.currentKilos || 0)}</p>
-          </div>
-
-          <div>
-            <p className="text-sm font-semibold">Last Updated</p>
+            <p className="text-sm font-semibold text-muted-foreground">Last Updated</p>
             <p>{formatDate(product?.lastUpdated)}</p>
           </div>
         </CardContent>
@@ -192,20 +166,12 @@ export function WholeChickenMovementDetailsPageClient({ productId }: Props) {
 
         <div className="space-y-2">
           <Label>Start Date</Label>
-          <Input
-            type="date"
-            value={dateFrom}
-            onChange={(event) => setDateFrom(event.target.value)}
-          />
+          <Input type="date" value={dateFrom} onChange={(event) => setDateFrom(event.target.value)} />
         </div>
 
         <div className="space-y-2">
           <Label>End Date</Label>
-          <Input
-            type="date"
-            value={dateTo}
-            onChange={(event) => setDateTo(event.target.value)}
-          />
+          <Input type="date" value={dateTo} onChange={(event) => setDateTo(event.target.value)} />
         </div>
 
         <div className="flex items-end">
@@ -233,10 +199,9 @@ export function WholeChickenMovementDetailsPageClient({ productId }: Props) {
                   <TableHead>Date</TableHead>
                   <TableHead>Type</TableHead>
                   <TableHead>Reference</TableHead>
-                  <TableHead className="text-right">Qty Pcs</TableHead>
-                  <TableHead className="text-right">Qty Bags</TableHead>
-                  <TableHead className="text-right">Qty Kilos</TableHead>
-                  <TableHead className="text-right">Qty Out</TableHead>
+                  <TableHead className="text-right">Heads</TableHead>
+                  <TableHead className="text-right">Previous</TableHead>
+                  <TableHead className="text-right">New Stock</TableHead>
                   <TableHead>Remarks</TableHead>
                 </TableRow>
               </TableHeader>
@@ -244,16 +209,13 @@ export function WholeChickenMovementDetailsPageClient({ productId }: Props) {
               <TableBody>
                 {isLoading ? (
                   <TableRow>
-                    <TableCell colSpan={9} className="h-32 text-center">
+                    <TableCell colSpan={8} className="h-32 text-center">
                       <Loader2 className="mx-auto h-5 w-5 animate-spin" />
                     </TableCell>
                   </TableRow>
                 ) : rows.length === 0 ? (
                   <TableRow>
-                    <TableCell
-                      colSpan={9}
-                      className="h-32 text-center text-muted-foreground"
-                    >
+                    <TableCell colSpan={8} className="h-32 text-center text-muted-foreground">
                       No movement details found.
                     </TableCell>
                   </TableRow>
@@ -264,19 +226,16 @@ export function WholeChickenMovementDetailsPageClient({ productId }: Props) {
                       <TableCell>{formatDate(row.date)}</TableCell>
                       <TableCell>{typeBadge(row.type)}</TableCell>
                       <TableCell>{row.reference}</TableCell>
-                      <TableCell className="text-right">
-                        {formatNumber(row.qtyPcs)}
+                      <TableCell className="text-right font-semibold">
+                        {formatNumber(rowQuantity(row))}
                       </TableCell>
                       <TableCell className="text-right">
-                        {formatNumber(row.qtyBags)}
+                        {formatNumber(row.previousStock)}
                       </TableCell>
                       <TableCell className="text-right">
-                        {formatNumber(row.qtyKilos)}
+                        {formatNumber(row.newStock)}
                       </TableCell>
-                      <TableCell className="text-right">
-                        {formatNumber(row.qtyOut)}
-                      </TableCell>
-                      <TableCell>{row.remarks || "—"}</TableCell>
+                      <TableCell>{row.remarks || "-"}</TableCell>
                     </TableRow>
                   ))
                 )}

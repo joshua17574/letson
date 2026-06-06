@@ -6,10 +6,7 @@ import { Eye, Loader2, RefreshCcw, Search } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-} from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -25,29 +22,27 @@ type MovementRow = {
   _id: string;
   product: string;
   inPcs: number;
-  inBags: number;
-  inKilos: number;
   outQty: number;
   currentPcs: number;
-  currentBags: number;
-  currentKilos: number;
+  stockInHeads?: number;
+  stockOutHeads?: number;
+  currentHeads?: number;
   updated?: string;
 };
 
 type MovementTotals = {
   inPcs: number;
-  inBags: number;
-  inKilos: number;
   outQty: number;
   currentPcs: number;
+  stockInHeads?: number;
+  stockOutHeads?: number;
+  currentHeads?: number;
 };
 
 export function WholeChickenMovementPageClient() {
   const [rows, setRows] = useState<MovementRow[]>([]);
   const [totals, setTotals] = useState<MovementTotals>({
     inPcs: 0,
-    inBags: 0,
-    inKilos: 0,
     outQty: 0,
     currentPcs: 0,
   });
@@ -55,61 +50,38 @@ export function WholeChickenMovementPageClient() {
   const [search, setSearch] = useState("");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
-
   const [appliedFilters, setAppliedFilters] = useState({
     search: "",
     dateFrom: "",
     dateTo: "",
   });
-
   const [isLoading, setIsLoading] = useState(true);
 
   async function loadData() {
     setIsLoading(true);
 
     const params = new URLSearchParams();
-
-    if (appliedFilters.search) {
-      params.set("search", appliedFilters.search);
-    }
-
-    if (appliedFilters.dateFrom) {
-      params.set("dateFrom", appliedFilters.dateFrom);
-    }
-
-    if (appliedFilters.dateTo) {
-      params.set("dateTo", appliedFilters.dateTo);
-    }
+    if (appliedFilters.search) params.set("search", appliedFilters.search);
+    if (appliedFilters.dateFrom) params.set("dateFrom", appliedFilters.dateFrom);
+    if (appliedFilters.dateTo) params.set("dateTo", appliedFilters.dateTo);
 
     try {
-      const res = await fetch(
-        `/api/inventory/whole-chicken?${params.toString()}`,
-        {
-          cache: "no-store",
-        }
-      );
-
+      const res = await fetch(`/api/inventory/whole-chicken?${params.toString()}`, {
+        cache: "no-store",
+      });
       const json = await res.json();
 
       if (!res.ok || !json.success) {
-        throw new Error(json.message || "Failed to load inventory movement.");
+        throw new Error(json.message || "Failed to load whole chicken inventory movement.");
       }
 
       setRows(json.data || []);
-      setTotals(
-        json.totals || {
-          inPcs: 0,
-          inBags: 0,
-          inKilos: 0,
-          outQty: 0,
-          currentPcs: 0,
-        }
-      );
+      setTotals(json.totals || { inPcs: 0, outQty: 0, currentPcs: 0 });
     } catch (error) {
       toast.error(
         error instanceof Error
           ? error.message
-          : "Failed to load inventory movement."
+          : "Failed to load whole chicken inventory movement."
       );
     } finally {
       setIsLoading(false);
@@ -133,18 +105,14 @@ export function WholeChickenMovementPageClient() {
     setSearch("");
     setDateFrom("");
     setDateTo("");
-    setAppliedFilters({
-      search: "",
-      dateFrom: "",
-      dateTo: "",
-    });
+    setAppliedFilters({ search: "", dateFrom: "", dateTo: "" });
   }
 
   function refreshData() {
     void loadData();
   }
 
-  function formatNumber(value: number, decimals = 2) {
+  function formatNumber(value: number | undefined, decimals = 0) {
     return Number(value || 0).toLocaleString(undefined, {
       minimumFractionDigits: decimals,
       maximumFractionDigits: decimals,
@@ -152,21 +120,64 @@ export function WholeChickenMovementPageClient() {
   }
 
   function formatDate(value?: string) {
-    if (!value) return "—";
+    if (!value) return "-";
     return new Date(value).toISOString().slice(0, 10);
   }
+
+  function rowInHeads(row: MovementRow) {
+    return Number(row.stockInHeads ?? row.inPcs ?? 0);
+  }
+
+  function rowOutHeads(row: MovementRow) {
+    return Number(row.stockOutHeads ?? row.outQty ?? 0);
+  }
+
+  function rowCurrentHeads(row: MovementRow) {
+    return Number(row.currentHeads ?? row.currentPcs ?? 0);
+  }
+
+  const totalInHeads = Number(totals.stockInHeads ?? totals.inPcs ?? 0);
+  const totalOutHeads = Number(totals.stockOutHeads ?? totals.outQty ?? 0);
+  const totalCurrentHeads = Number(totals.currentHeads ?? totals.currentPcs ?? 0);
 
   return (
     <div className="space-y-5">
       <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
-        <h1 className="text-3xl font-bold tracking-tight text-slate-900">
-          Stock Movement Inventory
-        </h1>
+        <div>
+          <h1 className="text-3xl font-bold tracking-tight text-slate-900">
+            Whole Chicken Movement
+          </h1>
+          <p className="text-sm text-muted-foreground">
+            Shows live bodega whole-chicken stock. Deliveries add heads; slicing deducts heads.
+          </p>
+        </div>
 
-        <Button onClick={refreshData}>
+        <Button onClick={refreshData} variant="outline">
           <RefreshCcw className="mr-2 h-4 w-4" />
           Refresh
         </Button>
+      </div>
+
+      <div className="grid gap-4 md:grid-cols-3">
+        <Card>
+          <CardContent className="p-4">
+            <p className="text-xs font-medium uppercase text-muted-foreground">Heads In</p>
+            <p className="mt-1 text-2xl font-bold">{formatNumber(totalInHeads)}</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="p-4">
+            <p className="text-xs font-medium uppercase text-muted-foreground">Heads Out</p>
+            <p className="mt-1 text-2xl font-bold">{formatNumber(totalOutHeads)}</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="p-4">
+            <p className="text-xs font-medium uppercase text-muted-foreground">Current Heads</p>
+            <p className="mt-1 text-2xl font-bold">{formatNumber(totalCurrentHeads)}</p>
+            <p className="text-xs text-muted-foreground">Current stock is always live balance.</p>
+          </CardContent>
+        </Card>
       </div>
 
       <div className="grid gap-4 rounded-xl border bg-white p-4 shadow-sm md:grid-cols-2 xl:grid-cols-[2fr_1.5fr_1.5fr_auto_auto]">
@@ -175,7 +186,7 @@ export function WholeChickenMovementPageClient() {
           <Input
             value={search}
             onChange={(event) => setSearch(event.target.value)}
-            placeholder="e.g. C1-PS, OS1, US"
+            placeholder="e.g. OS1, OS4"
             onKeyDown={(event) => {
               if (event.key === "Enter") applyFilters();
             }}
@@ -184,20 +195,12 @@ export function WholeChickenMovementPageClient() {
 
         <div className="space-y-2">
           <Label>Start Date</Label>
-          <Input
-            type="date"
-            value={dateFrom}
-            onChange={(event) => setDateFrom(event.target.value)}
-          />
+          <Input type="date" value={dateFrom} onChange={(event) => setDateFrom(event.target.value)} />
         </div>
 
         <div className="space-y-2">
           <Label>End Date</Label>
-          <Input
-            type="date"
-            value={dateTo}
-            onChange={(event) => setDateTo(event.target.value)}
-          />
+          <Input type="date" value={dateTo} onChange={(event) => setDateTo(event.target.value)} />
         </div>
 
         <div className="flex items-end">
@@ -222,11 +225,9 @@ export function WholeChickenMovementPageClient() {
                 <TableRow>
                   <TableHead className="w-14">#</TableHead>
                   <TableHead>Product</TableHead>
-                  <TableHead className="text-right">In Pcs</TableHead>
-                  <TableHead className="text-right">In Bags</TableHead>
-                  <TableHead className="text-right">In Kilos</TableHead>
-                  <TableHead className="text-right">Out Qty</TableHead>
-                  <TableHead className="text-right">Current Pcs</TableHead>
+                  <TableHead className="text-right">Heads In</TableHead>
+                  <TableHead className="text-right">Heads Out</TableHead>
+                  <TableHead className="text-right">Current Heads</TableHead>
                   <TableHead>Updated</TableHead>
                   <TableHead className="text-center">Action</TableHead>
                 </TableRow>
@@ -235,17 +236,14 @@ export function WholeChickenMovementPageClient() {
               <TableBody>
                 {isLoading ? (
                   <TableRow>
-                    <TableCell colSpan={9} className="h-32 text-center">
+                    <TableCell colSpan={7} className="h-32 text-center">
                       <Loader2 className="mx-auto h-5 w-5 animate-spin" />
                     </TableCell>
                   </TableRow>
                 ) : rows.length === 0 ? (
                   <TableRow>
-                    <TableCell
-                      colSpan={9}
-                      className="h-32 text-center text-muted-foreground"
-                    >
-                      No stock movement records found.
+                    <TableCell colSpan={7} className="h-32 text-center text-muted-foreground">
+                      No whole chicken movement records found.
                     </TableCell>
                   </TableRow>
                 ) : (
@@ -253,20 +251,10 @@ export function WholeChickenMovementPageClient() {
                     <TableRow key={row._id}>
                       <TableCell>{index + 1}</TableCell>
                       <TableCell className="font-medium">{row.product}</TableCell>
-                      <TableCell className="text-right">
-                        {formatNumber(row.inPcs)}
-                      </TableCell>
-                      <TableCell className="text-right">
-                        {formatNumber(row.inBags)}
-                      </TableCell>
-                      <TableCell className="text-right">
-                        {formatNumber(row.inKilos)}
-                      </TableCell>
-                      <TableCell className="text-right">
-                        {formatNumber(row.outQty)}
-                      </TableCell>
-                      <TableCell className="text-right">
-                        {formatNumber(row.currentPcs)}
+                      <TableCell className="text-right">{formatNumber(rowInHeads(row))}</TableCell>
+                      <TableCell className="text-right">{formatNumber(rowOutHeads(row))}</TableCell>
+                      <TableCell className="text-right font-semibold">
+                        {formatNumber(rowCurrentHeads(row))}
                       </TableCell>
                       <TableCell>{formatDate(row.updated)}</TableCell>
                       <TableCell className="text-center">
@@ -282,25 +270,11 @@ export function WholeChickenMovementPageClient() {
                 )}
 
                 {!isLoading && rows.length > 0 ? (
-                  <TableRow className="font-bold">
-                    <TableCell colSpan={2} className="text-right">
-                      Total
-                    </TableCell>
-                    <TableCell className="text-right">
-                      {formatNumber(totals.inPcs)}
-                    </TableCell>
-                    <TableCell className="text-right">
-                      {formatNumber(totals.inBags)}
-                    </TableCell>
-                    <TableCell className="text-right">
-                      {formatNumber(totals.inKilos)}
-                    </TableCell>
-                    <TableCell className="text-right">
-                      {formatNumber(totals.outQty)}
-                    </TableCell>
-                    <TableCell className="text-right">
-                      {formatNumber(totals.currentPcs)}
-                    </TableCell>
+                  <TableRow className="bg-slate-50 font-bold">
+                    <TableCell colSpan={2} className="text-right">Total</TableCell>
+                    <TableCell className="text-right">{formatNumber(totalInHeads)}</TableCell>
+                    <TableCell className="text-right">{formatNumber(totalOutHeads)}</TableCell>
+                    <TableCell className="text-right">{formatNumber(totalCurrentHeads)}</TableCell>
                     <TableCell />
                     <TableCell />
                   </TableRow>
