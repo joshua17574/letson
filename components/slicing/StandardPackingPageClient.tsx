@@ -131,8 +131,12 @@ export function StandardPackingPageClient() {
   }
 
   useEffect(() => {
-    void loadBodegaProducts();
-    void loadStandards();
+    const frame = window.requestAnimationFrame(() => {
+      void loadBodegaProducts();
+      void loadStandards();
+    });
+
+    return () => window.cancelAnimationFrame(frame);
   }, []);
 
   function updateForm(name: keyof typeof emptyForm, value: string) {
@@ -291,24 +295,32 @@ export function StandardPackingPageClient() {
 
       <Card className="rounded-2xl border-slate-200 shadow-sm">
         <CardContent className="p-5">
-          <div className="overflow-hidden rounded-2xl border border-slate-200">
-            <Table>
-              <TableHeader className="bg-slate-950">
+          <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
+            <Table className="min-w-[760px]">
+              <TableHeader className="bg-slate-100">
                 <TableRow>
-                  <TableHead className="text-white">Whole Chicken</TableHead>
-                  <TableHead className="text-white">Output Product</TableHead>
-                  <TableHead className="text-right text-white">
+                  <TableHead className="text-center text-slate-700">
+                    Whole Chicken
+                  </TableHead>
+                  <TableHead className="text-center text-slate-700">
+                    Output Product
+                  </TableHead>
+                  <TableHead className="text-center text-slate-700">
                     Standard Packing
-                    <span className="block text-xs font-normal text-slate-300">pcs per pack</span>
+                    <span className="block text-xs font-normal text-slate-500">
+                      pcs per pack
+                    </span>
                   </TableHead>
-                  <TableHead className="text-right text-white">
+                  <TableHead className="text-center text-slate-700">
                     Standard Slice
-                    <span className="block text-xs font-normal text-slate-300">pcs per head</span>
+                    <span className="block text-xs font-normal text-slate-500">
+                      pcs per head
+                    </span>
                   </TableHead>
-                  <TableHead className="text-white">
+                  <TableHead className="text-center text-slate-700">
                     Chicken Size Type
                   </TableHead>
-                  <TableHead className="text-center text-white">
+                  <TableHead className="text-center text-slate-700">
                     Action
                   </TableHead>
                 </TableRow>
@@ -332,20 +344,24 @@ export function StandardPackingPageClient() {
                   </TableRow>
                 ) : (
                   filteredStandards.map((item) => (
-                    <TableRow key={item._id}>
-                      <TableCell className="font-medium">
+                    <TableRow key={item._id} className="even:bg-slate-50/70">
+                      <TableCell className="text-center font-medium">
                         {item.wholeChickenName}
                       </TableCell>
-                      <TableCell>{item.productName}</TableCell>
-                      <TableCell className="text-right">
+                      <TableCell className="text-center font-medium text-slate-700">
+                        {item.productName}
+                      </TableCell>
+                      <TableCell className="text-center font-semibold tabular-nums">
                         {item.standardPacking.toLocaleString()}
                       </TableCell>
-                      <TableCell className="text-right">
+                      <TableCell className="text-center font-semibold tabular-nums">
                         {item.standardSlice.toLocaleString()}
                       </TableCell>
-                      <TableCell>{item.chickenSizeType || "-"}</TableCell>
                       <TableCell className="text-center">
-                        <div className="flex justify-center gap-2">
+                        {item.chickenSizeType || "-"}
+                      </TableCell>
+                      <TableCell className="text-center">
+                        <div className="flex flex-wrap justify-center gap-2">
                           <Button
                             size="sm"
                             variant="outline"

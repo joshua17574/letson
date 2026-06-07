@@ -1,6 +1,6 @@
 ﻿"use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useId, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   Check,
@@ -137,6 +137,41 @@ function calculateRow(row: SlicingRow) {
   };
 }
 
+function ResultTile({
+  label,
+  value,
+  helper,
+  tone,
+}: {
+  label: string;
+  value: string | number;
+  helper?: string;
+  tone?: "success" | "danger";
+}) {
+  return (
+    <div
+      className={cn(
+        "min-w-0 rounded-lg border bg-background/70 px-3 py-2.5 shadow-[inset_0_1px_0_color-mix(in_oklch,var(--background)_72%,transparent)]",
+        tone === "success" &&
+          "border-emerald-200 bg-emerald-50 text-emerald-800",
+        tone === "danger" && "border-red-200 bg-red-50 text-red-700"
+      )}
+    >
+      <div className="text-xs font-medium leading-tight text-muted-foreground">
+        {label}
+      </div>
+      <div className="tabular-value mt-1 truncate text-lg font-semibold leading-none">
+        {value}
+      </div>
+      {helper ? (
+        <p className="mt-1 text-xs leading-snug text-muted-foreground">
+          {helper}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
 function StandardPicker({
   standards,
   value,
@@ -168,7 +203,10 @@ function StandardPicker({
           <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
         </Button>
       </PopoverTrigger>
-      <PopoverContent className="w-[420px] p-0" align="start">
+      <PopoverContent
+        className="w-[min(calc(100vw-2rem),420px)] p-0"
+        align="start"
+      >
         <Command>
           <CommandInput placeholder="Search standard..." />
           <CommandList>
@@ -215,6 +253,7 @@ function StandardPicker({
 
 export function AddSlicingPageClient() {
   const router = useRouter();
+  const detailsId = useId();
   const [standards, setStandards] = useState<SlicingStandardOption[]>([]);
   const [slicingDate, setSlicingDate] = useState(new Date().toISOString().slice(0, 10));
   const [slicer, setSlicer] = useState("");
@@ -281,6 +320,7 @@ export function AddSlicingPageClient() {
   }
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     void loadStandards();
   }, []);
 
@@ -420,29 +460,41 @@ export function AddSlicingPageClient() {
       />
 
       <Card>
-        <CardHeader>
-          <CardTitle>Slicing Details</CardTitle>
+        <CardHeader className="border-b bg-muted/30 px-4 py-3 sm:px-5">
+          <CardTitle className="font-semibold">Slicing Details</CardTitle>
         </CardHeader>
-        <CardContent className="grid gap-4 md:grid-cols-3">
-          <div>
-            <Label>Slicing Date</Label>
+        <CardContent className="grid gap-4 px-4 sm:grid-cols-2 sm:px-5 lg:grid-cols-3">
+          <div className="min-w-0 space-y-2">
+            <Label htmlFor={`${detailsId}-date`} className="font-semibold text-foreground">
+              Slicing Date
+            </Label>
             <Input
+              id={`${detailsId}-date`}
               type="date"
+              className="h-11 bg-background md:h-10 md:px-3"
               value={slicingDate}
               onChange={(event) => setSlicingDate(event.target.value)}
             />
           </div>
-          <div>
-            <Label>Slicer</Label>
+          <div className="min-w-0 space-y-2">
+            <Label htmlFor={`${detailsId}-slicer`} className="font-semibold text-foreground">
+              Slicer
+            </Label>
             <Input
+              id={`${detailsId}-slicer`}
+              className="h-11 bg-background md:h-10 md:px-3"
               value={slicer}
               onChange={(event) => setSlicer(event.target.value)}
               placeholder="Enter slicer name"
             />
           </div>
-          <div>
-            <Label>Packer</Label>
+          <div className="min-w-0 space-y-2 sm:col-span-2 lg:col-span-1">
+            <Label htmlFor={`${detailsId}-packer`} className="font-semibold text-foreground">
+              Packer
+            </Label>
             <Input
+              id={`${detailsId}-packer`}
+              className="h-11 bg-background md:h-10 md:px-3"
               value={packer}
               onChange={(event) => setPacker(event.target.value)}
               placeholder="Enter packer name"
@@ -465,100 +517,143 @@ export function AddSlicingPageClient() {
             <div className="space-y-4">
               {rows.map((row, index) => {
                 const computed = calculateRow(row);
+                const rowId = `slicing-item-${index}`;
+                const varianceTone =
+                  computed.variance < 0
+                    ? "danger"
+                    : computed.variance > 0
+                      ? "success"
+                      : undefined;
 
                 return (
-                  <div key={index} className="rounded-xl border bg-white p-4 shadow-sm">
-                    <div className="mb-4 flex items-center justify-between gap-3">
-                      <div className="font-semibold">Item #{index + 1}</div>
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="destructive"
-                        onClick={() => removeRow(index)}
-                        disabled={rows.length === 1}
-                      >
-                        <Trash2 className="mr-2 h-4 w-4" />
-                        Remove
-                      </Button>
+                  <div
+                    key={index}
+                    className="rounded-xl border bg-card p-4 shadow-sm sm:p-5"
+                  >
+                    <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+                      <div className="text-sm font-semibold">
+                        Item #{index + 1}
+                      </div>
+                      {rows.length > 1 ? (
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="destructive"
+                          className="shrink-0"
+                          onClick={() => removeRow(index)}
+                        >
+                          <Trash2 className="mr-2 h-4 w-4" />
+                          Remove
+                        </Button>
+                      ) : null}
                     </div>
 
-                    <div className="grid gap-4 lg:grid-cols-4">
-                      <div className="lg:col-span-2">
-                        <Label>Standard</Label>
-                        <StandardPicker
-                          standards={standards}
-                          value={row.standardId}
-                          onSelect={(standard) => selectStandard(index, standard)}
-                        />
-                        <p className="mt-2 text-xs text-muted-foreground">
-                          Available Stock: {row.availableStock} | Std Slice: {row.standardSlice} pcs/head | Pack Size: {row.standardPacking} pcs/pack
-                        </p>
+                    <div className="grid gap-4 xl:grid-cols-[minmax(0,1.35fr)_minmax(20rem,0.9fr)]">
+                      <div className="min-w-0 space-y-4">
+                        <div className="space-y-1.5">
+                          <Label>Standard</Label>
+                          <StandardPicker
+                            standards={standards}
+                            value={row.standardId}
+                            onSelect={(standard) =>
+                              selectStandard(index, standard)
+                            }
+                          />
+                          <p className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
+                            <span>Available: {row.availableStock}</span>
+                            <span>Slice: {row.standardSlice} pcs/head</span>
+                            <span>Pack: {row.standardPacking} pcs/pack</span>
+                          </p>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+                          <div className="min-w-0 space-y-1.5">
+                            <Label htmlFor={`${rowId}-bags`}>Bags</Label>
+                            <Input
+                              id={`${rowId}-bags`}
+                              type="number"
+                              min="0"
+                              value={row.bags}
+                              onChange={(event) =>
+                                updateRow(index, "bags", event.target.value)
+                              }
+                            />
+                          </div>
+                          <div className="min-w-0 space-y-1.5">
+                            <Label htmlFor={`${rowId}-heads`}>Heads</Label>
+                            <Input
+                              id={`${rowId}-heads`}
+                              type="number"
+                              min="0"
+                              value={row.heads}
+                              onChange={(event) =>
+                                updateRow(index, "heads", event.target.value)
+                              }
+                            />
+                          </div>
+                          <div className="min-w-0 space-y-1.5">
+                            <Label htmlFor={`${rowId}-kilos`}>Kilos</Label>
+                            <Input
+                              id={`${rowId}-kilos`}
+                              type="number"
+                              min="0"
+                              step="0.01"
+                              value={row.kilos}
+                              onChange={(event) =>
+                                updateRow(index, "kilos", event.target.value)
+                              }
+                            />
+                          </div>
+                          <div className="min-w-0 space-y-1.5">
+                            <Label htmlFor={`${rowId}-actual-pcs`}>
+                              Actual Sliced PCS
+                            </Label>
+                            <Input
+                              id={`${rowId}-actual-pcs`}
+                              type="number"
+                              min="0"
+                              value={row.actualSlicedPcs}
+                              onChange={(event) =>
+                                updateRow(
+                                  index,
+                                  "actualSlicedPcs",
+                                  event.target.value
+                                )
+                              }
+                            />
+                          </div>
+                        </div>
                       </div>
-                      <div>
-                        <Label>Bags</Label>
-                        <Input
-                          type="number"
-                          min="0"
-                          value={row.bags}
-                          onChange={(event) => updateRow(index, "bags", event.target.value)}
-                        />
-                      </div>
-                      <div>
-                        <Label>Heads</Label>
-                        <Input
-                          type="number"
-                          min="0"
-                          value={row.heads}
-                          onChange={(event) => updateRow(index, "heads", event.target.value)}
-                        />
-                      </div>
-                      <div>
-                        <Label>Kilos</Label>
-                        <Input
-                          type="number"
-                          min="0"
-                          step="0.01"
-                          value={row.kilos}
-                          onChange={(event) => updateRow(index, "kilos", event.target.value)}
-                        />
-                      </div>
-                      <div>
-                        <Label>Actual Sliced PCS</Label>
-                        <Input
-                          type="number"
-                          min="0"
-                          value={row.actualSlicedPcs}
-                          onChange={(event) => updateRow(index, "actualSlicedPcs", event.target.value)}
-                        />
-                      </div>
-                      <div>
-                        <Label>Std PCS (Heads x Slice)</Label>
-                        <Input value={computed.totalStdPcs} readOnly />
-                      </div>
-                      <div>
-                        <Label>Full Packs</Label>
-                        <Input value={computed.actualPacks} readOnly />
-                        <p className="mt-1 text-xs text-muted-foreground">
-                          {row.standardPacking > 0
-                            ? `${row.standardPacking} pcs = 1 pack`
-                            : "Select a standard to count packs"}
-                        </p>
-                      </div>
-                      <div>
-                        <Label>Butal / Loose PCS</Label>
-                        <Input value={computed.butal} readOnly />
-                      </div>
-                      <div>
-                        <Label>Variance</Label>
-                        <Input
-                          value={computed.variance}
-                          readOnly
-                          className={computed.variance < 0 ? "font-bold text-red-600" : computed.variance > 0 ? "font-bold text-emerald-700" : ""}
-                        />
-                      </div>
-                      <div>
-                        <Label>Yield Rate</Label>
-                        <Input value={formatPercent(computed.yieldRate)} readOnly />
+
+                      <div className="rounded-lg border bg-muted/35 p-3">
+                        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-2">
+                          <ResultTile
+                            label="Std PCS"
+                            value={computed.totalStdPcs}
+                          />
+                          <ResultTile
+                            label="Full Packs"
+                            value={computed.actualPacks}
+                            helper={
+                              row.standardPacking > 0
+                                ? `${row.standardPacking} pcs / pack`
+                                : "Select standard"
+                            }
+                          />
+                          <ResultTile
+                            label="Loose PCS"
+                            value={computed.butal}
+                          />
+                          <ResultTile
+                            label="Variance"
+                            value={computed.variance}
+                            tone={varianceTone}
+                          />
+                          <ResultTile
+                            label="Yield Rate"
+                            value={formatPercent(computed.yieldRate)}
+                          />
+                        </div>
                       </div>
                     </div>
                   </div>

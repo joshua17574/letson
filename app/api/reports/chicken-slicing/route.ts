@@ -3,6 +3,7 @@ import { isValidObjectId, Types } from "mongoose";
 
 import dbConnect from "@/lib/mongodb";
 import { requireApiAuth } from "@/lib/require-auth";
+import { setDateRangeFilter } from "@/lib/date-range";
 import BodegaProductModel from "@/models/BodegaProduct";
 import SlicingBatchModel from "@/models/SlicingBatch";
 import SlicingItemModel from "@/models/SlicingItem";
@@ -103,17 +104,7 @@ export async function GET(req: NextRequest) {
 
   const batchFilter: Record<string, any> = { isVoided: false };
 
-  if (dateFrom || dateTo) {
-    batchFilter.slicingDate = {};
-
-    if (dateFrom) {
-      batchFilter.slicingDate.$gte = new Date(`${dateFrom}T00:00:00.000Z`);
-    }
-
-    if (dateTo) {
-      batchFilter.slicingDate.$lte = new Date(`${dateTo}T23:59:59.999Z`);
-    }
-  }
+  setDateRangeFilter(batchFilter, "slicingDate", dateFrom, dateTo);
 
   const batches = (await SlicingBatchModel.find(batchFilter)
     .select("_id slicingDate slicer packer")

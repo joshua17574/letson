@@ -10,6 +10,8 @@ import {
   Save,
   Search,
   Trash2,
+  Upload,
+  X,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -42,6 +44,8 @@ import { formatPeso } from "@/lib/utils";
 type Props = {
   initialCustomerId?: string;
 };
+
+const MAX_RECEIPT_IMAGE_SIZE = 5 * 1024 * 1024;
 
 type CustomerSummary = {
   _id: string;
@@ -223,6 +227,34 @@ export function RecordPaymentPageClient({ initialCustomerId = "" }: Props) {
   function formatDate(value?: string) {
     if (!value) return "—";
     return new Date(value).toISOString().slice(0, 10);
+  }
+
+  function formatFileSize(size: number) {
+    if (size < 1024 * 1024) {
+      return `${Math.max(size / 1024, 1).toFixed(0)} KB`;
+    }
+
+    return `${(size / (1024 * 1024)).toFixed(2)} MB`;
+  }
+
+  function clearReceiptImage() {
+    setReceiptImage(null);
+
+    if (fileInputRef.current) {
+      fileInputRef.current.value = "";
+    }
+  }
+
+  function handleReceiptImageChange(event: React.ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0] || null;
+
+    if (file && file.size > MAX_RECEIPT_IMAGE_SIZE) {
+      toast.error("Receipt image must be 5 MB or smaller.");
+      clearReceiptImage();
+      return;
+    }
+
+    setReceiptImage(file);
   }
 
   function balanceClass(balance: number) {
@@ -433,18 +465,50 @@ export function RecordPaymentPageClient({ initialCustomerId = "" }: Props) {
               </div>
 
               <div className="space-y-2">
-                <Label>Receipt Image</Label>
-                <Input
-                  ref={fileInputRef}
-                  type="file"
-                  accept="image/jpeg,image/jpg,image/png,image/gif,image/webp"
-                  onChange={(event) =>
-                    setReceiptImage(event.target.files?.[0] || null)
-                  }
-                />
-                <p className="text-xs text-muted-foreground">
-                  Allowed: JPG, JPEG, PNG, GIF, WEBP. Max: 5MB.
-                </p>
+                <Label htmlFor="payment-receipt-image">Receipt Image</Label>
+                <div className="rounded-lg border border-dashed border-input bg-background/70 p-3 shadow-[inset_0_1px_0_color-mix(in_oklch,var(--background)_62%,transparent)] transition-colors hover:border-primary/35 hover:bg-accent/30">
+                  <div className="flex items-center gap-3">
+                    <div className="grid size-10 shrink-0 place-items-center rounded-lg bg-primary/10 text-primary">
+                      <Upload className="h-5 w-5" aria-hidden="true" />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm font-medium">
+                        {receiptImage ? receiptImage.name : "No receipt image selected"}
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        {receiptImage
+                          ? `${formatFileSize(receiptImage.size)} selected`
+                          : "JPG, PNG, GIF, or WEBP. Max: 5 MB."}
+                      </p>
+                    </div>
+                    <Label
+                      htmlFor="payment-receipt-image"
+                      className="inline-flex h-8 shrink-0 cursor-pointer items-center justify-center rounded-lg border border-border bg-background/84 px-3 text-sm font-medium shadow-[inset_0_1px_0_color-mix(in_oklch,var(--background)_52%,transparent)] transition-colors hover:border-primary/25 hover:bg-accent/70 hover:text-accent-foreground"
+                    >
+                      Choose
+                    </Label>
+                    {receiptImage ? (
+                      <Button
+                        type="button"
+                        size="icon"
+                        variant="ghost"
+                        aria-label="Remove receipt image"
+                        className="size-8 shrink-0"
+                        onClick={clearReceiptImage}
+                      >
+                        <X className="h-4 w-4" />
+                      </Button>
+                    ) : null}
+                  </div>
+                  <Input
+                    id="payment-receipt-image"
+                    ref={fileInputRef}
+                    type="file"
+                    accept="image/jpeg,image/jpg,image/png,image/gif,image/webp"
+                    className="sr-only"
+                    onChange={handleReceiptImageChange}
+                  />
+                </div>
               </div>
 
               <div className="space-y-2">
@@ -784,7 +848,7 @@ export function RecordPaymentPageClient({ initialCustomerId = "" }: Props) {
                                     href={payment.receiptImageUrl}
                                     target="_blank"
                                     rel="noreferrer"
-                                    className="text-blue-600 underline"
+                                    className="text-primary underline"
                                   >
                                     View
                                   </a>

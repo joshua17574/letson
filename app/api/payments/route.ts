@@ -12,6 +12,7 @@ import {
   escapeRegex,
   getPagination,
 } from "@/lib/crud-utils";
+import { setDateRangeFilter } from "@/lib/date-range";
 import CustomerModel from "@/models/Customer";
 import PaymentModel from "@/models/Payment";
 import PaymentAllocationModel from "@/models/PaymentAllocation";
@@ -99,17 +100,7 @@ export async function GET(req: NextRequest) {
     filter.customerId = customerId;
   }
 
-  if (dateFrom || dateTo) {
-    filter.paymentDate = {};
-
-    if (dateFrom) {
-      filter.paymentDate.$gte = new Date(`${dateFrom}T00:00:00.000Z`);
-    }
-
-    if (dateTo) {
-      filter.paymentDate.$lte = new Date(`${dateTo}T23:59:59.999Z`);
-    }
-  }
+  setDateRangeFilter(filter, "paymentDate", dateFrom, dateTo);
 
   if (search) {
     const customers = await CustomerModel.find({

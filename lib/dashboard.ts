@@ -66,26 +66,46 @@ function getDateRanges() {
   };
 }
 
-function withDateRange(
-  baseFilter: Record<string, unknown>,
-  dateField: string,
-  startDate: Date,
-  endDate: Date
-) {
+type DateRanges = ReturnType<typeof getDateRanges>;
+
+function dateRangeCondition(dateField: string, startDate: Date, endDate: Date) {
+  const fieldPath = `$${dateField}`;
+
   return {
-    ...baseFilter,
-    [dateField]: {
-      $gte: startDate,
-      $lt: endDate,
-    },
+    $and: [
+      {
+        $gte: [fieldPath, startDate],
+      },
+      {
+        $lt: [fieldPath, endDate],
+      },
+    ],
   };
 }
 
-async function sumAmount(
+async function sumDateBuckets(
   model: any,
   match: Record<string, unknown>,
-  amountExpression: any
+  dateField: string,
+  amountExpression: any,
+  ranges: DateRanges
 ) {
+  const todayCondition = dateRangeCondition(
+    dateField,
+    ranges.todayStart,
+    ranges.tomorrowStart
+  );
+  const yesterdayCondition = dateRangeCondition(
+    dateField,
+    ranges.yesterdayStart,
+    ranges.todayStart
+  );
+  const monthCondition = dateRangeCondition(
+    dateField,
+    ranges.monthStart,
+    ranges.nextMonthStart
+  );
+
   const result = await model.aggregate([
     {
       $match: match,
@@ -96,11 +116,33 @@ async function sumAmount(
         total: {
           $sum: amountExpression,
         },
+        today: {
+          $sum: {
+            $cond: [todayCondition, amountExpression, 0],
+          },
+        },
+        yesterday: {
+          $sum: {
+            $cond: [yesterdayCondition, amountExpression, 0],
+          },
+        },
+        month: {
+          $sum: {
+            $cond: [monthCondition, amountExpression, 0],
+          },
+        },
       },
     },
   ]);
 
-  return numberValue(result[0]?.total);
+  const buckets = result[0] || {};
+
+  return {
+    total: numberValue(buckets.total),
+    today: numberValue(buckets.today),
+    yesterday: numberValue(buckets.yesterday),
+    month: numberValue(buckets.month),
+  };
 }
 
 function formatStockBreakdown(stockQty: number, packSize: number) {
@@ -300,13 +342,7 @@ async function getRecentActivity() {
 export async function getDashboardSummary() {
   await dbConnect();
 
-  const {
-    todayStart,
-    tomorrowStart,
-    yesterdayStart,
-    monthStart,
-    nextMonthStart,
-  } = getDateRanges();
+  const ranges = getDateRanges();
 
   const activeFilter = { isActive: true };
   const saleFilter = notVoidedFilter();
@@ -319,126 +355,81 @@ export async function getDashboardSummary() {
   const [
     totalCustomers,
     totalSuppliers,
-    totalSales,
-    totalPayments,
-    totalSupplierDeliveries,
-    totalPurchaseBatches,
-    totalExpenses,
-    todaySales,
-    todayPayments,
-    todaySupplierDeliveries,
-    todayPurchaseBatches,
-    todayExpenses,
-    todaySlicingHeads,
-    todaySlicingPacks,
-    yesterdaySales,
-    yesterdayPayments,
-    yesterdayExpenses,
-    thisMonthSales,
-    thisMonthPayments,
-    thisMonthSupplierDeliveries,
-    thisMonthPurchaseBatches,
-    thisMonthExpenses,
-    thisMonthSlicingHeads,
-    thisMonthSlicingPacks,
+    sales,
+    payments,
+    supplierDeliveries,
+    purchaseBatches,
+    expenses,
+    slicingHeads,
+    slicingPacks,
     bodegaStock,
     recent,
   ] = await Promise.all([
     CustomerModel.countDocuments(activeFilter),
     SupplierModel.countDocuments(activeFilter),
-    sumAmount(SaleModel, saleFilter, "$totalAmount"),
-    sumAmount(PaymentModel, paymentFilter, paymentAmountExpression),
-    sumAmount(DeliveryModel, deliveryFilter, "$totalAmount"),
-    sumAmount(PurchaseBatchModel, purchaseBatchFilter, "$totalAmount"),
-    sumAmount(ExpenseModel, expenseFilter, "$amount"),
-    sumAmount(
-      SaleModel,
-      withDateRange(saleFilter, "createdAt", todayStart, tomorrowStart),
-      "$totalAmount"
-    ),
-    sumAmount(
+    sumDateBuckets(SaleModel, saleFilter, "createdAt", "$totalAmount", ranges),
+    sumDateBuckets(
       PaymentModel,
-      withDateRange(paymentFilter, "createdAt", todayStart, tomorrowStart),
-      paymentAmountExpression
+      paymentFilter,
+      "createdAt",
+      paymentAmountExpression,
+      ranges
     ),
-    sumAmount(
+    sumDateBuckets(
       DeliveryModel,
-      withDateRange(deliveryFilter, "createdAt", todayStart, tomorrowStart),
-      "$totalAmount"
+      deliveryFilter,
+      "createdAt",
+      "$totalAmount",
+      ranges
     ),
-    sumAmount(
+    sumDateBuckets(
       PurchaseBatchModel,
-      withDateRange(purchaseBatchFilter, "createdAt", todayStart, tomorrowStart),
-      "$totalAmount"
+      purchaseBatchFilter,
+      "createdAt",
+      "$totalAmount",
+      ranges
     ),
-    sumAmount(
-      ExpenseModel,
-      withDateRange(expenseFilter, "expenseDate", todayStart, tomorrowStart),
-      "$amount"
-    ),
-    sumAmount(
+    sumDateBuckets(ExpenseModel, expenseFilter, "expenseDate", "$amount", ranges),
+    sumDateBuckets(
       SlicingBatchModel,
-      withDateRange(slicingFilter, "slicingDate", todayStart, tomorrowStart),
-      "$totalHeads"
+      slicingFilter,
+      "slicingDate",
+      "$totalHeads",
+      ranges
     ),
-    sumAmount(
+    sumDateBuckets(
       SlicingBatchModel,
-      withDateRange(slicingFilter, "slicingDate", todayStart, tomorrowStart),
-      "$totalPacks"
-    ),
-    sumAmount(
-      SaleModel,
-      withDateRange(saleFilter, "createdAt", yesterdayStart, todayStart),
-      "$totalAmount"
-    ),
-    sumAmount(
-      PaymentModel,
-      withDateRange(paymentFilter, "createdAt", yesterdayStart, todayStart),
-      paymentAmountExpression
-    ),
-    sumAmount(
-      ExpenseModel,
-      withDateRange(expenseFilter, "expenseDate", yesterdayStart, todayStart),
-      "$amount"
-    ),
-    sumAmount(
-      SaleModel,
-      withDateRange(saleFilter, "createdAt", monthStart, nextMonthStart),
-      "$totalAmount"
-    ),
-    sumAmount(
-      PaymentModel,
-      withDateRange(paymentFilter, "createdAt", monthStart, nextMonthStart),
-      paymentAmountExpression
-    ),
-    sumAmount(
-      DeliveryModel,
-      withDateRange(deliveryFilter, "createdAt", monthStart, nextMonthStart),
-      "$totalAmount"
-    ),
-    sumAmount(
-      PurchaseBatchModel,
-      withDateRange(purchaseBatchFilter, "createdAt", monthStart, nextMonthStart),
-      "$totalAmount"
-    ),
-    sumAmount(
-      ExpenseModel,
-      withDateRange(expenseFilter, "expenseDate", monthStart, nextMonthStart),
-      "$amount"
-    ),
-    sumAmount(
-      SlicingBatchModel,
-      withDateRange(slicingFilter, "slicingDate", monthStart, nextMonthStart),
-      "$totalHeads"
-    ),
-    sumAmount(
-      SlicingBatchModel,
-      withDateRange(slicingFilter, "slicingDate", monthStart, nextMonthStart),
-      "$totalPacks"
+      slicingFilter,
+      "slicingDate",
+      "$totalPacks",
+      ranges
     ),
     getBodegaStockSummary(),
     getRecentActivity(),
   ]);
+
+  const totalSales = sales.total;
+  const totalPayments = payments.total;
+  const totalSupplierDeliveries = supplierDeliveries.total;
+  const totalPurchaseBatches = purchaseBatches.total;
+  const totalExpenses = expenses.total;
+  const todaySales = sales.today;
+  const todayPayments = payments.today;
+  const todaySupplierDeliveries = supplierDeliveries.today;
+  const todayPurchaseBatches = purchaseBatches.today;
+  const todayExpenses = expenses.today;
+  const todaySlicingHeads = slicingHeads.today;
+  const todaySlicingPacks = slicingPacks.today;
+  const yesterdaySales = sales.yesterday;
+  const yesterdayPayments = payments.yesterday;
+  const yesterdayExpenses = expenses.yesterday;
+  const thisMonthSales = sales.month;
+  const thisMonthPayments = payments.month;
+  const thisMonthSupplierDeliveries = supplierDeliveries.month;
+  const thisMonthPurchaseBatches = purchaseBatches.month;
+  const thisMonthExpenses = expenses.month;
+  const thisMonthSlicingHeads = slicingHeads.month;
+  const thisMonthSlicingPacks = slicingPacks.month;
 
   const totalStockInPurchases = totalSupplierDeliveries + totalPurchaseBatches;
   const todayStockInPurchases = todaySupplierDeliveries + todayPurchaseBatches;

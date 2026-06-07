@@ -276,11 +276,11 @@ export function SellChickenPageClient() {
         </p>
       </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Sell Chicken</CardTitle>
+      <Card className="surface-panel rounded-2xl">
+        <CardHeader className="border-b border-border pb-4">
+          <CardTitle className="text-lg font-black">Sell Chicken</CardTitle>
         </CardHeader>
-        <CardContent>
+        <CardContent className="p-5">
           {isLoading ? (
             <div className="flex h-40 items-center justify-center">
               <Loader2 className="h-6 w-6 animate-spin" />
@@ -288,10 +288,13 @@ export function SellChickenPageClient() {
           ) : (
             <div className="space-y-5">
               <div className="grid gap-4 md:grid-cols-3">
-                <div>
-                  <Label>Customer *</Label>
+                <div className="space-y-2">
+                  <Label htmlFor="sell-chicken-customer">Customer *</Label>
                   <Select value={customerId} onValueChange={setCustomerId}>
-                    <SelectTrigger>
+                    <SelectTrigger
+                      id="sell-chicken-customer"
+                      className="h-10 w-full bg-background md:h-10"
+                    >
                       <SelectValue placeholder="Select customer" />
                     </SelectTrigger>
                     <SelectContent>
@@ -304,30 +307,37 @@ export function SellChickenPageClient() {
                   </Select>
                 </div>
 
-                <div>
-                  <Label>Sale Date *</Label>
+                <div className="space-y-2">
+                  <Label htmlFor="sell-chicken-sale-date">Sale Date *</Label>
                   <Input
+                    id="sell-chicken-sale-date"
                     type="date"
                     value={saleDate}
                     onChange={(event) => setSaleDate(event.target.value)}
+                    className="h-10 bg-background md:h-10"
                   />
                 </div>
 
-                <div>
-                  <Label>Receipt Number *</Label>
+                <div className="space-y-2">
+                  <Label htmlFor="sell-chicken-receipt-number">Receipt Number *</Label>
                   <Input
+                    id="sell-chicken-receipt-number"
                     value={receiptNumber}
                     onChange={(event) => setReceiptNumber(event.target.value)}
                     placeholder="e.g. 0002318"
+                    className="h-10 bg-background md:h-10"
                   />
                 </div>
               </div>
 
               <div className="grid gap-4 md:grid-cols-4">
-                <div className="md:col-span-2">
-                  <Label>Product</Label>
+                <div className="space-y-2 md:col-span-2">
+                  <Label htmlFor="sell-chicken-product">Product</Label>
                   <Select value={selectedProductId} onValueChange={setSelectedProductId}>
-                    <SelectTrigger>
+                    <SelectTrigger
+                      id="sell-chicken-product"
+                      className="h-10 w-full bg-background md:h-10"
+                    >
                       <SelectValue placeholder="Select chicken product" />
                     </SelectTrigger>
                     <SelectContent>
@@ -340,9 +350,9 @@ export function SellChickenPageClient() {
                   </Select>
                 </div>
 
-                <div>
+                <div className="space-y-2">
                   <Label>Available / Price</Label>
-                  <div className="rounded-md border px-3 py-2 text-sm">
+                  <div className="grid min-h-10 content-center gap-1 rounded-lg border border-input bg-background px-3 py-2 text-sm shadow-[inset_0_1px_0_color-mix(in_oklch,var(--background)_62%,transparent)]">
                     {selectedProduct ? (
                       <>
                         <div className="font-semibold">
@@ -361,17 +371,19 @@ export function SellChickenPageClient() {
                   </div>
                 </div>
 
-                <div>
-                  <Label>Packs to Sell</Label>
+                <div className="space-y-2">
+                  <Label htmlFor="sell-chicken-packs">Packs to Sell</Label>
                   <div className="flex gap-2">
                     <Input
+                      id="sell-chicken-packs"
                       type="number"
                       min="0"
                       step="1"
                       value={packs}
                       onChange={(event) => setPacks(event.target.value)}
+                      className="h-10 bg-background md:h-10"
                     />
-                    <Button type="button" onClick={addToCart}>
+                    <Button type="button" onClick={addToCart} className="h-10 md:h-10">
                       <ShoppingCart className="mr-2 h-4 w-4" />
                       Add
                     </Button>
@@ -379,7 +391,7 @@ export function SellChickenPageClient() {
                 </div>
               </div>
 
-              <div className="overflow-x-auto rounded-md border">
+              <div className="overflow-x-auto rounded-2xl border border-border bg-card">
                 <Table>
                   <TableHeader>
                     <TableRow>
@@ -435,12 +447,21 @@ export function SellChickenPageClient() {
                 </Table>
               </div>
 
-              <div className="flex items-center justify-between rounded-lg bg-slate-50 p-4">
+              <div className="flex flex-col gap-3 rounded-2xl border border-emerald-200 bg-emerald-50/70 p-4 sm:flex-row sm:items-center sm:justify-between">
                 <div>
-                  <p className="text-sm text-muted-foreground">Grand Total</p>
-                  <p className="text-2xl font-bold">{formatPeso(grandTotal)}</p>
+                  <p className="text-xs font-bold tracking-wide text-emerald-700 uppercase">
+                    Grand Total
+                  </p>
+                  <p className="tabular-value text-2xl font-black text-emerald-700">
+                    {formatPeso(grandTotal)}
+                  </p>
                 </div>
-                <Button type="button" onClick={submitSale} disabled={isSaving || cart.length === 0}>
+                <Button
+                  type="button"
+                  onClick={submitSale}
+                  disabled={isSaving || cart.length === 0}
+                  className="h-10 bg-emerald-600 hover:bg-emerald-700 sm:min-w-36 md:h-10"
+                >
                   {isSaving ? (
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                   ) : (

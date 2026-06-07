@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import dbConnect from "@/lib/mongodb";
 import { requireApiAuth } from "@/lib/require-auth";
 import { cleanString, escapeRegex } from "@/lib/crud-utils";
+import { setDateRangeFilter } from "@/lib/date-range";
 import BodegaProductModel from "@/models/BodegaProduct";
 import BodegaStockTransactionModel from "@/models/BodegaStockTransaction";
 import StandardPackingModel from "@/models/StandardPacking";
@@ -81,15 +82,7 @@ export async function GET(req: NextRequest) {
     bodegaProductId: { $in: productIds },
   };
 
-  if (dateFrom || dateTo) {
-    transactionFilter.createdAt = {};
-    if (dateFrom) {
-      transactionFilter.createdAt.$gte = new Date(`${dateFrom}T00:00:00.000Z`);
-    }
-    if (dateTo) {
-      transactionFilter.createdAt.$lte = new Date(`${dateTo}T23:59:59.999Z`);
-    }
-  }
+  setDateRangeFilter(transactionFilter, "createdAt", dateFrom, dateTo);
 
   const [transactions, standardPackings] = await Promise.all([
     BodegaStockTransactionModel.find(transactionFilter)

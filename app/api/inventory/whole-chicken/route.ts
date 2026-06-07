@@ -5,6 +5,7 @@ import type { QueryFilter } from "mongoose";
 import dbConnect from "@/lib/mongodb";
 import { requireApiAuth } from "@/lib/require-auth";
 import { cleanString, escapeRegex } from "@/lib/crud-utils";
+import { setDateRangeFilter } from "@/lib/date-range";
 import ProductModel, { IProduct } from "@/models/Product";
 import InventoryTransactionModel from "@/models/InventoryTransaction";
 
@@ -55,17 +56,7 @@ export async function GET(req: NextRequest) {
       productId: product._id,
     };
 
-    if (dateFrom || dateTo) {
-      transactionFilter.createdAt = {};
-
-      if (dateFrom) {
-        transactionFilter.createdAt.$gte = new Date(`${dateFrom}T00:00:00.000Z`);
-      }
-
-      if (dateTo) {
-        transactionFilter.createdAt.$lte = new Date(`${dateTo}T23:59:59.999Z`);
-      }
-    }
+    setDateRangeFilter(transactionFilter, "createdAt", dateFrom, dateTo);
 
     const transactions = await InventoryTransactionModel.find(transactionFilter)
       .sort({ createdAt: -1 })

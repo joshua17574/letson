@@ -257,11 +257,11 @@ export function SalesHistoryPageClient() {
         </h1>
 
         <div className="flex flex-wrap gap-2">
-          <span className="rounded-md bg-blue-600 px-3 py-2 text-sm font-bold text-white">
+          <span className="tone-brand rounded-md px-3 py-2 text-sm font-bold">
             Rows: {summary.rows.toLocaleString()}
           </span>
 
-          <span className="rounded-md bg-emerald-700 px-3 py-2 text-sm font-bold text-white">
+          <span className="tone-success rounded-md px-3 py-2 text-sm font-bold">
             Filtered Total: {formatPeso(summary.filteredTotal)}
           </span>
 

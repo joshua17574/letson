@@ -302,8 +302,8 @@ export function MasterDataPage({
         </h1>
       </div>
 
-      <div className="flex flex-col gap-3 rounded-xl border bg-white p-4 shadow-sm lg:flex-row lg:items-end">
-        <div className="w-full lg:max-w-md">
+      <div className="grid gap-3 rounded-xl border bg-card p-4 shadow-sm sm:p-5 md:grid-cols-[minmax(0,1.4fr)_minmax(8rem,0.45fr)_minmax(12rem,0.7fr)] md:items-end">
+        <div className="min-w-0 space-y-1.5">
           <Label>Filter by Name</Label>
           <Input
             value={draftSearch}
@@ -317,7 +317,7 @@ export function MasterDataPage({
           />
         </div>
 
-        <div className="w-full lg:w-36">
+        <div className="min-w-0 space-y-1.5">
           <Label>Show entries</Label>
           <Select
             value={limit}
@@ -326,7 +326,7 @@ export function MasterDataPage({
               setPage(1);
             }}
           >
-            <SelectTrigger>
+            <SelectTrigger className="w-full">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -338,13 +338,13 @@ export function MasterDataPage({
           </Select>
         </div>
 
-        <div className="flex gap-2">
-          <Button onClick={applySearch}>
+        <div className="flex min-w-0 items-end gap-2">
+          <Button onClick={applySearch} className="flex-1">
             <Search className="mr-2 h-4 w-4" />
             Search
           </Button>
 
-          <Button variant="outline" onClick={resetSearch}>
+          <Button variant="outline" onClick={resetSearch} className="shrink-0">
             <RefreshCcw className="mr-2 h-4 w-4" />
             Reset
           </Button>

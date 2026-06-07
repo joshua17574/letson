@@ -9,6 +9,7 @@ import {
   escapeRegex,
   getPagination,
 } from "@/lib/crud-utils";
+import { setDateRangeFilter } from "@/lib/date-range";
 import BodegaProductModel from "@/models/BodegaProduct";
 import BodegaStockTransactionModel from "@/models/BodegaStockTransaction";
 import CategoryModel from "@/models/Category";
@@ -144,6 +145,7 @@ export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
   const { page, limit, skip } = getPagination(searchParams);
   const source = cleanString(searchParams.get("source")).toUpperCase();
+  const customerId = cleanString(searchParams.get("customerId"));
   const customer = cleanString(searchParams.get("customer"));
   const receiptNumber = cleanString(searchParams.get("receiptNumber"));
   const dateFrom = cleanString(searchParams.get("dateFrom"));
@@ -169,19 +171,11 @@ export async function GET(req: NextRequest) {
     filter.status = status;
   }
 
-  if (dateFrom || dateTo) {
-    filter.saleDate = {};
+  setDateRangeFilter(filter, "saleDate", dateFrom, dateTo);
 
-    if (dateFrom) {
-      filter.saleDate.$gte = new Date(`${dateFrom}T00:00:00.000Z`);
-    }
-
-    if (dateTo) {
-      filter.saleDate.$lte = new Date(`${dateTo}T23:59:59.999Z`);
-    }
-  }
-
-  if (customer) {
+  if (customerId && customerId !== "ALL" && isValidObjectId(customerId)) {
+    filter.customerId = customerId;
+  } else if (customer) {
     const customers = await CustomerModel.find({
       isActive: true,
       name: {

@@ -1,7 +1,12 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  /* config options here */
+  turbopack: {
+    root: process.cwd(),
+  },
+  experimental: {
+    optimizePackageImports: ["radix-ui"],
+  },
 };
 
 export default nextConfig;

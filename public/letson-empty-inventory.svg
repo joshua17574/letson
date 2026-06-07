@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 180" role="img" aria-label="Inventory shelves illustration">
+  <rect x="62" y="42" width="196" height="112" rx="14" fill="#f7f7f7"/>
+  <path d="M76 68h168M76 106h168M90 154V50M230 154V50" fill="none" stroke="#1f1f1f" stroke-width="2" stroke-linecap="round" opacity=".72"/>
+  <path d="M100 74h34v24h-34zM148 74h42v24h-42zM202 74h24v24h-24zM104 112h52v24h-52zM170 112h32v24h-32z" fill="none" stroke="#1f1f1f" stroke-width="2" stroke-linejoin="round" opacity=".64"/>
+  <path d="M118 86h14M160 86h26M112 124h40M178 124h18" fill="none" stroke="#1f1f1f" stroke-width="1.5" stroke-linecap="round" opacity=".32"/>
+  <path d="M52 154h216" fill="none" stroke="#1f1f1f" stroke-width="2" stroke-linecap="round" opacity=".2"/>
+</svg>

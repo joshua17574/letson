@@ -309,12 +309,14 @@ export function DeliveriesPageClient() {
   }
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     void loadSuppliers();
     void loadCategories();
     void loadProducts();
   }, []);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     void loadDeliveries();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [page, limit, appliedFilters]);
@@ -636,8 +638,8 @@ export function DeliveriesPageClient() {
         Deliveries List
       </h1>
 
-      <div className="grid gap-3 rounded-xl border bg-white p-4 shadow-sm md:grid-cols-2 xl:grid-cols-6">
-        <div>
+      <div className="grid gap-3 rounded-xl border bg-card p-4 shadow-sm sm:p-5 md:grid-cols-2 xl:grid-cols-[minmax(8.5rem,0.85fr)_minmax(8.5rem,0.85fr)_minmax(10rem,1fr)_minmax(10rem,1fr)_minmax(7rem,0.65fr)_minmax(12rem,0.95fr)] xl:items-end">
+        <div className="min-w-0 space-y-1.5">
           <Label>Date From</Label>
           <Input
             type="date"
@@ -646,7 +648,7 @@ export function DeliveriesPageClient() {
           />
         </div>
 
-        <div>
+        <div className="min-w-0 space-y-1.5">
           <Label>Date To</Label>
           <Input
             type="date"
@@ -655,7 +657,7 @@ export function DeliveriesPageClient() {
           />
         </div>
 
-        <div>
+        <div className="min-w-0 space-y-1.5">
           <Label>Code Number</Label>
           <Input
             value={deliveryCode}
@@ -664,7 +666,7 @@ export function DeliveriesPageClient() {
           />
         </div>
 
-        <div>
+        <div className="min-w-0 space-y-1.5">
           <Label>Receipt Number</Label>
           <Input
             value={receiptNumber}
@@ -673,7 +675,7 @@ export function DeliveriesPageClient() {
           />
         </div>
 
-        <div>
+        <div className="min-w-0 space-y-1.5">
           <Label>Show</Label>
           <Select
             value={limit}
@@ -682,7 +684,7 @@ export function DeliveriesPageClient() {
               setPage(1);
             }}
           >
-            <SelectTrigger>
+            <SelectTrigger className="w-full">
               <SelectValue />
             </SelectTrigger>
 
@@ -695,13 +697,13 @@ export function DeliveriesPageClient() {
           </Select>
         </div>
 
-        <div className="flex items-end gap-2">
-          <Button onClick={applyFilters}>
+        <div className="flex min-w-0 items-end gap-2 md:col-span-2 xl:col-span-1">
+          <Button onClick={applyFilters} className="flex-1">
             <Search className="mr-2 h-4 w-4" />
             Filter
           </Button>
 
-          <Button variant="outline" onClick={resetFilters}>
+          <Button variant="outline" onClick={resetFilters} className="shrink-0">
             <RefreshCcw className="mr-2 h-4 w-4" />
             Reset
           </Button>

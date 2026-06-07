@@ -197,44 +197,71 @@ export function BodegaStockMovementPageClient() {
         </Button>
       </div>
 
-      <Card>
-        <CardContent className="grid gap-4 p-5 md:grid-cols-4">
-          <div>
-            <Label>Search Product</Label>
+      <Card className="surface-panel rounded-2xl">
+        <CardContent className="grid gap-4 p-4 sm:grid-cols-2 sm:p-5 lg:grid-cols-[minmax(240px,1.5fr)_minmax(160px,1fr)_minmax(160px,1fr)_minmax(220px,auto)] lg:items-end">
+          <div className="space-y-2">
+            <Label
+              htmlFor="bodega-stock-search"
+              className="text-xs font-bold tracking-wide text-muted-foreground uppercase"
+            >
+              Search Product
+            </Label>
             <Input
+              id="bodega-stock-search"
               value={search}
               onChange={(event) => setSearch(event.target.value)}
               placeholder="e.g. C10, OS1, SUPOT #1"
+              className="h-10 bg-background md:h-10"
               onKeyDown={(event) => {
                 if (event.key === "Enter") applyFilters();
               }}
             />
           </div>
 
-          <div>
-            <Label>Start Date</Label>
+          <div className="space-y-2">
+            <Label
+              htmlFor="bodega-stock-date-from"
+              className="text-xs font-bold tracking-wide text-muted-foreground uppercase"
+            >
+              Start Date
+            </Label>
             <Input
+              id="bodega-stock-date-from"
               type="date"
               value={dateFrom}
               onChange={(event) => setDateFrom(event.target.value)}
+              className="h-10 bg-background md:h-10"
             />
           </div>
 
-          <div>
-            <Label>End Date</Label>
+          <div className="space-y-2">
+            <Label
+              htmlFor="bodega-stock-date-to"
+              className="text-xs font-bold tracking-wide text-muted-foreground uppercase"
+            >
+              End Date
+            </Label>
             <Input
+              id="bodega-stock-date-to"
               type="date"
               value={dateTo}
               onChange={(event) => setDateTo(event.target.value)}
+              className="h-10 bg-background md:h-10"
             />
           </div>
 
-          <div className="flex items-end gap-2">
-            <Button onClick={applyFilters} className="flex-1">
+          <div className="grid grid-cols-[1fr_auto] gap-2 sm:col-span-2 lg:col-span-1">
+            <Button type="button" onClick={applyFilters} className="h-10 md:h-10">
               <Search className="mr-2 h-4 w-4" />
               Filter
             </Button>
-            <Button variant="secondary" onClick={resetFilters}>
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={resetFilters}
+              className="h-10 px-3 md:h-10"
+            >
+              <RefreshCcw className="mr-2 h-4 w-4" />
               Reset
             </Button>
           </div>

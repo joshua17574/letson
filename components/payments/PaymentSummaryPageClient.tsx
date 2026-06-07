@@ -91,6 +91,7 @@ export function PaymentSummaryPageClient() {
   }
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     void loadSummary();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [group, appliedSearch]);
@@ -172,24 +173,24 @@ export function PaymentSummaryPageClient() {
         <CardContent className="p-4">
           <div className="overflow-x-auto rounded-lg border">
             <Table>
-              <TableHeader className="bg-blue-100">
-                <TableRow>
-                  <TableHead className="text-center font-bold text-slate-900">
+              <TableHeader className="bg-black">
+                <TableRow className="border-b border-black bg-black hover:bg-black">
+                  <TableHead className="text-center font-bold text-white">
                     Customer
                   </TableHead>
-                  <TableHead className="text-center font-bold text-slate-900">
+                  <TableHead className="text-center font-bold text-white">
                     Sales (₱)
                   </TableHead>
-                  <TableHead className="text-center font-bold text-slate-900">
+                  <TableHead className="text-center font-bold text-white">
                     Paid (₱)
                   </TableHead>
-                  <TableHead className="text-center font-bold text-slate-900">
+                  <TableHead className="text-center font-bold text-white">
                     Balance (₱)
                   </TableHead>
-                  <TableHead className="text-center font-bold text-slate-900">
+                  <TableHead className="text-center font-bold text-white">
                     Packs
                   </TableHead>
-                  <TableHead className="text-center font-bold text-slate-900">
+                  <TableHead className="text-center font-bold text-white">
                     Action
                   </TableHead>
                 </TableRow>

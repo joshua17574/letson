@@ -5,6 +5,7 @@ import { isValidObjectId, Types } from "mongoose";
 import dbConnect from "@/lib/mongodb";
 import { requireApiAuth } from "@/lib/require-auth";
 import { cleanString } from "@/lib/crud-utils";
+import { buildDateRangeFilter } from "@/lib/date-range";
 import CustomerModel from "@/models/Customer";
 import PaymentModel from "@/models/Payment";
 import SaleModel from "@/models/Sale";
@@ -16,21 +17,7 @@ function notVoidedFilter() {
 }
 
 function getDateFilter(dateField: string, dateFrom: string, dateTo: string) {
-  const filter: Record<string, any> = {};
-
-  if (dateFrom || dateTo) {
-    filter[dateField] = {};
-
-    if (dateFrom) {
-      filter[dateField].$gte = new Date(`${dateFrom}T00:00:00.000Z`);
-    }
-
-    if (dateTo) {
-      filter[dateField].$lte = new Date(`${dateTo}T23:59:59.999Z`);
-    }
-  }
-
-  return filter;
+  return buildDateRangeFilter(dateField, dateFrom, dateTo);
 }
 
 function getPaymentAmount(payment: any) {

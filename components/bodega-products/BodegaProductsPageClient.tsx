@@ -203,10 +203,12 @@ export function BodegaProductsPageClient() {
   }
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     void loadCategories();
   }, []);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     void loadProducts();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [page, limit, search, categoryId]);
@@ -368,8 +370,8 @@ export function BodegaProductsPageClient() {
       </div>
 
       <Card>
-        <CardContent className="grid gap-4 p-5 md:grid-cols-4">
-          <div>
+        <CardContent className="grid gap-3 p-4 sm:p-5 md:grid-cols-[minmax(0,1.25fr)_minmax(0,1fr)_minmax(8rem,0.65fr)_minmax(12rem,0.9fr)] md:items-end">
+          <div className="min-w-0 space-y-1.5">
             <Label>Search Product</Label>
             <Input
               value={draftSearch}
@@ -381,7 +383,7 @@ export function BodegaProductsPageClient() {
             />
           </div>
 
-          <div>
+          <div className="min-w-0 space-y-1.5">
             <Label>Category</Label>
             <Select
               value={categoryId}
@@ -390,7 +392,7 @@ export function BodegaProductsPageClient() {
                 setPage(1);
               }}
             >
-              <SelectTrigger>
+              <SelectTrigger className="w-full">
                 <SelectValue placeholder="All" />
               </SelectTrigger>
               <SelectContent>
@@ -404,7 +406,7 @@ export function BodegaProductsPageClient() {
             </Select>
           </div>
 
-          <div>
+          <div className="min-w-0 space-y-1.5">
             <Label>Show entries</Label>
             <Select
               value={limit}
@@ -413,7 +415,7 @@ export function BodegaProductsPageClient() {
                 setPage(1);
               }}
             >
-              <SelectTrigger>
+              <SelectTrigger className="w-full">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -425,12 +427,12 @@ export function BodegaProductsPageClient() {
             </Select>
           </div>
 
-          <div className="flex items-end gap-2">
+          <div className="flex min-w-0 items-end gap-2">
             <Button onClick={applySearch} className="flex-1">
               <Search className="mr-2 h-4 w-4" />
               Search
             </Button>
-            <Button variant="secondary" onClick={resetFilters}>
+            <Button variant="secondary" onClick={resetFilters} className="shrink-0">
               <RefreshCcw className="mr-2 h-4 w-4" />
               Reset
             </Button>
@@ -450,14 +452,22 @@ export function BodegaProductsPageClient() {
           <div className="overflow-x-auto rounded-md border">
             <Table>
               <TableHeader>
-                <TableRow>
-                  <TableHead>Product Name</TableHead>
-                  <TableHead>Category</TableHead>
-                  <TableHead className="text-right">Stock Summary</TableHead>
-                  <TableHead className="text-right">Buying Price</TableHead>
-                  <TableHead className="text-right">Price / PCS</TableHead>
-                  <TableHead className="text-right">Price / Pack</TableHead>
-                  <TableHead className="text-center">Action</TableHead>
+                <TableRow className="bg-black hover:bg-black">
+                  <TableHead className="text-white">Product Name</TableHead>
+                  <TableHead className="text-white">Category</TableHead>
+                  <TableHead className="text-right text-white">
+                    Stock Summary
+                  </TableHead>
+                  <TableHead className="text-right text-white">
+                    Buying Price
+                  </TableHead>
+                  <TableHead className="text-right text-white">
+                    Price / PCS
+                  </TableHead>
+                  <TableHead className="text-right text-white">
+                    Price / Pack
+                  </TableHead>
+                  <TableHead className="text-center text-white">Action</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>

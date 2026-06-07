@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 240" aria-hidden="true">
+  <defs>
+    <pattern id="dot" width="16" height="16" patternUnits="userSpaceOnUse">
+      <circle cx="2" cy="2" r="1" fill="#1f1f1f" opacity=".16"/>
+    </pattern>
+    <pattern id="line" width="80" height="80" patternUnits="userSpaceOnUse">
+      <path d="M0 20c30 0 30 40 80 40M0 60c42 0 38-40 80-40" fill="none" stroke="#1f1f1f" stroke-width="1" opacity=".12"/>
+    </pattern>
+  </defs>
+  <rect width="240" height="240" fill="url(#dot)"/>
+  <rect width="240" height="240" fill="url(#line)"/>
+</svg>

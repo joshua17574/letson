@@ -29,6 +29,14 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
+.next-dev*.log
+
+# local browser/test artifacts
+.playwright-mcp/
+test-results/
+output/
+dashboard-*.png
+products-mobile.png
 
 # env files (can opt-in for committing if needed)
 .env*

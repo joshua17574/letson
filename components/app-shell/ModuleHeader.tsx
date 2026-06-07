@@ -9,18 +9,24 @@ type Props = {
 
 export function ModuleHeader({ title, description, actions }: Props) {
   return (
-    <div className="mb-6 flex flex-col justify-between gap-4 border-b border-slate-200 pb-5 lg:flex-row lg:items-center">
-      <div>
-        <h1 className="text-3xl font-black tracking-tight text-slate-950">
+    <div className="mb-4 flex min-w-0 flex-col justify-between gap-4 border-b border-border pb-4 sm:mb-6 sm:pb-5 lg:flex-row lg:items-center">
+      <div className="min-w-0">
+        <h1 className="text-2xl font-black tracking-tight text-foreground sm:text-3xl">
           {title}
         </h1>
 
         {description ? (
-          <p className="mt-1 text-sm text-slate-500">{description}</p>
+          <p className="mt-1 max-w-3xl text-sm text-muted-foreground">
+            {description}
+          </p>
         ) : null}
       </div>
 
-      {actions ? <div className="flex flex-wrap gap-2">{actions}</div> : null}
+      {actions ? (
+        <div className="flex w-full flex-wrap gap-2 sm:w-auto sm:justify-end">
+          {actions}
+        </div>
+      ) : null}
     </div>
   );
 }

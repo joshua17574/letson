@@ -3,17 +3,28 @@
 
 import { useEffect, useState } from "react";
 import {
+  Ban,
+  Boxes,
+  BriefcaseBusiness,
+  ChevronLeft,
+  ChevronRight,
+  Coins,
+  KeyRound,
+  LockKeyhole,
   Loader2,
   Pencil,
   Plus,
   RefreshCcw,
   Search,
   ShieldCheck,
-  Trash2,
+  Store,
+  UserRoundCog,
+  type LucideIcon,
 } from "lucide-react";
 import { toast } from "sonner";
 
 import { ModuleHeader } from "@/components/app-shell/ModuleHeader";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -37,6 +48,7 @@ import {
 } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
 import { ROLE_PERMISSION_GROUPS } from "@/lib/role-permissions";
+import { cn } from "@/lib/utils";
 
 type RoleRow = {
   _id: string;
@@ -59,6 +71,106 @@ const emptyForm = {
   description: "",
   permissions: [] as string[],
 };
+
+type RoleVisual = {
+  icon: LucideIcon;
+  label: string;
+  markClassName: string;
+};
+
+const defaultRoleVisual: RoleVisual = {
+  icon: UserRoundCog,
+  label: "Custom role",
+  markClassName:
+    "border-stone-200 bg-stone-50 text-stone-700 dark:border-stone-800 dark:bg-stone-950/35 dark:text-stone-300",
+};
+
+const roleVisuals: { keywords: string[]; visual: RoleVisual }[] = [
+  {
+    keywords: ["admin", "administrator", "owner", "super"],
+    visual: {
+      icon: ShieldCheck,
+      label: "Administrator",
+      markClassName:
+        "border-red-200 bg-red-50 text-red-700 dark:border-red-900/60 dark:bg-red-950/35 dark:text-red-300",
+    },
+  },
+  {
+    keywords: ["cashier", "payment", "sales"],
+    visual: {
+      icon: Coins,
+      label: "Cashier",
+      markClassName:
+        "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900/60 dark:bg-emerald-950/35 dark:text-emerald-300",
+    },
+  },
+  {
+    keywords: ["inventory", "stock", "product", "warehouse"],
+    visual: {
+      icon: Boxes,
+      label: "Inventory",
+      markClassName:
+        "border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-900/60 dark:bg-amber-950/35 dark:text-amber-300",
+    },
+  },
+  {
+    keywords: ["manager", "supervisor", "lead"],
+    visual: {
+      icon: BriefcaseBusiness,
+      label: "Manager",
+      markClassName:
+        "border-blue-200 bg-blue-50 text-blue-700 dark:border-blue-900/60 dark:bg-blue-950/35 dark:text-blue-300",
+    },
+  },
+  {
+    keywords: ["store", "branch", "staff"],
+    visual: {
+      icon: Store,
+      label: "Store staff",
+      markClassName:
+        "border-orange-200 bg-orange-50 text-orange-700 dark:border-orange-900/60 dark:bg-orange-950/35 dark:text-orange-300",
+    },
+  },
+];
+
+function getRoleVisual(roleName: string) {
+  const normalized = roleName.toLowerCase();
+
+  return (
+    roleVisuals.find(({ keywords }) =>
+      keywords.some((keyword) => normalized.includes(keyword))
+    )?.visual || defaultRoleVisual
+  );
+}
+
+function getRoleAccessLabel(role: RoleRow) {
+  if (role.isSystem) return "Protected role";
+  if (role.permissionCount >= 20) return "Broad access";
+  if (role.permissionCount > 0) return "Scoped access";
+  return "No permissions";
+}
+
+function formatPermissionCount(count: number) {
+  return `${count.toLocaleString()} ${count === 1 ? "permission" : "permissions"}`;
+}
+
+function RoleMark({ role }: { role: RoleRow }) {
+  const visual = getRoleVisual(role.name);
+  const Icon = visual.icon;
+
+  return (
+    <span
+      aria-label={`${visual.label} icon`}
+      className={cn(
+        "relative grid size-11 shrink-0 place-items-center overflow-hidden rounded-2xl border shadow-sm",
+        visual.markClassName
+      )}
+      title={visual.label}
+    >
+      <Icon className="relative z-10 size-5" strokeWidth={2.3} />
+    </span>
+  );
+}
 
 export function RolesPageClient() {
   const [roles, setRoles] = useState<RoleRow[]>([]);
@@ -124,6 +236,7 @@ export function RolesPageClient() {
   }
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     void loadRoles();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [page, appliedSearch]);
@@ -262,127 +375,239 @@ export function RolesPageClient() {
       />
 
       <Card className="rounded-2xl border-slate-200 shadow-sm">
-        <CardContent className="flex flex-col gap-3 p-5 md:flex-row">
-          <Input
-            value={search}
-            onChange={(event) => setSearch(event.target.value)}
-            placeholder="Search role..."
-            onKeyDown={(event) => {
-              if (event.key === "Enter") applySearch();
-            }}
-          />
+        <CardContent className="flex flex-col gap-3 p-5 md:flex-row md:items-center">
+          <div className="relative flex-1">
+            <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              className="pl-9 md:pl-9"
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              placeholder="Search role..."
+              onKeyDown={(event) => {
+                if (event.key === "Enter") applySearch();
+              }}
+            />
+          </div>
 
-          <Button onClick={applySearch}>
-            <Search className="mr-2 h-4 w-4" />
-            Search
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            <Button onClick={applySearch}>
+              <Search className="mr-2 h-4 w-4" />
+              Search
+            </Button>
 
-          <Button variant="secondary" onClick={resetSearch}>
-            <RefreshCcw className="mr-2 h-4 w-4" />
-            Reset
-          </Button>
+            <Button variant="secondary" onClick={resetSearch}>
+              <RefreshCcw className="mr-2 h-4 w-4" />
+              Reset
+            </Button>
+          </div>
         </CardContent>
       </Card>
 
-      <Card className="rounded-2xl border-slate-200 shadow-sm">
-        <CardContent className="p-5">
-          <div className="overflow-hidden rounded-2xl border border-slate-200">
-            <Table>
-              <TableHeader className="bg-slate-950">
-                <TableRow>
-                  <TableHead className="text-white">Role</TableHead>
-                  <TableHead className="text-white">Description</TableHead>
-                  <TableHead className="text-center text-white">
-                    Permissions
-                  </TableHead>
-                  <TableHead className="text-center text-white">
-                    Type
-                  </TableHead>
-                  <TableHead className="text-center text-white">
-                    Action
-                  </TableHead>
-                </TableRow>
-              </TableHeader>
+      <Card className="overflow-hidden rounded-2xl border-slate-200 shadow-sm">
+        <CardContent className="p-0">
+          <div className="flex flex-col gap-3 border-b border-slate-200 bg-[linear-gradient(135deg,oklch(0.99_0.01_58),oklch(0.965_0.024_55))] p-5 md:flex-row md:items-center md:justify-between dark:border-border dark:bg-none">
+            <div>
+              <p className="text-xs font-bold uppercase tracking-wide text-primary">
+                Access Matrix
+              </p>
+              <h2 className="text-lg font-black text-foreground">
+                Role permissions
+              </h2>
+            </div>
 
-              <TableBody>
-                {isLoading ? (
-                  <TableRow>
-                    <TableCell colSpan={5} className="h-32 text-center">
-                      <Loader2 className="mx-auto h-5 w-5 animate-spin" />
-                    </TableCell>
-                  </TableRow>
-                ) : roles.length === 0 ? (
-                  <TableRow>
-                    <TableCell
-                      colSpan={5}
-                      className="h-32 text-center text-muted-foreground"
-                    >
-                      No roles found.
-                    </TableCell>
-                  </TableRow>
-                ) : (
-                  roles.map((role) => (
-                    <TableRow key={role._id}>
-                      <TableCell className="font-bold">{role.name}</TableCell>
-                      <TableCell>{role.description || "—"}</TableCell>
-                      <TableCell className="text-center">
-                        {role.permissionCount}
-                      </TableCell>
-                      <TableCell className="text-center">
-                        {role.isSystem ? "System" : "Custom"}
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex justify-center gap-2">
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => openEditDialog(role)}
-                            disabled={role.isSystem}
-                          >
-                            <Pencil className="mr-1 h-4 w-4" />
-                            Edit
-                          </Button>
+            <div className="flex flex-wrap gap-2">
+              <Badge
+                variant="outline"
+                className="h-7 gap-1.5 rounded-full border-slate-200 bg-white/70 px-3 text-slate-700 dark:border-border dark:bg-background/50 dark:text-foreground"
+              >
+                <ShieldCheck className="size-3.5" />
+                {meta.total.toLocaleString()} roles
+              </Badge>
 
-                          <Button
-                            size="sm"
-                            variant="destructive"
-                            onClick={() => disableRole(role)}
-                            disabled={role.isSystem}
-                          >
-                            <Trash2 className="mr-1 h-4 w-4" />
-                            Disable
-                          </Button>
+              <Badge
+                variant="outline"
+                className="h-7 gap-1.5 rounded-full border-slate-200 bg-white/70 px-3 text-slate-700 dark:border-border dark:bg-background/50 dark:text-foreground"
+              >
+                <KeyRound className="size-3.5" />
+                Permission sets
+              </Badge>
+            </div>
+          </div>
+
+          <div className="p-5">
+            <div className="overflow-hidden rounded-2xl border border-slate-200">
+              <Table className="min-w-[820px]">
+                <TableHeader className="bg-slate-950">
+                  <TableRow>
+                    <TableHead className="py-3 text-center text-white">
+                      Role
+                    </TableHead>
+                    <TableHead className="py-3 text-white">
+                      Description
+                    </TableHead>
+                    <TableHead className="py-3 text-center text-white">
+                      Permissions
+                    </TableHead>
+                    <TableHead className="py-3 text-center text-white">
+                      Type
+                    </TableHead>
+                    <TableHead className="py-3 text-center text-white">
+                      Action
+                    </TableHead>
+                  </TableRow>
+                </TableHeader>
+
+                <TableBody>
+                  {isLoading ? (
+                    <TableRow>
+                      <TableCell colSpan={5} className="h-32 text-center">
+                        <div className="flex flex-col items-center gap-3 text-muted-foreground">
+                          <Loader2 className="h-6 w-6 animate-spin" />
+                          <span className="text-sm">Loading roles...</span>
                         </div>
                       </TableCell>
                     </TableRow>
-                  ))
-                )}
-              </TableBody>
-            </Table>
-          </div>
+                  ) : roles.length === 0 ? (
+                    <TableRow>
+                      <TableCell
+                        colSpan={5}
+                        className="h-32 text-center text-muted-foreground"
+                      >
+                        <div className="flex flex-col items-center gap-3">
+                          <span className="grid size-12 place-items-center rounded-2xl border border-dashed border-slate-300 bg-slate-50 text-slate-500">
+                            <ShieldCheck className="size-5" />
+                          </span>
+                          <span className="font-medium text-foreground">
+                            No roles found.
+                          </span>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  ) : (
+                    roles.map((role) => (
+                      <TableRow key={role._id} className="group">
+                        <TableCell className="min-w-[225px] py-3">
+                          <div className="flex items-center gap-3">
+                            <RoleMark role={role} />
 
-          <div className="mt-4 flex items-center justify-end gap-2">
-            <Button
-              variant="outline"
-              disabled={page <= 1 || isLoading}
-              onClick={() => setPage((current) => Math.max(current - 1, 1))}
-            >
-              Previous
-            </Button>
+                            <div className="min-w-0">
+                              <div className="flex flex-wrap items-center gap-2">
+                                <span className="font-black tracking-wide text-slate-950 dark:text-slate-50">
+                                  {role.name}
+                                </span>
+                              </div>
 
-            <span className="rounded-xl border px-3 py-2 text-sm text-slate-600">
-              Page {meta.page} of {meta.totalPages}
-            </span>
+                              <p className="mt-1 text-xs font-medium text-muted-foreground">
+                                {getRoleAccessLabel(role)}
+                              </p>
+                            </div>
+                          </div>
+                        </TableCell>
 
-            <Button
-              variant="outline"
-              disabled={page >= meta.totalPages || isLoading}
-              onClick={() =>
-                setPage((current) => Math.min(current + 1, meta.totalPages))
-              }
-            >
-              Next
-            </Button>
+                        <TableCell className="max-w-[280px] whitespace-normal py-3 leading-6 text-slate-600 dark:text-muted-foreground">
+                          {role.description || "No description provided."}
+                        </TableCell>
+
+                        <TableCell className="py-3 text-center">
+                          <Badge
+                            variant="outline"
+                            className="h-7 gap-1.5 rounded-full border-amber-200 bg-amber-50 px-3 font-semibold text-amber-800 dark:border-amber-900/60 dark:bg-amber-950/35 dark:text-amber-300"
+                          >
+                            <KeyRound className="size-3.5" />
+                            {formatPermissionCount(role.permissionCount)}
+                          </Badge>
+                        </TableCell>
+
+                        <TableCell className="py-3 text-center">
+                          <Badge
+                            variant="outline"
+                            className={cn(
+                              "h-7 gap-1.5 rounded-full px-3 font-semibold",
+                              role.isSystem
+                                ? "border-red-200 bg-red-50 text-red-700 dark:border-red-900/60 dark:bg-red-950/35 dark:text-red-300"
+                                : "border-stone-200 bg-stone-50 text-stone-700 dark:border-stone-800 dark:bg-stone-950/35 dark:text-stone-300"
+                            )}
+                          >
+                            {role.isSystem ? (
+                              <ShieldCheck className="size-3.5" />
+                            ) : (
+                              <UserRoundCog className="size-3.5" />
+                            )}
+                            {role.isSystem ? "System" : "Custom"}
+                          </Badge>
+                        </TableCell>
+
+                        <TableCell className="py-3">
+                          <div className="flex justify-center gap-2">
+                            {role.isSystem ? (
+                              <Badge
+                                variant="outline"
+                                className="h-7 gap-1.5 rounded-full border-slate-200 bg-slate-50 px-3 font-semibold text-slate-600 dark:border-border dark:bg-muted/30 dark:text-muted-foreground"
+                              >
+                                <LockKeyhole className="size-3.5" />
+                                Locked
+                              </Badge>
+                            ) : (
+                              <>
+                                <Button
+                                  aria-label={`Edit ${role.name}`}
+                                  title={`Edit ${role.name}`}
+                                  size="icon-sm"
+                                  variant="outline"
+                                  className="rounded-full"
+                                  onClick={() => openEditDialog(role)}
+                                >
+                                  <Pencil className="h-4 w-4" />
+                                </Button>
+
+                                <Button
+                                  aria-label={`Disable ${role.name}`}
+                                  title={`Disable ${role.name}`}
+                                  size="icon-sm"
+                                  variant="destructive"
+                                  className="rounded-full"
+                                  onClick={() => disableRole(role)}
+                                >
+                                  <Ban className="h-4 w-4" />
+                                </Button>
+                              </>
+                            )}
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    ))
+                  )}
+                </TableBody>
+              </Table>
+            </div>
+
+            <div className="mt-4 flex flex-wrap items-center justify-end gap-2">
+              <Button
+                variant="outline"
+                className="rounded-full"
+                disabled={page <= 1 || isLoading}
+                onClick={() => setPage((current) => Math.max(current - 1, 1))}
+              >
+                <ChevronLeft className="mr-1 h-4 w-4" />
+                Previous
+              </Button>
+
+              <span className="rounded-full border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-600 dark:border-border dark:bg-background dark:text-muted-foreground">
+                Page {meta.page} of {meta.totalPages}
+              </span>
+
+              <Button
+                variant="outline"
+                className="rounded-full"
+                disabled={page >= meta.totalPages || isLoading}
+                onClick={() =>
+                  setPage((current) => Math.min(current + 1, meta.totalPages))
+                }
+              >
+                Next
+                <ChevronRight className="ml-1 h-4 w-4" />
+              </Button>
+            </div>
           </div>
         </CardContent>
       </Card>

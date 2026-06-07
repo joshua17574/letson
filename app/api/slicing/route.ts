@@ -4,6 +4,7 @@ import mongoose, { isValidObjectId } from "mongoose";
 import dbConnect from "@/lib/mongodb";
 import { requireApiAuth } from "@/lib/require-auth";
 import { cleanNumber, cleanString, getPagination } from "@/lib/crud-utils";
+import { buildDateRangeFilter } from "@/lib/date-range";
 import BodegaProductModel from "@/models/BodegaProduct";
 import BodegaStockTransactionModel from "@/models/BodegaStockTransaction";
 import SlicingBatchModel from "@/models/SlicingBatch";
@@ -49,21 +50,7 @@ function serializeSlicingItem(item: any) {
 }
 
 function buildDateFilter(dateFrom: string, dateTo: string) {
-  const filter: Record<string, any> = {};
-
-  if (dateFrom || dateTo) {
-    filter.slicingDate = {};
-
-    if (dateFrom) {
-      filter.slicingDate.$gte = new Date(`${dateFrom}T00:00:00.000Z`);
-    }
-
-    if (dateTo) {
-      filter.slicingDate.$lte = new Date(`${dateTo}T23:59:59.999Z`);
-    }
-  }
-
-  return filter;
+  return buildDateRangeFilter("slicingDate", dateFrom, dateTo);
 }
 
 function toNumber(value: unknown) {

@@ -431,9 +431,15 @@ export function SaleGroceryPageClient() {
                 Add Product
               </Button>
 
-              <div className="flex flex-col items-end gap-3 rounded-2xl bg-slate-950 p-5 text-white">
-                <p className="text-sm text-white/70">Grand Total</p>
-                <p className="text-3xl font-black">{formatPeso(total)}</p>
+              <div className="rounded-2xl border border-emerald-200 bg-emerald-50/70 p-5 shadow-sm">
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                  <p className="text-xs font-bold tracking-wide text-emerald-700 uppercase">
+                    Grand Total
+                  </p>
+                  <p className="tabular-value text-3xl font-black tracking-tight text-emerald-700">
+                    {formatPeso(total)}
+                  </p>
+                </div>
               </div>
 
               <div className="flex justify-end">

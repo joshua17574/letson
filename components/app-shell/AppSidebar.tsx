@@ -10,16 +10,25 @@ import {
   ChevronLeft,
   ChevronRight,
   ChevronUp,
-  Flame,
+  X,
 } from "lucide-react";
 
+import { LetsonMark } from "@/components/brand/LetsonMark";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { appNavItems, AppNavItem } from "./nav-config";
 
 type Props = {
   collapsed: boolean;
+  mobileOpen: boolean;
+  onMobileClose: () => void;
   onToggle: () => void;
+};
+
+type SessionUserWithPermissions = {
+  permissions?: unknown;
+  role?: unknown;
+  roleName?: unknown;
 };
 
 function isRouteActive(pathname: string, href: string) {
@@ -97,20 +106,30 @@ function getActiveParentTitle(pathname: string, navItems: AppNavItem[]) {
   return activeParent?.title || null;
 }
 
-export function AppSidebar({ collapsed, onToggle }: Props) {
+export function AppSidebar({
+  collapsed,
+  mobileOpen,
+  onMobileClose,
+  onToggle,
+}: Props) {
   const pathname = usePathname();
   const { data: session, status } = useSession();
 
   const [openGroup, setOpenGroup] = useState<string | null>(null);
+  const effectiveCollapsed = collapsed && !mobileOpen;
+
+  const sessionUser = session?.user as SessionUserWithPermissions | undefined;
 
   const userPermissions = useMemo(() => {
-    return (((session?.user as any)?.permissions || []) as string[]).filter(
-      Boolean
-    );
-  }, [session]);
+    return Array.isArray(sessionUser?.permissions)
+      ? sessionUser.permissions.filter(
+          (permission): permission is string => typeof permission === "string"
+        )
+      : [];
+  }, [sessionUser]);
 
-  const legacyRole = String((session?.user as any)?.role || "").toUpperCase();
-  const roleName = String((session?.user as any)?.roleName || "").toUpperCase();
+  const legacyRole = String(sessionUser?.role || "").toUpperCase();
+  const roleName = String(sessionUser?.roleName || "").toUpperCase();
 
   const isAdmin = legacyRole === "ADMIN" || roleName === "ADMIN";
 
@@ -121,12 +140,17 @@ export function AppSidebar({ collapsed, onToggle }: Props) {
   }, [status, userPermissions, isAdmin]);
 
   useEffect(() => {
-    const activeParentTitle = getActiveParentTitle(pathname, visibleNavItems);
-    setOpenGroup(activeParentTitle);
+    const frame = requestAnimationFrame(() => {
+      const activeParentTitle = getActiveParentTitle(pathname, visibleNavItems);
+      setOpenGroup(activeParentTitle);
+    });
+
+    return () => cancelAnimationFrame(frame);
   }, [pathname, visibleNavItems]);
 
   function handleMainNavClick() {
     setOpenGroup(null);
+    onMobileClose();
   }
 
   function handleGroupClick(title: string) {
@@ -135,61 +159,77 @@ export function AppSidebar({ collapsed, onToggle }: Props) {
 
   return (
     <aside
+      data-mobile-open={mobileOpen ? "true" : "false"}
       className={cn(
-        "fixed left-0 top-0 z-40 flex h-screen flex-col border-r border-red-200 bg-gradient-to-b from-[#ff1f1f] via-[#ff5a00] to-[#ffb000] text-white shadow-xl transition-all duration-300",
-        collapsed ? "w-[84px]" : "w-[292px]"
+        "brand-sidebar mobile-sidebar fixed left-0 top-0 z-40 flex h-dvh flex-col border-r border-sidebar-border text-sidebar-foreground shadow-[18px_0_60px_-44px_color-mix(in_oklch,var(--primary)_58%,transparent)] transition-[width,transform] duration-300 ease-[cubic-bezier(0.16,1,0.3,1)]",
+        effectiveCollapsed
+          ? "w-[84px]"
+          : "w-[min(calc(100vw-1.5rem),292px)] lg:w-[292px]"
       )}
     >
-      <div className="flex h-20 items-center justify-between px-4">
+      <div className="hairline-highlight flex h-20 items-center justify-between px-4">
         <Link
           href="/dashboard"
-          className="flex items-center gap-3"
+          className="group flex items-center gap-3 rounded-2xl outline-none transition focus-visible:ring-3 focus-visible:ring-ring/50"
           onClick={handleMainNavClick}
         >
-          <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-white shadow-md">
-            <Flame className="h-7 w-7 text-red-600" />
+          <div className="flex h-12 w-12 items-center justify-center transition duration-200 group-hover:-translate-y-0.5">
+            <LetsonMark className="h-12 w-12" />
           </div>
 
-          {!collapsed ? (
-            <div className="leading-tight">
-              <p className="text-2xl font-black tracking-tight text-white">
+          {!effectiveCollapsed ? (
+            <div className="text-center leading-tight">
+              <p className="text-2xl font-black tracking-tight text-primary">
                 ISAY
               </p>
-              <p className="text-xs font-semibold text-white/80">
+              <p className="text-xs font-semibold text-sidebar-accent-foreground/72">
                 Fried Chicken
               </p>
             </div>
           ) : null}
         </Link>
 
-        {!collapsed ? (
+        {!effectiveCollapsed ? (
           <Button
             type="button"
+            aria-label="Collapse navigation"
             size="icon"
             variant="ghost"
             onClick={onToggle}
-            className="h-9 w-9 rounded-xl text-white hover:bg-white/20 hover:text-white"
+            className="hidden h-9 w-9 rounded-xl border border-primary/25 bg-white/85 text-primary shadow-[0_10px_24px_-18px_color-mix(in_oklch,var(--primary)_82%,transparent)] hover:border-primary/40 hover:bg-white hover:text-primary lg:inline-flex dark:bg-background/70"
           >
-            <ChevronLeft className="h-5 w-5" />
+            <ChevronLeft className="h-5 w-5" strokeWidth={2.7} />
           </Button>
         ) : null}
+
+        <Button
+          type="button"
+          aria-label="Close navigation"
+          size="icon"
+          variant="ghost"
+          onClick={onMobileClose}
+          className="h-10 w-10 rounded-xl border border-primary/25 bg-white/85 text-primary shadow-[0_10px_24px_-18px_color-mix(in_oklch,var(--primary)_82%,transparent)] hover:border-primary/40 hover:bg-white hover:text-primary lg:hidden dark:bg-background/70"
+        >
+          <X className="h-5 w-5" strokeWidth={2.7} />
+        </Button>
       </div>
 
-      {collapsed ? (
+      {effectiveCollapsed ? (
         <div className="px-4 pb-3">
           <Button
             type="button"
+            aria-label="Expand navigation"
             size="icon"
             variant="ghost"
             onClick={onToggle}
-            className="h-10 w-10 rounded-xl bg-white/15 text-white hover:bg-white/25 hover:text-white"
+            className="hidden h-10 w-10 rounded-xl border border-primary/25 bg-white/85 text-primary shadow-[0_10px_24px_-18px_color-mix(in_oklch,var(--primary)_82%,transparent)] hover:border-primary/40 hover:bg-white hover:text-primary lg:inline-flex dark:bg-background/70"
           >
-            <ChevronRight className="h-5 w-5" />
+            <ChevronRight className="h-5 w-5" strokeWidth={2.7} />
           </Button>
         </div>
       ) : null}
 
-      <nav className="flex-1 space-y-1 overflow-y-auto px-3 pb-6">
+      <nav className="flex-1 space-y-1 overflow-y-auto overscroll-contain px-3 pb-6">
         {visibleNavItems.map((item) => {
           const active = isItemActive(pathname, item);
           const Icon = item.icon;
@@ -202,22 +242,22 @@ export function AppSidebar({ collapsed, onToggle }: Props) {
                 href={item.href || "#"}
                 onClick={handleMainNavClick}
                 className={cn(
-                  "group flex h-12 items-center gap-3 rounded-2xl px-3 text-sm font-semibold transition",
+                  "group relative flex h-12 items-center gap-3 rounded-2xl px-3 text-sm font-semibold transition duration-200 ease-[cubic-bezier(0.16,1,0.3,1)] hover:-translate-y-0.5 focus-visible:ring-3 focus-visible:ring-ring/50",
                   active
-                    ? "bg-white text-red-600 shadow-md"
-                    : "text-white/95 hover:bg-white/18 hover:text-white",
-                  collapsed && "justify-center px-0"
+                    ? "sidebar-nav-active"
+                    : "sidebar-nav-muted",
+                  effectiveCollapsed && "justify-center px-0"
                 )}
-                title={collapsed ? item.title : undefined}
+                title={effectiveCollapsed ? item.title : undefined}
               >
                 <Icon
                   className={cn(
                     "h-5 w-5 shrink-0",
-                    active ? "text-red-600" : "text-white"
+                    active ? "text-primary-foreground" : "text-current"
                   )}
                 />
 
-                {!collapsed ? <span>{item.title}</span> : null}
+                {!effectiveCollapsed ? <span>{item.title}</span> : null}
               </Link>
             );
           }
@@ -228,30 +268,30 @@ export function AppSidebar({ collapsed, onToggle }: Props) {
                 type="button"
                 onClick={() => handleGroupClick(item.title)}
                 className={cn(
-                  "flex h-12 w-full items-center gap-3 rounded-2xl px-3 text-left text-sm font-semibold transition",
+                  "flex h-12 w-full items-center gap-3 rounded-2xl px-3 text-left text-sm font-semibold transition duration-200 ease-[cubic-bezier(0.16,1,0.3,1)] hover:-translate-y-0.5 focus-visible:ring-3 focus-visible:ring-ring/50",
                   active || isOpen
-                    ? "bg-white/25 text-white"
-                    : "text-white/95 hover:bg-white/18",
-                  collapsed && "justify-center px-0"
+                    ? "sidebar-group-active"
+                    : "sidebar-nav-muted",
+                  effectiveCollapsed && "justify-center px-0"
                 )}
-                title={collapsed ? item.title : undefined}
+                title={effectiveCollapsed ? item.title : undefined}
               >
-                <Icon className="h-5 w-5 shrink-0 text-white" />
+                <Icon className="h-5 w-5 shrink-0 text-current" />
 
-                {!collapsed ? (
+                {!effectiveCollapsed ? (
                   <>
                     <span className="flex-1">{item.title}</span>
                     {isOpen ? (
-                      <ChevronUp className="h-4 w-4 text-white/80" />
+                      <ChevronUp className="h-4 w-4 text-muted-foreground" />
                     ) : (
-                      <ChevronDown className="h-4 w-4 text-white/80" />
+                      <ChevronDown className="h-4 w-4 text-muted-foreground" />
                     )}
                   </>
                 ) : null}
               </button>
 
-              {!collapsed && isOpen ? (
-                <div className="ml-4 space-y-1 border-l border-white/20 pl-3">
+              {!effectiveCollapsed && isOpen ? (
+                <div className="sidebar-child-rail motion-stagger ml-4 space-y-1 border-l pl-3">
                   {item.children.map((child) => {
                     const ChildIcon = child.icon;
                     const childActive = isRouteActive(pathname, child.href);
@@ -260,18 +300,19 @@ export function AppSidebar({ collapsed, onToggle }: Props) {
                       <Link
                         key={child.href}
                         href={child.href}
+                        onClick={onMobileClose}
                         className={cn(
-                          "flex h-10 items-center gap-3 rounded-xl px-3 text-sm font-medium transition",
+                          "flex h-10 items-center gap-3 rounded-xl px-3 text-sm font-medium transition duration-200 ease-[cubic-bezier(0.16,1,0.3,1)] hover:-translate-y-0.5 focus-visible:ring-3 focus-visible:ring-ring/50",
                           childActive
-                            ? "bg-white text-red-600 shadow-sm"
-                            : "text-white/90 hover:bg-white/18 hover:text-white"
+                            ? "sidebar-nav-active"
+                            : "sidebar-nav-muted"
                         )}
                       >
                         {ChildIcon ? (
                           <ChildIcon
                             className={cn(
                               "h-4 w-4 shrink-0",
-                              childActive ? "text-red-600" : "text-white"
+                              childActive ? "text-primary-foreground" : "text-current"
                             )}
                           />
                         ) : null}

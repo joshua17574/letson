@@ -4,6 +4,7 @@ import { Types } from "mongoose";
 
 import dbConnect from "@/lib/mongodb";
 import { cleanString, escapeRegex, getPagination } from "@/lib/crud-utils";
+import { setDateRangeFilter } from "@/lib/date-range";
 import { requireApiAuth } from "@/lib/require-auth";
 
 import BodegaProductModel from "@/models/BodegaProduct";
@@ -75,17 +76,7 @@ export async function GET(req: NextRequest) {
     isVoided: false,
   };
 
-  if (dateFrom || dateTo) {
-    saleFilter.saleDate = {};
-
-    if (dateFrom) {
-      saleFilter.saleDate.$gte = new Date(`${dateFrom}T00:00:00.000Z`);
-    }
-
-    if (dateTo) {
-      saleFilter.saleDate.$lte = new Date(`${dateTo}T23:59:59.999Z`);
-    }
-  }
+  setDateRangeFilter(saleFilter, "saleDate", dateFrom, dateTo);
 
   if (receiptNumber) {
     saleFilter.receiptNumber = {

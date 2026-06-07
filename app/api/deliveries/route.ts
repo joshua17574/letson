@@ -9,6 +9,7 @@ import {
   escapeRegex,
   getPagination,
 } from "@/lib/crud-utils";
+import { setDateRangeFilter } from "@/lib/date-range";
 import BodegaProductModel from "@/models/BodegaProduct";
 import BodegaStockTransactionModel from "@/models/BodegaStockTransaction";
 import DeliveryModel from "@/models/Delivery";
@@ -93,17 +94,7 @@ export async function GET(req: NextRequest) {
     };
   }
 
-  if (dateFrom || dateTo) {
-    filter.deliveryDate = {};
-
-    if (dateFrom) {
-      filter.deliveryDate.$gte = new Date(`${dateFrom}T00:00:00.000Z`);
-    }
-
-    if (dateTo) {
-      filter.deliveryDate.$lte = new Date(`${dateTo}T23:59:59.999Z`);
-    }
-  }
+  setDateRangeFilter(filter, "deliveryDate", dateFrom, dateTo);
 
   const [items, total] = await Promise.all([
     DeliveryModel.find(filter)

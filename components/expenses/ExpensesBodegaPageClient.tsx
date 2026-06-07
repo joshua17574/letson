@@ -93,6 +93,9 @@ const emptyForm = {
   remarks: "",
 };
 
+const filterLabelClass =
+  "text-xs font-bold uppercase tracking-wide text-muted-foreground";
+
 function getTypeLabel(type: string) {
   return expenseTypeOptions.find((item) => item.value === type)?.label || type;
 }
@@ -199,7 +202,11 @@ export function ExpensesBodegaPageClient() {
   }
 
   useEffect(() => {
-    void loadExpenses();
+    const frame = window.requestAnimationFrame(() => {
+      void loadExpenses();
+    });
+
+    return () => window.cancelAnimationFrame(frame);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [page, limit, appliedFilters]);
 
@@ -338,64 +345,79 @@ export function ExpensesBodegaPageClient() {
       />
 
       <Card className="rounded-2xl border-slate-200 shadow-sm">
-        <CardContent className="grid gap-4 p-5 md:grid-cols-5">
-          <div className="md:col-span-2">
-            <Label>Search</Label>
-            <Input
-              value={search}
-              onChange={(event) => setSearch(event.target.value)}
-              placeholder="Search name or remarks"
-              onKeyDown={(event) => {
-                if (event.key === "Enter") applyFilters();
-              }}
-            />
-          </div>
+        <CardContent className="p-5">
+          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-12">
+            <div className="space-y-2 md:col-span-2 xl:col-span-5">
+              <Label className={filterLabelClass}>Search</Label>
+              <Input
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+                placeholder="Search name or remarks"
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") applyFilters();
+                }}
+              />
+            </div>
 
-          <div>
-            <Label>Expense Type</Label>
-            <Select value={type} onValueChange={setType}>
-              <SelectTrigger>
-                <SelectValue placeholder="All Types" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="ALL">All Types</SelectItem>
-                {expenseTypeOptions.map((item) => (
-                  <SelectItem key={item.value} value={item.value}>
-                    {item.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
+            <div className="space-y-2 xl:col-span-3">
+              <Label className={filterLabelClass}>Expense Type</Label>
+              <Select value={type} onValueChange={setType}>
+                <SelectTrigger>
+                  <SelectValue placeholder="All Types" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="ALL">All Types</SelectItem>
+                  {expenseTypeOptions.map((item) => (
+                    <SelectItem key={item.value} value={item.value}>
+                      {item.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
 
-          <div>
-            <Label>Date From</Label>
-            <Input
-              type="date"
-              value={dateFrom}
-              onChange={(event) => setDateFrom(event.target.value)}
-            />
-          </div>
+            <div className="space-y-2 xl:col-span-2">
+              <Label className={filterLabelClass}>Date From</Label>
+              <Input
+                type="date"
+                value={dateFrom}
+                onChange={(event) => setDateFrom(event.target.value)}
+              />
+            </div>
 
-          <div>
-            <Label>Date To</Label>
-            <Input
-              type="date"
-              value={dateTo}
-              onChange={(event) => setDateTo(event.target.value)}
-            />
-          </div>
+            <div className="space-y-2 xl:col-span-2">
+              <Label className={filterLabelClass}>Date To</Label>
+              <Input
+                type="date"
+                value={dateTo}
+                onChange={(event) => setDateTo(event.target.value)}
+              />
+            </div>
 
-          <div className="flex items-end gap-2 md:col-span-5">
-            <Button onClick={applyFilters} disabled={isLoading}>
-              <Search className="mr-2 h-4 w-4" />
-              Filter
-            </Button>
-            <Button variant="secondary" onClick={resetFilters} disabled={isLoading}>
-              <RefreshCcw className="mr-2 h-4 w-4" />
-              Reset
-            </Button>
-            <p className="text-sm text-muted-foreground">{activeFilterText}</p>
+            <div className="flex flex-col gap-3 md:col-span-2 xl:col-span-12 lg:flex-row lg:items-center lg:justify-between">
+              <div className="flex flex-col gap-2 sm:flex-row">
+                <Button
+                  onClick={applyFilters}
+                  disabled={isLoading}
+                  className="sm:min-w-28"
+                >
+                  <Search className="mr-2 h-4 w-4" />
+                  Filter
+                </Button>
+                <Button
+                  variant="secondary"
+                  onClick={resetFilters}
+                  disabled={isLoading}
+                  className="sm:min-w-28"
+                >
+                  <RefreshCcw className="mr-2 h-4 w-4" />
+                  Reset
+                </Button>
+              </div>
+              <p className="min-w-0 rounded-lg bg-muted/60 px-3 py-2 text-xs font-medium text-muted-foreground">
+                {activeFilterText}
+              </p>
+            </div>
           </div>
         </CardContent>
       </Card>

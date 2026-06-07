@@ -276,11 +276,19 @@ export function PurchaseBatchesPageClient() {
   }
 
   useEffect(() => {
-    void loadProducts();
+    const frame = window.requestAnimationFrame(() => {
+      void loadProducts();
+    });
+
+    return () => window.cancelAnimationFrame(frame);
   }, []);
 
   useEffect(() => {
-    void loadBatches();
+    const frame = window.requestAnimationFrame(() => {
+      void loadBatches();
+    });
+
+    return () => window.cancelAnimationFrame(frame);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [page, limit, appliedFilters]);
 
@@ -654,7 +662,7 @@ export function PurchaseBatchesPageClient() {
             <Table>
               <TableHeader className="bg-slate-950">
                 <TableRow>
-                  <TableHead className="text-white">Date Purchased</TableHead>
+                  <TableHead className="text-center text-white">Date Purchased</TableHead>
                   <TableHead className="text-right text-white">
                     Total Items
                   </TableHead>
@@ -686,8 +694,8 @@ export function PurchaseBatchesPageClient() {
                 ) : (
                   batches.map((batch) => (
                     <TableRow key={batch._id}>
-                      <TableCell className="font-medium">
-                        <div className="flex items-center gap-2">
+                      <TableCell className="text-center font-medium">
+                        <div className="flex items-center justify-center gap-2">
                           <CalendarDays className="h-4 w-4 text-slate-400" />
                           {formatDate(batch.datePurchased)}
                         </div>

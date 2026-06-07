@@ -8,6 +8,7 @@ import {
   escapeRegex,
   getPagination,
 } from "@/lib/crud-utils";
+import { setDateRangeFilter } from "@/lib/date-range";
 import ExpenseModel, { ExpenseType } from "@/models/Expense";
 
 const expenseTypes: ExpenseType[] = [
@@ -78,17 +79,7 @@ export async function GET(req: NextRequest) {
     filter.type = type;
   }
 
-  if (dateFrom || dateTo) {
-    filter.expenseDate = {};
-
-    if (dateFrom) {
-      filter.expenseDate.$gte = new Date(`${dateFrom}T00:00:00.000Z`);
-    }
-
-    if (dateTo) {
-      filter.expenseDate.$lte = new Date(`${dateTo}T23:59:59.999Z`);
-    }
-  }
+  setDateRangeFilter(filter, "expenseDate", dateFrom, dateTo);
 
   const [items, total, summary, typeSummary] = await Promise.all([
     ExpenseModel.find(filter)

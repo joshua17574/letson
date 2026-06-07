@@ -9,6 +9,7 @@ import {
   cleanString,
   getPagination,
 } from "@/lib/crud-utils";
+import { setDateRangeFilter } from "@/lib/date-range";
 import ProductModel from "@/models/Product";
 import PurchaseBatchModel from "@/models/PurchaseBatch";
 import PurchaseItemModel from "@/models/PurchaseItem";
@@ -60,17 +61,7 @@ export async function GET(req: NextRequest) {
     isVoided: false,
   };
 
-  if (dateFrom || dateTo) {
-    filter.datePurchased = {};
-
-    if (dateFrom) {
-      filter.datePurchased.$gte = new Date(`${dateFrom}T00:00:00.000Z`);
-    }
-
-    if (dateTo) {
-      filter.datePurchased.$lte = new Date(`${dateTo}T23:59:59.999Z`);
-    }
-  }
+  setDateRangeFilter(filter, "datePurchased", dateFrom, dateTo);
 
   if (minTotal > 0 || maxTotal > 0) {
     filter.totalAmount = {};

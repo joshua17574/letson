@@ -5,6 +5,7 @@ import { isValidObjectId } from "mongoose";
 import dbConnect from "@/lib/mongodb";
 import { requireApiAuth } from "@/lib/require-auth";
 import { cleanString } from "@/lib/crud-utils";
+import { setDateRangeFilter } from "@/lib/date-range";
 import BodegaProductModel from "@/models/BodegaProduct";
 import BodegaStockTransactionModel from "@/models/BodegaStockTransaction";
 import StandardPackingModel from "@/models/StandardPacking";
@@ -113,17 +114,7 @@ export async function GET(
     bodegaProductId: id,
   };
 
-  if (dateFrom || dateTo) {
-    filter.createdAt = {};
-
-    if (dateFrom) {
-      filter.createdAt.$gte = new Date(`${dateFrom}T00:00:00.000Z`);
-    }
-
-    if (dateTo) {
-      filter.createdAt.$lte = new Date(`${dateTo}T23:59:59.999Z`);
-    }
-  }
+  setDateRangeFilter(filter, "createdAt", dateFrom, dateTo);
 
   const transactions = await BodegaStockTransactionModel.find(filter)
     .sort({ createdAt: -1 })

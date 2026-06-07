@@ -181,10 +181,12 @@ export function ProductsPageClient() {
   }
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     void loadCategories();
   }, []);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     void loadProducts();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [page, limit, search, categoryId]);
@@ -345,8 +347,8 @@ export function ProductsPageClient() {
         Product List
       </h1>
 
-      <div className="flex flex-col gap-3 rounded-xl border bg-white p-4 shadow-sm lg:flex-row lg:items-end">
-        <div className="w-full lg:max-w-sm">
+      <div className="grid gap-3 rounded-xl border bg-card p-4 shadow-sm sm:p-5 md:grid-cols-[minmax(0,1.25fr)_minmax(0,1fr)_minmax(8rem,0.65fr)_minmax(12rem,0.9fr)] md:items-end">
+        <div className="min-w-0 space-y-1.5">
           <Label>Search Product</Label>
           <Input
             value={draftSearch}
@@ -358,7 +360,7 @@ export function ProductsPageClient() {
           />
         </div>
 
-        <div className="w-full lg:w-64">
+        <div className="min-w-0 space-y-1.5">
           <Label>Category</Label>
           <Select
             value={categoryId}
@@ -367,7 +369,7 @@ export function ProductsPageClient() {
               setPage(1);
             }}
           >
-            <SelectTrigger>
+            <SelectTrigger className="w-full">
               <SelectValue placeholder="All" />
             </SelectTrigger>
             <SelectContent>
@@ -381,7 +383,7 @@ export function ProductsPageClient() {
           </Select>
         </div>
 
-        <div className="w-full lg:w-36">
+        <div className="min-w-0 space-y-1.5">
           <Label>Show entries</Label>
           <Select
             value={limit}
@@ -390,7 +392,7 @@ export function ProductsPageClient() {
               setPage(1);
             }}
           >
-            <SelectTrigger>
+            <SelectTrigger className="w-full">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -402,15 +404,17 @@ export function ProductsPageClient() {
           </Select>
         </div>
 
-        <Button onClick={applySearch}>
-          <Search className="mr-2 h-4 w-4" />
-          Search
-        </Button>
+        <div className="flex min-w-0 items-end gap-2">
+          <Button onClick={applySearch} className="flex-1">
+            <Search className="mr-2 h-4 w-4" />
+            Search
+          </Button>
 
-        <Button variant="outline" onClick={resetFilters}>
-          <RefreshCcw className="mr-2 h-4 w-4" />
-          Reset
-        </Button>
+          <Button variant="outline" onClick={resetFilters} className="shrink-0">
+            <RefreshCcw className="mr-2 h-4 w-4" />
+            Reset
+          </Button>
+        </div>
       </div>
 
       <Card>

@@ -371,72 +371,93 @@ export function SliceHistoryPageClient() {
       </div>
 
       <Card>
-        <CardContent className="grid gap-4 p-5 md:grid-cols-[140px_1fr_1fr_1fr_auto_auto] md:items-end">
-          <div>
-            <Label>Show</Label>
-            <Select
-              value={limit}
-              onValueChange={(value) => {
-                setLimit(value);
-                setPage(1);
-              }}
-            >
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="10">10</SelectItem>
-                <SelectItem value="25">25</SelectItem>
-                <SelectItem value="50">50</SelectItem>
-                <SelectItem value="100">100</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
+        <CardContent className="p-5">
+          <form
+            className="grid gap-4 sm:grid-cols-2 xl:grid-cols-[8rem_minmax(16rem,1.4fr)_minmax(10rem,1fr)_minmax(10rem,1fr)_auto] xl:items-end"
+            onSubmit={(event) => {
+              event.preventDefault();
+              applyFilters();
+            }}
+          >
+            <div className="space-y-2">
+              <Label htmlFor="slice-history-limit">Show</Label>
+              <Select
+                value={limit}
+                onValueChange={(value) => {
+                  setLimit(value);
+                  setPage(1);
+                }}
+              >
+                <SelectTrigger id="slice-history-limit">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="10">10</SelectItem>
+                  <SelectItem value="25">25</SelectItem>
+                  <SelectItem value="50">50</SelectItem>
+                  <SelectItem value="100">100</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
 
-          <div>
-            <Label>Sliced Product</Label>
-            <Select value={slicedProductId} onValueChange={setSlicedProductId}>
-              <SelectTrigger>
-                <SelectValue placeholder="All" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="ALL">All</SelectItem>
-                {products.map((product) => (
-                  <SelectItem key={product._id} value={product._id}>
-                    {product.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
+            <div className="space-y-2">
+              <Label htmlFor="slice-history-product">Sliced Product</Label>
+              <Select value={slicedProductId} onValueChange={setSlicedProductId}>
+                <SelectTrigger id="slice-history-product">
+                  <SelectValue placeholder="All" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="ALL">All</SelectItem>
+                  {products.map((product) => (
+                    <SelectItem key={product._id} value={product._id}>
+                      {product.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
 
-          <div>
-            <Label>From</Label>
-            <Input
-              type="date"
-              value={dateFrom}
-              onChange={(event) => setDateFrom(event.target.value)}
-            />
-          </div>
+            <div className="space-y-2">
+              <Label htmlFor="slice-history-date-from">From</Label>
+              <Input
+                id="slice-history-date-from"
+                type="date"
+                value={dateFrom}
+                max={dateTo || undefined}
+                onInput={(event) => setDateFrom(event.currentTarget.value)}
+                onChange={(event) => setDateFrom(event.target.value)}
+              />
+            </div>
 
-          <div>
-            <Label>To</Label>
-            <Input
-              type="date"
-              value={dateTo}
-              onChange={(event) => setDateTo(event.target.value)}
-            />
-          </div>
+            <div className="space-y-2">
+              <Label htmlFor="slice-history-date-to">To</Label>
+              <Input
+                id="slice-history-date-to"
+                type="date"
+                value={dateTo}
+                min={dateFrom || undefined}
+                onInput={(event) => setDateTo(event.currentTarget.value)}
+                onChange={(event) => setDateTo(event.target.value)}
+              />
+            </div>
 
-          <Button onClick={applyFilters}>
-            <Search className="mr-2 h-4 w-4" />
-            Filter
-          </Button>
+            <div className="flex gap-2 sm:col-span-2 xl:col-span-1">
+              <Button type="submit" className="flex-1 xl:flex-none">
+                <Search className="mr-2 h-4 w-4" />
+                Filter
+              </Button>
 
-          <Button variant="secondary" onClick={resetFilters}>
-            <RefreshCcw className="mr-2 h-4 w-4" />
-            Reset
-          </Button>
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={resetFilters}
+                className="flex-1 xl:flex-none"
+              >
+                <RefreshCcw className="mr-2 h-4 w-4" />
+                Reset
+              </Button>
+            </div>
+          </form>
         </CardContent>
       </Card>
 
@@ -445,7 +466,7 @@ export function SliceHistoryPageClient() {
           <div>
             <CardTitle>Daily Slicing Transactions</CardTitle>
             <p className="text-sm text-muted-foreground">
-              Filters: {rangeLabel} · Showing {records.length} of {meta.total} daily records
+              Filters: {rangeLabel} - Showing {records.length} of {meta.total} daily records
             </p>
           </div>
         </CardHeader>

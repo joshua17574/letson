@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { Loader2, LogIn } from "lucide-react";
 import { toast } from "sonner";
 
+import { LetsonMark } from "@/components/brand/LetsonMark";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -41,10 +42,10 @@ export function LoginForm() {
   }
 
   return (
-    <Card className="w-full max-w-md rounded-2xl shadow-sm">
+    <Card className="surface-elevated w-full max-w-md rounded-2xl">
       <CardHeader className="space-y-2 text-center">
-        <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl border text-lg font-bold">
-          ISA
+        <div className="mx-auto flex h-16 w-16 items-center justify-center">
+          <LetsonMark className="h-16 w-16" />
         </div>
         <CardTitle className="text-2xl">LETSON Inventory</CardTitle>
         <p className="text-sm text-muted-foreground">

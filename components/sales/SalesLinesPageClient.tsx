@@ -539,11 +539,11 @@ export function SalesLinesPageClient() {
           </Button>
 
           <div className="flex flex-wrap gap-2 text-sm">
-            <span className="rounded-md bg-blue-600 px-3 py-2 font-bold text-white">
+            <span className="tone-brand rounded-md px-3 py-2 font-bold">
               Rows: {summary.rows.toLocaleString()}
             </span>
 
-            <span className="rounded-md bg-emerald-700 px-3 py-2 font-bold text-white">
+            <span className="tone-success rounded-md px-3 py-2 font-bold">
               Total: {formatPeso(summary.totalAmount)}
             </span>
           </div>

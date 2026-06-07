@@ -1,14 +1,18 @@
 // components/providers.tsx
 "use client";
 
-import { SessionProvider } from "next-auth/react";
-import { Toaster } from "sonner";
+import dynamic from "next/dynamic";
+
+const AppToaster = dynamic(
+  () => import("./app-toaster").then((mod) => mod.AppToaster),
+  { ssr: false }
+);
 
 export function Providers({ children }: { children: React.ReactNode }) {
   return (
-    <SessionProvider>
+    <>
       {children}
-      <Toaster richColors position="top-right" />
-    </SessionProvider>
+      <AppToaster />
+    </>
   );
 }
