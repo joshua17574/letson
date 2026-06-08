@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import mongoose, { isValidObjectId } from "mongoose";
+import mongoose, { isValidObjectId, type PipelineStage } from "mongoose";
 
 import dbConnect from "@/lib/mongodb";
 import { requireApiAuth } from "@/lib/require-auth";
@@ -100,7 +100,7 @@ export async function GET(req: NextRequest) {
     itemMatch.slicedProductId = new mongoose.Types.ObjectId(slicedProductId);
   }
 
-  const pipeline: AnyRecord[] = [
+  const pipeline: PipelineStage[] = [
     {
       $lookup: {
         from: "slicingbatches",
@@ -169,7 +169,7 @@ export async function GET(req: NextRequest) {
     { $sort: { day: -1, slicedProductName: 1 } }
   );
 
-  const productRows = await SlicingItemModel.aggregate(pipeline);
+  const productRows = await SlicingItemModel.aggregate<AnyRecord>(pipeline);
   const dayMap = new Map<string, AnyRecord>();
 
   for (const rawProduct of productRows) {
@@ -221,6 +221,7 @@ export async function GET(req: NextRequest) {
     .map((record) => {
       const yieldRate =
         record.totalStdPcs > 0 ? (record.actualSlicedPcs / record.totalStdPcs) * 100 : 0;
+
       return {
         _id: record._id,
         date: record.date,
@@ -291,7 +292,11 @@ export async function GET(req: NextRequest) {
   return NextResponse.json(
     {
       success: true,
-      filters: { dateFrom, dateTo, slicedProductId: slicedProductId || "ALL" },
+      filters: {
+        dateFrom,
+        dateTo,
+        slicedProductId: slicedProductId || "ALL",
+      },
       data: allRecords.slice(skip, skip + limit),
       summary: summaryWithYield,
       products: (products as AnyRecord[]).map((product) => ({
