@@ -9,7 +9,9 @@ type PageRule = {
 
 const PAGE_RULES: PageRule[] = [
   { prefix: "/profit/chicken-slicing", permission: "reports.profit" },
+  { prefix: "/profit/products", permission: "reports.profit" },
   { prefix: "/reports/chicken-slicing", permission: "reports.profit" },
+  { prefix: "/reports/product-profits", permission: "reports.profit" },
   { exact: "/dashboard", permission: "dashboard.view" },
   { prefix: "/customers", permission: "customers.view" },
   { prefix: "/suppliers", permission: "suppliers.view" },
@@ -85,9 +87,20 @@ export async function proxy(request: NextRequest) {
     return NextResponse.redirect(loginUrl);
   }
 
-  const permissions = Array.isArray((token as { permissions?: unknown }).permissions)
-    ? (token as { permissions: string[] }).permissions
+  const tokenData = token as {
+    permissions?: unknown;
+    role?: unknown;
+    roleName?: unknown;
+  };
+  const permissions = Array.isArray(tokenData.permissions)
+    ? (tokenData.permissions as string[])
     : [];
+  const legacyRole = String(tokenData.role || "").toUpperCase();
+  const roleName = String(tokenData.roleName || "").toUpperCase();
+
+  if (legacyRole === "ADMIN" || roleName === "ADMIN") {
+    return NextResponse.next();
+  }
 
   if (!permissions.includes(requiredPermission)) {
     const unauthorizedUrl = request.nextUrl.clone();

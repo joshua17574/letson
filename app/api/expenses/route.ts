@@ -8,7 +8,9 @@ import {
   escapeRegex,
   getPagination,
 } from "@/lib/crud-utils";
-import ExpenseModel, { ExpenseType } from "@/models/Expense";
+import ExpenseModel, { ExpenseCategory, ExpenseType } from "@/models/Expense";
+
+const expenseCategories: ExpenseCategory[] = ["GROCERY", "BODEGA"];
 
 const expenseTypes: ExpenseType[] = [
   "DELIVERY_EXPENSES",
@@ -22,8 +24,22 @@ const expenseTypes: ExpenseType[] = [
   "OTHERS",
 ];
 
+function isExpenseCategory(value: string): value is ExpenseCategory {
+  return expenseCategories.includes(value as ExpenseCategory);
+}
+
 function isExpenseType(value: string): value is ExpenseType {
   return expenseTypes.includes(value as ExpenseType);
+}
+
+function normalizeExpenseCategory(value: unknown): ExpenseCategory {
+  const raw = cleanString(value).toUpperCase();
+  return isExpenseCategory(raw) ? raw : "BODEGA";
+}
+
+function normalizeExpenseType(value: unknown): ExpenseType {
+  const raw = cleanString(value).toUpperCase();
+  return isExpenseType(raw) ? raw : "OTHERS";
 }
 
 function toExpenseDate(value: string) {
@@ -31,11 +47,27 @@ function toExpenseDate(value: string) {
   return Number.isNaN(date.getTime()) ? null : date;
 }
 
+function categoryFilter(category: ExpenseCategory) {
+  if (category === "BODEGA") {
+    return {
+      $or: [
+        { expenseCategory: "BODEGA" },
+        { expenseCategory: { $exists: false } },
+        { expenseCategory: null },
+        { expenseCategory: "" },
+      ],
+    };
+  }
+
+  return { expenseCategory: category };
+}
+
 function serializeExpense(expense: any) {
   return {
     _id: expense._id.toString(),
     name: expense.name,
-    type: expense.type,
+    expenseCategory: normalizeExpenseCategory(expense.expenseCategory),
+    type: normalizeExpenseType(expense.type),
     expenseDate: expense.expenseDate
       ? new Date(expense.expenseDate).toISOString()
       : undefined,
@@ -59,38 +91,56 @@ export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
   const { page, limit, skip } = getPagination(searchParams);
   const search = cleanString(searchParams.get("search"));
+  const expenseCategory = cleanString(searchParams.get("expenseCategory")).toUpperCase();
   const type = cleanString(searchParams.get("type")).toUpperCase();
   const dateFrom = cleanString(searchParams.get("dateFrom"));
   const dateTo = cleanString(searchParams.get("dateTo"));
 
-  const filter: Record<string, any> = {
-    isActive: true,
-  };
+  const andFilters: Record<string, any>[] = [{ isActive: true }];
 
   if (search) {
-    filter.$or = [
-      { name: { $regex: escapeRegex(search), $options: "i" } },
-      { remarks: { $regex: escapeRegex(search), $options: "i" } },
-    ];
+    andFilters.push({
+      $or: [
+        { name: { $regex: escapeRegex(search), $options: "i" } },
+        { remarks: { $regex: escapeRegex(search), $options: "i" } },
+      ],
+    });
+  }
+
+  if (isExpenseCategory(expenseCategory)) {
+    andFilters.push(categoryFilter(expenseCategory));
   }
 
   if (isExpenseType(type)) {
-    filter.type = type;
+    andFilters.push({ type });
   }
 
   if (dateFrom || dateTo) {
-    filter.expenseDate = {};
+    const dateFilter: Record<string, Date> = {};
 
     if (dateFrom) {
-      filter.expenseDate.$gte = new Date(`${dateFrom}T00:00:00.000Z`);
+      dateFilter.$gte = new Date(`${dateFrom}T00:00:00.000Z`);
     }
 
     if (dateTo) {
-      filter.expenseDate.$lte = new Date(`${dateTo}T23:59:59.999Z`);
+      dateFilter.$lte = new Date(`${dateTo}T23:59:59.999Z`);
     }
+
+    andFilters.push({ expenseDate: dateFilter });
   }
 
-  const [items, total, summary, typeSummary] = await Promise.all([
+  const filter: Record<string, any> =
+    andFilters.length === 1 ? andFilters[0] : { $and: andFilters };
+
+  const normalizedCategoryExpression = {
+    $cond: [
+      { $eq: ["$expenseCategory", "GROCERY"] },
+      "GROCERY",
+      "BODEGA",
+    ],
+  };
+
+  const [items, total, summary, categorySummary, typeSummary] = await Promise.all([
     ExpenseModel.find(filter)
       .sort({ expenseDate: -1, createdAt: -1 })
       .skip(skip)
@@ -111,6 +161,17 @@ export async function GET(req: NextRequest) {
       { $match: filter },
       {
         $group: {
+          _id: normalizedCategoryExpression,
+          totalAmount: { $sum: "$amount" },
+          rows: { $sum: 1 },
+        },
+      },
+      { $sort: { _id: 1 } },
+    ]),
+    ExpenseModel.aggregate([
+      { $match: filter },
+      {
+        $group: {
           _id: "$type",
           totalAmount: { $sum: "$amount" },
           rows: { $sum: 1 },
@@ -126,8 +187,13 @@ export async function GET(req: NextRequest) {
     summary: {
       rows: summary[0]?.rows || 0,
       totalAmount: summary[0]?.totalAmount || 0,
+      byCategory: categorySummary.map((item) => ({
+        expenseCategory: normalizeExpenseCategory(item._id),
+        rows: item.rows || 0,
+        totalAmount: item.totalAmount || 0,
+      })),
       byType: typeSummary.map((item) => ({
-        type: item._id,
+        type: normalizeExpenseType(item._id),
         rows: item.rows || 0,
         totalAmount: item.totalAmount || 0,
       })),
@@ -149,7 +215,8 @@ export async function POST(req: NextRequest) {
 
   const body = await req.json();
   const name = cleanString(body.name);
-  const typeInput = cleanString(body.type).toUpperCase();
+  const expenseCategory = normalizeExpenseCategory(body.expenseCategory);
+  const type = normalizeExpenseType(body.type);
   const expenseDateInput = cleanString(body.expenseDate);
   const amount = cleanNumber(body.amount);
   const remarks = cleanString(body.remarks);
@@ -186,7 +253,8 @@ export async function POST(req: NextRequest) {
 
   const expense = await ExpenseModel.create({
     name,
-    type: isExpenseType(typeInput) ? typeInput : "OTHERS",
+    expenseCategory,
+    type,
     expenseDate,
     amount,
     remarks,

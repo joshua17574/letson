@@ -389,7 +389,7 @@ async function recentPayments() {
 async function recentExpenses() {
   const rows = await (ExpenseModel as any)
     .find({ isActive: true })
-    .select("name type amount expenseDate createdAt")
+    .select("name type expenseCategory amount expenseDate createdAt")
     .sort({ expenseDate: -1, createdAt: -1 })
     .limit(5)
     .lean();
@@ -397,7 +397,7 @@ async function recentExpenses() {
   return (rows as AnyRecord[]).map((expense) => ({
     id: objectIdString(expense._id),
     title: String(expense.name || "Expense"),
-    subtitle: String(expense.type || "OTHERS").replaceAll("_", " "),
+    subtitle: `${String(expense.expenseCategory || "BODEGA").replaceAll("_", " ")} - ${String(expense.type || "OTHERS").replaceAll("_", " ")}`,
     amount: numberValue(expense.amount),
     date: activityDate(expense.expenseDate || expense.createdAt),
   }));

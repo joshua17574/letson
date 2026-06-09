@@ -4,7 +4,9 @@ import { isValidObjectId } from "mongoose";
 import dbConnect from "@/lib/mongodb";
 import { requirePermission } from "@/lib/require-permission";
 import { cleanNumber, cleanString } from "@/lib/crud-utils";
-import ExpenseModel, { ExpenseType } from "@/models/Expense";
+import ExpenseModel, { ExpenseCategory, ExpenseType } from "@/models/Expense";
+
+const expenseCategories: ExpenseCategory[] = ["GROCERY", "BODEGA"];
 
 const expenseTypes: ExpenseType[] = [
   "DELIVERY_EXPENSES",
@@ -18,8 +20,22 @@ const expenseTypes: ExpenseType[] = [
   "OTHERS",
 ];
 
+function isExpenseCategory(value: string): value is ExpenseCategory {
+  return expenseCategories.includes(value as ExpenseCategory);
+}
+
 function isExpenseType(value: string): value is ExpenseType {
   return expenseTypes.includes(value as ExpenseType);
+}
+
+function normalizeExpenseCategory(value: unknown): ExpenseCategory {
+  const raw = cleanString(value).toUpperCase();
+  return isExpenseCategory(raw) ? raw : "BODEGA";
+}
+
+function normalizeExpenseType(value: unknown): ExpenseType {
+  const raw = cleanString(value).toUpperCase();
+  return isExpenseType(raw) ? raw : "OTHERS";
 }
 
 function toExpenseDate(value: string) {
@@ -31,7 +47,8 @@ function serializeExpense(expense: any) {
   return {
     _id: expense._id.toString(),
     name: expense.name,
-    type: expense.type,
+    expenseCategory: normalizeExpenseCategory(expense.expenseCategory),
+    type: normalizeExpenseType(expense.type),
     expenseDate: expense.expenseDate
       ? new Date(expense.expenseDate).toISOString()
       : undefined,
@@ -66,7 +83,8 @@ export async function PATCH(
 
   const body = await req.json();
   const name = cleanString(body.name);
-  const typeInput = cleanString(body.type).toUpperCase();
+  const expenseCategory = normalizeExpenseCategory(body.expenseCategory);
+  const type = normalizeExpenseType(body.type);
   const expenseDateInput = cleanString(body.expenseDate);
   const amount = cleanNumber(body.amount);
   const remarks = cleanString(body.remarks);
@@ -105,7 +123,8 @@ export async function PATCH(
     { _id: id, isActive: true },
     {
       name,
-      type: isExpenseType(typeInput) ? typeInput : "OTHERS",
+      expenseCategory,
+      type,
       expenseDate,
       amount,
       remarks,

@@ -4,6 +4,7 @@ import { isValidObjectId } from "mongoose";
 import dbConnect from "@/lib/mongodb";
 import { requireApiAuth } from "@/lib/require-auth";
 import BodegaProductModel from "@/models/BodegaProduct";
+import ExpenseModel from "@/models/Expense";
 import SlicingBatchModel from "@/models/SlicingBatch";
 import SlicingItemModel from "@/models/SlicingItem";
 
@@ -45,6 +46,54 @@ function getBatchDate(batch: any) {
 
 function getProductPrice(product: any, field: "buyingPrice" | "sellingPrice") {
   return numberValue(product?.[field]);
+}
+
+function getBodegaExpenseCategoryFilter() {
+  // Old expense records created before expenseCategory existed should still be
+  // treated as Bodega expenses so historical reports remain accurate.
+  return {
+    $or: [
+      { expenseCategory: "BODEGA" },
+      { expenseCategory: { $exists: false } },
+      { expenseCategory: null },
+      { expenseCategory: "" },
+    ],
+  };
+}
+
+function buildBodegaExpenseFilter(dateFrom: string, dateTo: string) {
+  const filter: Record<string, any> = {
+    isActive: true,
+    ...getBodegaExpenseCategoryFilter(),
+  };
+
+  if (dateFrom || dateTo) {
+    filter.expenseDate = {};
+
+    if (dateFrom) {
+      filter.expenseDate.$gte = new Date(`${dateFrom}T00:00:00.000Z`);
+    }
+
+    if (dateTo) {
+      filter.expenseDate.$lte = new Date(`${dateTo}T23:59:59.999Z`);
+    }
+  }
+
+  return filter;
+}
+
+async function getTotalBodegaExpenses(dateFrom: string, dateTo: string) {
+  const result = await ExpenseModel.aggregate([
+    { $match: buildBodegaExpenseFilter(dateFrom, dateTo) },
+    {
+      $group: {
+        _id: null,
+        total: { $sum: { $ifNull: ["$amount", 0] } },
+      },
+    },
+  ]);
+
+  return roundMoney(result[0]?.total || 0);
 }
 
 export async function GET(req: NextRequest) {
@@ -211,7 +260,7 @@ export async function GET(req: NextRequest) {
     };
   });
 
-  const summary = rows.reduce(
+  const baseSummary = rows.reduce(
     (total, row) => ({
       totalRows: total.totalRows + 1,
       totalHeads: total.totalHeads + row.heads,
@@ -222,7 +271,7 @@ export async function GET(req: NextRequest) {
       totalLoosePcs: total.totalLoosePcs + row.loosePcs,
       totalCapital: roundMoney(total.totalCapital + row.capital),
       totalGross: roundMoney(total.totalGross + row.gross),
-      totalProfit: roundMoney(total.totalProfit + row.profit),
+      grossProfit: roundMoney(total.grossProfit + row.profit),
     }),
     {
       totalRows: 0,
@@ -234,9 +283,19 @@ export async function GET(req: NextRequest) {
       totalLoosePcs: 0,
       totalCapital: 0,
       totalGross: 0,
-      totalProfit: 0,
+      grossProfit: 0,
     }
   );
+
+  const totalBodegaExpenses = await getTotalBodegaExpenses(dateFrom, dateTo);
+  const summary = {
+    ...baseSummary,
+    // Keep totalProfit as the final NET PROFIT for backward compatibility with
+    // older UI code that already reads summary.totalProfit.
+    totalBodegaExpenses,
+    netProfit: roundMoney(baseSummary.grossProfit - totalBodegaExpenses),
+    totalProfit: roundMoney(baseSummary.grossProfit - totalBodegaExpenses),
+  };
 
   return NextResponse.json({
     success: true,

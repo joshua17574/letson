@@ -2,16 +2,19 @@
 
 import { useEffect, useMemo, useState } from "react";
 import {
+  Building2,
   Loader2,
   Pencil,
   Plus,
   RefreshCcw,
   Search,
+  ShoppingBasket,
   Trash2,
 } from "lucide-react";
 import { toast } from "sonner";
 
 import { ModuleHeader } from "@/components/app-shell/ModuleHeader";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -40,6 +43,8 @@ import {
 } from "@/components/ui/table";
 import { formatPeso } from "@/lib/utils";
 
+type ExpenseCategory = "GROCERY" | "BODEGA";
+
 type ExpenseType =
   | "DELIVERY_EXPENSES"
   | "CLEANING_SUPPLIES"
@@ -54,6 +59,7 @@ type ExpenseType =
 type ExpenseRow = {
   _id: string;
   name: string;
+  expenseCategory: ExpenseCategory;
   type: ExpenseType;
   expenseDate?: string;
   amount: number;
@@ -67,11 +73,30 @@ type ApiMeta = {
   totalPages: number;
 };
 
+type ExpenseCategorySummary = {
+  expenseCategory: ExpenseCategory;
+  rows: number;
+  totalAmount: number;
+};
+
 type ExpenseTypeSummary = {
   type: ExpenseType;
   rows: number;
   totalAmount: number;
 };
+
+const expenseCategoryOptions: { label: string; value: ExpenseCategory; description: string }[] = [
+  {
+    label: "Grocery/Product",
+    value: "GROCERY",
+    description: "Expenses related to grocery and product inventory operations.",
+  },
+  {
+    label: "Bodega",
+    value: "BODEGA",
+    description: "Expenses related to chicken, bodega, slicing, and delivery operations.",
+  },
+];
 
 const expenseTypeOptions: { label: string; value: ExpenseType }[] = [
   { label: "Delivery Expenses", value: "DELIVERY_EXPENSES" },
@@ -87,11 +112,19 @@ const expenseTypeOptions: { label: string; value: ExpenseType }[] = [
 
 const emptyForm = {
   name: "",
+  expenseCategory: "BODEGA" as ExpenseCategory,
   type: "OTHERS" as ExpenseType,
   expenseDate: new Date().toISOString().slice(0, 10),
   amount: "0",
   remarks: "",
 };
+
+function getCategoryLabel(category: string) {
+  return (
+    expenseCategoryOptions.find((item) => item.value === category)?.label ||
+    "Bodega"
+  );
+}
 
 function getTypeLabel(type: string) {
   return expenseTypeOptions.find((item) => item.value === type)?.label || type;
@@ -102,6 +135,13 @@ function formatDate(value?: string) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "-";
   return date.toISOString().slice(0, 10);
+}
+
+function getCategoryTotal(
+  byCategory: ExpenseCategorySummary[],
+  category: ExpenseCategory
+) {
+  return byCategory.find((item) => item.expenseCategory === category)?.totalAmount || 0;
 }
 
 export function ExpensesBodegaPageClient() {
@@ -115,17 +155,20 @@ export function ExpensesBodegaPageClient() {
   const [summary, setSummary] = useState({
     rows: 0,
     totalAmount: 0,
+    byCategory: [] as ExpenseCategorySummary[],
     byType: [] as ExpenseTypeSummary[],
   });
 
   const [page, setPage] = useState(1);
   const [limit, setLimit] = useState("25");
   const [search, setSearch] = useState("");
+  const [expenseCategory, setExpenseCategory] = useState("ALL");
   const [type, setType] = useState("ALL");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
   const [appliedFilters, setAppliedFilters] = useState({
     search: "",
+    expenseCategory: "ALL",
     type: "ALL",
     dateFrom: "",
     dateTo: "",
@@ -137,10 +180,16 @@ export function ExpensesBodegaPageClient() {
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
 
+  const groceryTotal = getCategoryTotal(summary.byCategory, "GROCERY");
+  const bodegaTotal = getCategoryTotal(summary.byCategory, "BODEGA");
+
   const activeFilterText = useMemo(() => {
     const parts: string[] = [];
 
     if (appliedFilters.search) parts.push(`Search: ${appliedFilters.search}`);
+    if (appliedFilters.expenseCategory !== "ALL") {
+      parts.push(`Category: ${getCategoryLabel(appliedFilters.expenseCategory)}`);
+    }
     if (appliedFilters.type !== "ALL") {
       parts.push(`Type: ${getTypeLabel(appliedFilters.type)}`);
     }
@@ -159,6 +208,9 @@ export function ExpensesBodegaPageClient() {
     });
 
     if (appliedFilters.search) params.set("search", appliedFilters.search);
+    if (appliedFilters.expenseCategory !== "ALL") {
+      params.set("expenseCategory", appliedFilters.expenseCategory);
+    }
     if (appliedFilters.type !== "ALL") params.set("type", appliedFilters.type);
     if (appliedFilters.dateFrom) params.set("dateFrom", appliedFilters.dateFrom);
     if (appliedFilters.dateTo) params.set("dateTo", appliedFilters.dateTo);
@@ -178,6 +230,7 @@ export function ExpensesBodegaPageClient() {
         json.summary || {
           rows: 0,
           totalAmount: 0,
+          byCategory: [],
           byType: [],
         }
       );
@@ -210,9 +263,13 @@ export function ExpensesBodegaPageClient() {
     }));
   }
 
-  function openAddDialog() {
+  function openAddDialog(category: ExpenseCategory = "BODEGA") {
     setEditingExpense(null);
-    setForm(emptyForm);
+    setForm({
+      ...emptyForm,
+      expenseCategory: category,
+      expenseDate: new Date().toISOString().slice(0, 10),
+    });
     setDialogOpen(true);
   }
 
@@ -220,6 +277,7 @@ export function ExpensesBodegaPageClient() {
     setEditingExpense(expense);
     setForm({
       name: expense.name,
+      expenseCategory: expense.expenseCategory || "BODEGA",
       type: expense.type,
       expenseDate: expense.expenseDate
         ? new Date(expense.expenseDate).toISOString().slice(0, 10)
@@ -233,6 +291,7 @@ export function ExpensesBodegaPageClient() {
   function applyFilters() {
     setAppliedFilters({
       search: search.trim(),
+      expenseCategory,
       type,
       dateFrom,
       dateTo,
@@ -242,11 +301,13 @@ export function ExpensesBodegaPageClient() {
 
   function resetFilters() {
     setSearch("");
+    setExpenseCategory("ALL");
     setType("ALL");
     setDateFrom("");
     setDateTo("");
     setAppliedFilters({
       search: "",
+      expenseCategory: "ALL",
       type: "ALL",
       dateFrom: "",
       dateTo: "",
@@ -327,18 +388,68 @@ export function ExpensesBodegaPageClient() {
   return (
     <div className="space-y-6">
       <ModuleHeader
-        title="Expenses Bodega"
-        description="Track operating expenses for bodega, slicing, delivery, salaries, supplies, and other costs."
+        title="Business Expenses"
+        description="Record and separate Grocery/Product expenses from Bodega expenses for clearer owner reporting."
         actions={
-          <Button onClick={openAddDialog} className="rounded-xl">
-            <Plus className="mr-2 h-4 w-4" />
-            Add Expense
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            <Button variant="outline" onClick={() => openAddDialog("GROCERY")} className="rounded-xl">
+              <ShoppingBasket className="mr-2 h-4 w-4" />
+              Add Grocery Expense
+            </Button>
+            <Button onClick={() => openAddDialog("BODEGA")} className="rounded-xl">
+              <Plus className="mr-2 h-4 w-4" />
+              Add Bodega Expense
+            </Button>
+          </div>
         }
       />
 
+      <div className="grid gap-4 md:grid-cols-3">
+        <Card className="rounded-2xl border-slate-200 shadow-sm">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium text-muted-foreground">
+              Total Expenses
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-3xl font-bold text-red-700">
+              {formatPeso(summary.totalAmount)}
+            </p>
+            <p className="mt-1 text-sm text-muted-foreground">
+              {summary.rows.toLocaleString()} filtered record{summary.rows === 1 ? "" : "s"}
+            </p>
+          </CardContent>
+        </Card>
+
+        <Card className="rounded-2xl border-slate-200 shadow-sm">
+          <CardHeader className="flex flex-row items-center gap-2 pb-2">
+            <ShoppingBasket className="h-4 w-4 text-emerald-700" />
+            <CardTitle className="text-sm font-medium text-muted-foreground">
+              Grocery/Product
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-3xl font-bold">{formatPeso(groceryTotal)}</p>
+            <p className="mt-1 text-sm text-muted-foreground">Product and grocery operating costs</p>
+          </CardContent>
+        </Card>
+
+        <Card className="rounded-2xl border-slate-200 shadow-sm">
+          <CardHeader className="flex flex-row items-center gap-2 pb-2">
+            <Building2 className="h-4 w-4 text-blue-700" />
+            <CardTitle className="text-sm font-medium text-muted-foreground">
+              Bodega
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-3xl font-bold">{formatPeso(bodegaTotal)}</p>
+            <p className="mt-1 text-sm text-muted-foreground">Chicken, slicing, bodega, and delivery costs</p>
+          </CardContent>
+        </Card>
+      </div>
+
       <Card className="rounded-2xl border-slate-200 shadow-sm">
-        <CardContent className="grid gap-4 p-5 md:grid-cols-5">
+        <CardContent className="grid gap-4 p-5 md:grid-cols-6">
           <div className="md:col-span-2">
             <Label>Search</Label>
             <Input
@@ -349,6 +460,23 @@ export function ExpensesBodegaPageClient() {
                 if (event.key === "Enter") applyFilters();
               }}
             />
+          </div>
+
+          <div>
+            <Label>Category</Label>
+            <Select value={expenseCategory} onValueChange={setExpenseCategory}>
+              <SelectTrigger>
+                <SelectValue placeholder="All Categories" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="ALL">All Categories</SelectItem>
+                {expenseCategoryOptions.map((item) => (
+                  <SelectItem key={item.value} value={item.value}>
+                    {item.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
 
           <div>
@@ -386,7 +514,7 @@ export function ExpensesBodegaPageClient() {
             />
           </div>
 
-          <div className="flex items-end gap-2 md:col-span-5">
+          <div className="flex items-end gap-2 md:col-span-6">
             <Button onClick={applyFilters} disabled={isLoading}>
               <Search className="mr-2 h-4 w-4" />
               Filter
@@ -400,36 +528,10 @@ export function ExpensesBodegaPageClient() {
         </CardContent>
       </Card>
 
-      <div className="grid gap-4 md:grid-cols-3">
-        <Card className="rounded-2xl border-slate-200 shadow-sm">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">
-              Filtered Records
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-3xl font-bold">{summary.rows.toLocaleString()}</p>
-          </CardContent>
-        </Card>
-
-        <Card className="rounded-2xl border-slate-200 shadow-sm md:col-span-2">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">
-              Total Expense Amount
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-3xl font-bold text-red-700">
-              {formatPeso(summary.totalAmount)}
-            </p>
-          </CardContent>
-        </Card>
-      </div>
-
       {summary.byType.length > 0 ? (
         <Card className="rounded-2xl border-slate-200 shadow-sm">
           <CardHeader>
-            <CardTitle>Expense Breakdown</CardTitle>
+            <CardTitle>Expense Type Breakdown</CardTitle>
           </CardHeader>
           <CardContent className="grid gap-3 md:grid-cols-3">
             {summary.byType.map((item) => (
@@ -480,6 +582,7 @@ export function ExpensesBodegaPageClient() {
                 <TableRow>
                   <TableHead className="text-white">#</TableHead>
                   <TableHead className="text-white">Name</TableHead>
+                  <TableHead className="text-white">Category</TableHead>
                   <TableHead className="text-white">Type</TableHead>
                   <TableHead className="text-white">Date</TableHead>
                   <TableHead className="text-right text-white">Amount</TableHead>
@@ -490,14 +593,14 @@ export function ExpensesBodegaPageClient() {
               <TableBody>
                 {isLoading ? (
                   <TableRow>
-                    <TableCell colSpan={7} className="h-32 text-center">
+                    <TableCell colSpan={8} className="h-32 text-center">
                       <Loader2 className="mx-auto h-5 w-5 animate-spin" />
                     </TableCell>
                   </TableRow>
                 ) : rows.length === 0 ? (
                   <TableRow>
                     <TableCell
-                      colSpan={7}
+                      colSpan={8}
                       className="h-32 text-center text-muted-foreground"
                     >
                       No expenses found.
@@ -510,6 +613,11 @@ export function ExpensesBodegaPageClient() {
                         {(meta.page - 1) * meta.limit + index + 1}
                       </TableCell>
                       <TableCell className="font-medium">{expense.name}</TableCell>
+                      <TableCell>
+                        <Badge variant={expense.expenseCategory === "GROCERY" ? "secondary" : "outline"}>
+                          {getCategoryLabel(expense.expenseCategory)}
+                        </Badge>
+                      </TableCell>
                       <TableCell>{getTypeLabel(expense.type)}</TableCell>
                       <TableCell>{formatDate(expense.expenseDate)}</TableCell>
                       <TableCell className="text-right font-semibold">
@@ -590,10 +698,29 @@ export function ExpensesBodegaPageClient() {
 
             <div className="grid gap-4 md:grid-cols-3">
               <div className="space-y-2">
+                <Label>Category</Label>
+                <Select
+                  value={form.expenseCategory}
+                  onValueChange={(value) => updateForm("expenseCategory", value)}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {expenseCategoryOptions.map((item) => (
+                      <SelectItem key={item.value} value={item.value}>
+                        {item.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-2">
                 <Label>Expense Type</Label>
                 <Select
                   value={form.type}
-                  onValueChange={(value: ExpenseType) => updateForm("type", value)}
+                  onValueChange={(value) => updateForm("type", value)}
                 >
                   <SelectTrigger>
                     <SelectValue />
@@ -613,24 +740,31 @@ export function ExpensesBodegaPageClient() {
                 <Input
                   type="date"
                   value={form.expenseDate}
-                  onChange={(event) =>
-                    updateForm("expenseDate", event.target.value)
-                  }
+                  onChange={(event) => updateForm("expenseDate", event.target.value)}
                   required
                 />
               </div>
+            </div>
 
-              <div className="space-y-2">
-                <Label>Amount</Label>
-                <Input
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  value={form.amount}
-                  onChange={(event) => updateForm("amount", event.target.value)}
-                  required
-                />
-              </div>
+            <div className="space-y-2 rounded-xl border bg-slate-50 p-4 text-sm text-muted-foreground">
+              <p className="font-medium text-slate-900">
+                {getCategoryLabel(form.expenseCategory)} expense
+              </p>
+              <p>
+                {expenseCategoryOptions.find((item) => item.value === form.expenseCategory)?.description}
+              </p>
+            </div>
+
+            <div className="space-y-2">
+              <Label>Amount</Label>
+              <Input
+                type="number"
+                min="0"
+                step="0.01"
+                value={form.amount}
+                onChange={(event) => updateForm("amount", event.target.value)}
+                required
+              />
             </div>
 
             <div className="space-y-2">
@@ -638,7 +772,7 @@ export function ExpensesBodegaPageClient() {
               <Input
                 value={form.remarks}
                 onChange={(event) => updateForm("remarks", event.target.value)}
-                placeholder="Optional remarks"
+                placeholder="Optional notes"
               />
             </div>
 
@@ -651,6 +785,7 @@ export function ExpensesBodegaPageClient() {
               >
                 Cancel
               </Button>
+
               <Button type="submit" disabled={isSaving}>
                 {isSaving ? "Saving..." : "Save"}
               </Button>

@@ -200,7 +200,14 @@ export const appNavItems: AppNavItem[] = [
     section: "Finance",
   },
   {
-    title: "Expenses Bodega",
+    title: "Product Profit",
+    href: "/profit/products",
+    icon: BarChart3,
+    permission: "reports.profit",
+    section: "Finance",
+  },
+  {
+    title: "Business Expenses",
     href: "/expenses-bodega",
     icon: ReceiptText,
     permission: "expenses-bodega.view",
@@ -260,6 +267,12 @@ export const appNavItems: AppNavItem[] = [
         title: "Profit Report",
         href: "/reports/profit",
         icon: Gauge,
+        permission: "reports.profit",
+      },
+      {
+        title: "Product Profit Recovery",
+        href: "/reports/product-profits",
+        icon: BarChart3,
         permission: "reports.profit",
       },
     ],

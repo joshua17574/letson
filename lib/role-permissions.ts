@@ -54,8 +54,8 @@ export const ROLE_PERMISSION_GROUPS = [
   {
     group: "Expenses",
     permissions: [
-      { key: "expenses-bodega.view", label: "View Expenses Bodega" },
-      { key: "expenses-bodega.manage", label: "Manage Expenses Bodega" },
+      { key: "expenses-bodega.view", label: "View Business Expenses" },
+      { key: "expenses-bodega.manage", label: "Manage Business Expenses" },
     ],
   },
   {

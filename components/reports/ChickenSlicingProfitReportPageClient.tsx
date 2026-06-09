@@ -68,6 +68,9 @@ type ReportSummary = {
   totalLoosePcs: number;
   totalCapital: number;
   totalGross: number;
+  grossProfit: number;
+  totalBodegaExpenses: number;
+  netProfit: number;
   totalProfit: number;
 };
 
@@ -95,6 +98,9 @@ const emptySummary: ReportSummary = {
   totalLoosePcs: 0,
   totalCapital: 0,
   totalGross: 0,
+  grossProfit: 0,
+  totalBodegaExpenses: 0,
+  netProfit: 0,
   totalProfit: 0,
 };
 
@@ -325,7 +331,7 @@ export function ChickenSlicingProfitReportPageClient() {
         </CardContent>
       </Card>
 
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-6">
         <Card className="rounded-2xl border-slate-200 shadow-sm">
           <CardContent className="p-5 text-center">
             <p className="text-sm text-muted-foreground">Total Capital</p>
@@ -342,22 +348,38 @@ export function ChickenSlicingProfitReportPageClient() {
 
         <Card className="rounded-2xl border-slate-200 shadow-sm">
           <CardContent className="p-5 text-center">
-            <p className="text-sm text-muted-foreground">Net Profit</p>
+            <p className="text-sm text-muted-foreground">Gross Profit</p>
             <p
               className={cn(
                 "mt-2 text-2xl font-bold",
-                summary.totalProfit < 0 ? "text-red-600" : "text-emerald-700"
+                summary.grossProfit < 0 ? "text-red-600" : "text-emerald-700"
               )}
             >
-              {formatMoney(summary.totalProfit)}
+              {formatMoney(summary.grossProfit)}
             </p>
           </CardContent>
         </Card>
 
         <Card className="rounded-2xl border-slate-200 shadow-sm">
           <CardContent className="p-5 text-center">
-            <p className="text-sm text-muted-foreground">Total Kilos</p>
-            <p className="mt-2 text-2xl font-bold">{formatNumber(summary.totalKilos, 2)}</p>
+            <p className="text-sm text-muted-foreground">Bodega Expenses</p>
+            <p className="mt-2 text-2xl font-bold text-red-600">
+              {formatMoney(summary.totalBodegaExpenses)}
+            </p>
+          </CardContent>
+        </Card>
+
+        <Card className="rounded-2xl border-slate-200 shadow-sm">
+          <CardContent className="p-5 text-center">
+            <p className="text-sm text-muted-foreground">Net Profit</p>
+            <p
+              className={cn(
+                "mt-2 text-2xl font-bold",
+                summary.netProfit < 0 ? "text-red-600" : "text-emerald-700"
+              )}
+            >
+              {formatMoney(summary.netProfit)}
+            </p>
           </CardContent>
         </Card>
 
@@ -399,7 +421,7 @@ export function ChickenSlicingProfitReportPageClient() {
                   <TableHead className="whitespace-nowrap text-right text-white">Price / Pack</TableHead>
                   <TableHead className="whitespace-nowrap text-right text-white">Capital</TableHead>
                   <TableHead className="whitespace-nowrap text-right text-white">Total Amount</TableHead>
-                  <TableHead className="whitespace-nowrap text-right text-white">Profit (G-C)</TableHead>
+                  <TableHead className="whitespace-nowrap text-right text-white">Gross Profit</TableHead>
                   <TableHead className="whitespace-nowrap text-white">Slicer / Packer</TableHead>
                 </TableRow>
               </TableHeader>
@@ -470,10 +492,35 @@ export function ChickenSlicingProfitReportPageClient() {
                       <TableCell
                         className={cn(
                           "whitespace-nowrap text-right",
-                          summary.totalProfit < 0 ? "text-red-600" : "text-emerald-700"
+                          summary.grossProfit < 0 ? "text-red-600" : "text-emerald-700"
                         )}
                       >
-                        {formatMoney(summary.totalProfit)}
+                        {formatMoney(summary.grossProfit)}
+                      </TableCell>
+                      <TableCell />
+                    </TableRow>
+
+                    <TableRow className="bg-red-50 font-bold text-red-700">
+                      <TableCell colSpan={15} className="whitespace-nowrap text-right">
+                        Less: Bodega Expenses
+                      </TableCell>
+                      <TableCell className="whitespace-nowrap text-right">
+                        {formatMoney(summary.totalBodegaExpenses)}
+                      </TableCell>
+                      <TableCell />
+                    </TableRow>
+
+                    <TableRow className="bg-emerald-50 font-black">
+                      <TableCell colSpan={15} className="whitespace-nowrap text-right">
+                        NET PROFIT
+                      </TableCell>
+                      <TableCell
+                        className={cn(
+                          "whitespace-nowrap text-right",
+                          summary.netProfit < 0 ? "text-red-600" : "text-emerald-700"
+                        )}
+                      >
+                        {formatMoney(summary.netProfit)}
                       </TableCell>
                       <TableCell />
                     </TableRow>
