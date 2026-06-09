@@ -42,6 +42,8 @@ export const ROLE_PERMISSION_GROUPS = [
       { key: "sales.view", label: "View Sales" },
       { key: "sales.manage", label: "Manage Sales" },
       { key: "sales-lines.view", label: "View Sales Per Item" },
+      { key: "customer-deliveries.view", label: "View Customer Deliveries" },
+      { key: "customer-deliveries.manage", label: "Manage Customer Deliveries" },
     ],
   },
   {

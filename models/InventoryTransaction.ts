@@ -8,7 +8,8 @@ export type InventoryTransactionType =
   | "DELIVERY"
   | "SLICING"
   | "ADJUSTMENT"
-  | "VOID_REVERSAL";
+  | "VOID_REVERSAL"
+  | "CUSTOMER_DELIVERY";
 
 export type InventoryUnit = "PCS" | "BAGS" | "KILOS";
 
@@ -46,6 +47,7 @@ const InventoryTransactionSchema = new Schema<IInventoryTransaction>(
         "SLICING",
         "ADJUSTMENT",
         "VOID_REVERSAL",
+        "CUSTOMER_DELIVERY",
       ],
       required: true,
     },

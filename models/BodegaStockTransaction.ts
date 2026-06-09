@@ -8,7 +8,8 @@ export type BodegaStockTransactionType =
   | "ADJUSTMENT"
   | "DAMAGED"
   | "EXPIRED"
-  | "VOID_REVERSAL";
+  | "VOID_REVERSAL"
+  | "CUSTOMER_DELIVERY";
 
 export interface IBodegaStockTransaction extends Document {
   _id: Types.ObjectId;
@@ -43,6 +44,7 @@ const BodegaStockTransactionSchema = new Schema<IBodegaStockTransaction>(
         "DAMAGED",
         "EXPIRED",
         "VOID_REVERSAL",
+        "CUSTOMER_DELIVERY",
       ],
       required: true,
     },

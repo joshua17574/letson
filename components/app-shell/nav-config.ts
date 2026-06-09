@@ -10,6 +10,7 @@ import {
   Gauge,
   LayoutDashboard,
   Package,
+  PackageCheck,
   PackagePlus,
   ReceiptText,
   Scissors,
@@ -100,6 +101,13 @@ export const appNavItems: AppNavItem[] = [
     href: "/deliveries",
     icon: Truck,
     permission: "supplier-deliveries.view",
+    section: "Operations",
+  },
+  {
+    title: "Customer Deliveries",
+    href: "/customer-deliveries",
+    icon: PackageCheck,
+    permission: "customer-deliveries.view",
     section: "Operations",
   },
   {
