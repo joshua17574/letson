@@ -4,6 +4,15 @@ export const ROLE_PERMISSION_GROUPS = [
     permissions: [{ key: "dashboard.view", label: "View Dashboard" }],
   },
   {
+    group: "Outlets",
+    permissions: [
+      { key: "outlets.view", label: "View Outlets" },
+      { key: "outlets.manage", label: "Manage Outlets" },
+      { key: "outlet-inventory.view", label: "View Outlet Inventory" },
+      { key: "outlet-inventory.manage", label: "Manage Outlet Inventory" },
+    ],
+  },
+  {
     group: "Master Data",
     permissions: [
       { key: "customers.view", label: "View Customers" },
@@ -37,7 +46,7 @@ export const ROLE_PERMISSION_GROUPS = [
     ],
   },
   {
-    group: "Sales",
+    group: "Sales / Customer Deliveries",
     permissions: [
       { key: "sales.view", label: "View Sales" },
       { key: "sales.manage", label: "Manage Sales" },
@@ -76,7 +85,7 @@ export const ROLE_PERMISSION_GROUPS = [
       { key: "reports.payments", label: "Payment Report" },
       { key: "reports.customer-balance", label: "Customer Balance Report" },
       { key: "reports.product-movement", label: "Product Movement Report" },
-      { key: "reports.profit", label: "Profit Report" },
+      { key: "reports.profit", label: "Profit Reports" },
     ],
   },
   {
@@ -87,6 +96,7 @@ export const ROLE_PERMISSION_GROUPS = [
       { key: "roles.view", label: "View Roles" },
       { key: "roles.manage", label: "Manage Roles" },
       { key: "activity-logs.view", label: "View Activity Logs" },
+      { key: "audit-logs.view", label: "View Audit Logs" },
       { key: "settings.manage", label: "Manage Settings" },
     ],
   },

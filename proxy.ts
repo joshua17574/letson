@@ -13,6 +13,8 @@ const PAGE_RULES: PageRule[] = [
   { prefix: "/reports/chicken-slicing", permission: "reports.profit" },
   { prefix: "/reports/product-profits", permission: "reports.profit" },
   { exact: "/dashboard", permission: "dashboard.view" },
+  { prefix: "/outlets", permission: "outlets.view" },
+  { prefix: "/outlet-inventory", permission: "outlet-inventory.view" },
   { prefix: "/customers", permission: "customers.view" },
   { prefix: "/suppliers", permission: "suppliers.view" },
   { prefix: "/categories", permission: "categories.view" },
@@ -117,6 +119,8 @@ export const config = {
   matcher: [
     "/profit/:path*",
     "/dashboard/:path*",
+    "/outlets/:path*",
+    "/outlet-inventory/:path*",
     "/customers/:path*",
     "/suppliers/:path*",
     "/categories/:path*",

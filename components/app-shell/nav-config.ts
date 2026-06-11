@@ -3,6 +3,7 @@ import type { LucideIcon } from "lucide-react";
 import {
   ArrowLeftRight,
   BarChart3,
+  Building2,
   Boxes,
   ClipboardList,
   Clock,
@@ -22,6 +23,7 @@ import {
   UserRoundCog,
   Users,
   WalletCards,
+  Warehouse,
 } from "lucide-react";
 
 export type AppNavChild = {
@@ -53,6 +55,13 @@ export const appNavItems: AppNavItem[] = [
     href: "/customers",
     icon: Users,
     permission: "customers.view",
+    section: "Workspace",
+  },
+  {
+    title: "Outlets",
+    href: "/outlets",
+    icon: Building2,
+    permission: "outlets.view",
     section: "Workspace",
   },
   {
@@ -201,14 +210,14 @@ export const appNavItems: AppNavItem[] = [
     ],
   },
   {
-    title: "Slicing Profit",
+    title: "Chicken Slicing Profit",
     href: "/profit/chicken-slicing",
     icon: BarChart3,
     permission: "reports.profit",
     section: "Finance",
   },
   {
-    title: "Product Profit",
+    title: "Product/Grocery Profit",
     href: "/profit/products",
     icon: BarChart3,
     permission: "reports.profit",
@@ -227,6 +236,12 @@ export const appNavItems: AppNavItem[] = [
     permission: "inventory.view",
     section: "Finance",
     children: [
+      {
+        title: "Outlet Inventory",
+        href: "/outlet-inventory",
+        icon: Warehouse,
+        permission: "outlet-inventory.view",
+      },
       {
         title: "Grocery/Product Inventory",
         href: "/inventory/products",

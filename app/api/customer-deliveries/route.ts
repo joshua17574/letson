@@ -23,6 +23,7 @@ import {
 import BodegaProductModel from "@/models/BodegaProduct";
 import CategoryModel from "@/models/Category";
 import CustomerModel from "@/models/Customer";
+import OutletModel from "@/models/Outlet";
 import CustomerDeliveryModel from "@/models/CustomerDelivery";
 import CustomerDeliveryItemModel from "@/models/CustomerDeliveryItem";
 import ProductModel from "@/models/Product";
@@ -216,6 +217,7 @@ export async function GET(req: NextRequest) {
   const { page, limit, skip } = getPagination(searchParams);
   const search = cleanString(searchParams.get("search"));
   const customerId = cleanString(searchParams.get("customerId"));
+  const outletId = cleanString(searchParams.get("outletId"));
   const category = cleanDeliveryCategory(searchParams.get("category"));
   const rawCategory = cleanString(searchParams.get("category")).toUpperCase();
   const status = cleanDeliveryStatus(searchParams.get("status"));
@@ -235,6 +237,10 @@ export async function GET(req: NextRequest) {
 
   if (customerId && isValidObjectId(customerId)) {
     filter.customerId = customerId;
+  }
+
+  if (outletId && isValidObjectId(outletId)) {
+    filter.outletId = outletId;
   }
 
   if (rawCategory === "DELIVER" || rawCategory === "PICKUP") {
@@ -258,6 +264,7 @@ export async function GET(req: NextRequest) {
   const [items, total, summaryRows] = await Promise.all([
     CustomerDeliveryModel.find(filter)
       .populate("customerId", "name phone address type")
+      .populate("outletId", "name code address")
       .sort({ requestDate: -1, createdAt: -1 })
       .skip(skip)
       .limit(limit)
@@ -320,6 +327,7 @@ export async function POST(req: NextRequest) {
   const body = await req.json();
   const deliveryCode = cleanString(body.deliveryCode).toUpperCase();
   const customerId = cleanString(body.customerId);
+  const outletId = cleanString(body.outletId);
   const category = cleanDeliveryCategory(body.category);
   const requestDateInput = cleanString(body.requestDate);
   const scheduledDateInput = cleanString(body.scheduledDate);
@@ -345,6 +353,28 @@ export async function POST(req: NextRequest) {
       { success: false, message: "At least one delivery item is required." },
       { status: 400 }
     );
+  }
+
+  let outletObjectId: mongoose.Types.ObjectId | undefined;
+
+  if (outletId) {
+    if (!isValidObjectId(outletId)) {
+      return NextResponse.json(
+        { success: false, message: "Invalid outlet selected." },
+        { status: 400 }
+      );
+    }
+
+    const outlet = await OutletModel.findOne({ _id: outletId, isActive: true }).lean();
+
+    if (!outlet) {
+      return NextResponse.json(
+        { success: false, message: "Selected outlet was not found." },
+        { status: 404 }
+      );
+    }
+
+    outletObjectId = new mongoose.Types.ObjectId(outletId);
   }
 
   const customer = await CustomerModel.findOne({ _id: customerId, isActive: true }).lean();
@@ -378,6 +408,7 @@ export async function POST(req: NextRequest) {
     const delivery = await CustomerDeliveryModel.create({
       deliveryCode,
       customerId,
+      outletId: outletObjectId,
       category,
       status: "PENDING",
       requestDate: requestDateInput ? new Date(requestDateInput) : new Date(),
@@ -399,6 +430,7 @@ export async function POST(req: NextRequest) {
 
     const savedDelivery = await CustomerDeliveryModel.findById(delivery._id)
       .populate("customerId", "name phone address type")
+      .populate("outletId", "name code address")
       .lean();
     const savedItems = await CustomerDeliveryItemModel.find({
       customerDeliveryId: delivery._id,

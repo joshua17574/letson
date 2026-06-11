@@ -1,11 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
-import { isValidObjectId } from "mongoose";
+import mongoose, { isValidObjectId } from "mongoose";
 
 import dbConnect from "@/lib/mongodb";
 import { requirePermission } from "@/lib/require-permission";
 import { cleanDeliveryCategory, serializeCustomerDelivery, serializeCustomerDeliveryItem } from "@/lib/customer-delivery-utils";
 import { cleanString } from "@/lib/crud-utils";
 import CustomerDeliveryModel from "@/models/CustomerDelivery";
+import OutletModel from "@/models/Outlet";
 import CustomerDeliveryItemModel from "@/models/CustomerDeliveryItem";
 
 export async function GET(
@@ -28,6 +29,7 @@ export async function GET(
 
   const delivery = await CustomerDeliveryModel.findOne({ _id: id, isActive: true })
     .populate("customerId", "name phone address type")
+    .populate("outletId", "name code address")
     .lean();
 
   if (!delivery) {
@@ -86,19 +88,44 @@ export async function PATCH(
 
   const body = await req.json();
   const category = cleanDeliveryCategory(body.category);
+  const outletId = cleanString(body.outletId);
   const scheduledDateInput = cleanString(body.scheduledDate);
   const remarks = cleanString(body.remarks);
+
+  let outletObjectId: mongoose.Types.ObjectId | undefined;
+
+  if (outletId && outletId !== "NONE") {
+    if (!isValidObjectId(outletId)) {
+      return NextResponse.json(
+        { success: false, message: "Invalid outlet selected." },
+        { status: 400 }
+      );
+    }
+
+    const outlet = await OutletModel.findOne({ _id: outletId, isActive: true }).lean();
+
+    if (!outlet) {
+      return NextResponse.json(
+        { success: false, message: "Selected outlet was not found." },
+        { status: 404 }
+      );
+    }
+
+    outletObjectId = new mongoose.Types.ObjectId(outletId);
+  }
 
   const updated = await CustomerDeliveryModel.findOneAndUpdate(
     { _id: id, isActive: true, status: "PENDING" },
     {
       category,
+      outletId: outletId === "NONE" ? undefined : outletObjectId,
       scheduledDate: scheduledDateInput ? new Date(scheduledDateInput) : undefined,
       remarks,
     },
     { new: true }
   )
     .populate("customerId", "name phone address type")
+    .populate("outletId", "name code address")
     .lean();
 
   return NextResponse.json({

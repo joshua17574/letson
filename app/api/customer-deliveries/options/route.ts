@@ -7,6 +7,7 @@ import { idToString, numberValue, wholeNumber } from "@/lib/customer-delivery-ut
 import BodegaProductModel from "@/models/BodegaProduct";
 import CategoryModel from "@/models/Category";
 import CustomerModel from "@/models/Customer";
+import OutletModel from "@/models/Outlet";
 import ProductModel from "@/models/Product";
 import StandardPackingModel from "@/models/StandardPacking";
 
@@ -48,11 +49,15 @@ export async function GET() {
 
   void CategoryModel;
 
-  const [customers, bodegaProducts, groceryProducts] = await Promise.all([
+  const [customers, outlets, bodegaProducts, groceryProducts] = await Promise.all([
     CustomerModel.find({
       isActive: true,
     })
       .select("name phone address type")
+      .sort({ name: 1 })
+      .lean(),
+    OutletModel.find({ isActive: true })
+      .select("name code address managerName contactNumber")
       .sort({ name: 1 })
       .lean(),
     BodegaProductModel.find({ isActive: true })
@@ -97,6 +102,14 @@ export async function GET() {
         phone: customer.phone || "",
         address: customer.address || "",
         type: customer.type || "DELIVERY",
+      })),
+      outlets: outlets.map((outlet) => ({
+        _id: idToString(outlet._id),
+        name: outlet.name || "",
+        code: outlet.code || "",
+        address: outlet.address || "",
+        managerName: outlet.managerName || "",
+        contactNumber: outlet.contactNumber || "",
       })),
       bodegaProducts: bodegaProducts.map((product) => {
         const packSize = packSizeByProductId.get(idToString(product._id)) || 0;

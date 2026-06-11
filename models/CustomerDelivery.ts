@@ -7,6 +7,7 @@ export interface ICustomerDelivery extends Document {
   _id: Types.ObjectId;
   deliveryCode: string;
   customerId: Types.ObjectId;
+  outletId?: Types.ObjectId;
   category: CustomerDeliveryCategory;
   status: CustomerDeliveryStatus;
   requestDate: Date;
@@ -38,6 +39,11 @@ const CustomerDeliverySchema = new Schema<ICustomerDelivery>(
       type: Schema.Types.ObjectId,
       ref: "Customer",
       required: true,
+    },
+
+    outletId: {
+      type: Schema.Types.ObjectId,
+      ref: "Outlet",
     },
 
     category: {
@@ -124,6 +130,7 @@ const CustomerDeliverySchema = new Schema<ICustomerDelivery>(
 
 CustomerDeliverySchema.index({ deliveryCode: 1 }, { unique: true });
 CustomerDeliverySchema.index({ customerId: 1 });
+CustomerDeliverySchema.index({ outletId: 1 });
 CustomerDeliverySchema.index({ category: 1 });
 CustomerDeliverySchema.index({ status: 1 });
 CustomerDeliverySchema.index({ requestDate: -1 });

@@ -1,0 +1,138 @@
+// models/OutletInventory.ts
+import mongoose, { Document, Model, Schema, Types } from "mongoose";
+
+export type OutletInventorySource = "BODEGA" | "GROCERY";
+export type OutletInventoryUnit = "PCS" | "PACK" | "QTY" | "KG" | "BAG";
+
+export interface IOutletInventory extends Document {
+  _id: Types.ObjectId;
+  outletId: Types.ObjectId;
+  productSource: OutletInventorySource;
+  productId: Types.ObjectId;
+  productName: string;
+  categoryName?: string;
+  stockQty: number;
+  unitLabel: OutletInventoryUnit;
+  packSize: number;
+  lowStockAlert: number;
+  buyingPrice: number;
+  sellingPrice: number;
+  remarks?: string;
+  isActive: boolean;
+  createdBy?: Types.ObjectId;
+  updatedBy?: Types.ObjectId;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+const OutletInventorySchema = new Schema<IOutletInventory>(
+  {
+    outletId: {
+      type: Schema.Types.ObjectId,
+      ref: "Outlet",
+      required: true,
+    },
+
+    productSource: {
+      type: String,
+      enum: ["BODEGA", "GROCERY"],
+      required: true,
+    },
+
+    productId: {
+      type: Schema.Types.ObjectId,
+      required: true,
+    },
+
+    productName: {
+      type: String,
+      required: true,
+      trim: true,
+      uppercase: true,
+    },
+
+    categoryName: {
+      type: String,
+      trim: true,
+      uppercase: true,
+      default: "",
+    },
+
+    stockQty: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+
+    unitLabel: {
+      type: String,
+      enum: ["PCS", "PACK", "QTY", "KG", "BAG"],
+      default: "QTY",
+      required: true,
+    },
+
+    packSize: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+
+    lowStockAlert: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+
+    buyingPrice: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+
+    sellingPrice: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+
+    remarks: {
+      type: String,
+      trim: true,
+      uppercase: true,
+      default: "",
+    },
+
+    isActive: {
+      type: Boolean,
+      default: true,
+    },
+
+    createdBy: {
+      type: Schema.Types.ObjectId,
+      ref: "User",
+    },
+
+    updatedBy: {
+      type: Schema.Types.ObjectId,
+      ref: "User",
+    },
+  },
+  {
+    timestamps: true,
+  }
+);
+
+OutletInventorySchema.index(
+  { outletId: 1, productSource: 1, productId: 1 },
+  { unique: true, partialFilterExpression: { isActive: true } }
+);
+OutletInventorySchema.index({ outletId: 1 });
+OutletInventorySchema.index({ productSource: 1 });
+OutletInventorySchema.index({ productName: 1 });
+OutletInventorySchema.index({ isActive: 1 });
+
+const OutletInventoryModel: Model<IOutletInventory> =
+  mongoose.models.OutletInventory ||
+  mongoose.model<IOutletInventory>("OutletInventory", OutletInventorySchema);
+
+export default OutletInventoryModel;

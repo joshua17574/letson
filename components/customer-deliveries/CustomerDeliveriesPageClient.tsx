@@ -55,6 +55,15 @@ type CustomerOption = {
   type?: string;
 };
 
+type OutletOption = {
+  _id: string;
+  name: string;
+  code?: string;
+  address?: string;
+  managerName?: string;
+  contactNumber?: string;
+};
+
 type BodegaProductOption = {
   _id: string;
   name: string;
@@ -87,6 +96,9 @@ type DeliveryRow = {
   customerName: string;
   customerPhone?: string;
   customerAddress?: string;
+  outletId?: string;
+  outletName?: string;
+  outletCode?: string;
   category: DeliveryCategory;
   status: DeliveryStatus;
   requestDate?: string;
@@ -172,6 +184,7 @@ function getProductPrice(product?: ProductOption) {
 
 export function CustomerDeliveriesPageClient() {
   const [customers, setCustomers] = useState<CustomerOption[]>([]);
+  const [outlets, setOutlets] = useState<OutletOption[]>([]);
   const [bodegaProducts, setBodegaProducts] = useState<BodegaProductOption[]>([]);
   const [products, setProducts] = useState<ProductOption[]>([]);
   const [records, setRecords] = useState<DeliveryRow[]>([]);
@@ -190,6 +203,7 @@ export function CustomerDeliveriesPageClient() {
   const [filters, setFilters] = useState({
     search: "",
     customerId: "ALL",
+    outletId: "ALL",
     status: "ALL",
     category: "ALL",
     dateFrom: todayString(),
@@ -199,6 +213,7 @@ export function CustomerDeliveriesPageClient() {
   const [form, setForm] = useState({
     deliveryCode: `CD-${Date.now().toString().slice(-6)}`,
     customerId: "",
+    outletId: "",
     category: "DELIVER" as DeliveryCategory,
     requestDate: todayString(),
     scheduledDate: todayString(),
@@ -246,6 +261,7 @@ export function CustomerDeliveriesPageClient() {
   }, [items, bodegaProducts, products]);
 
   const selectedCustomer = customers.find((customer) => customer._id === form.customerId);
+  const selectedOutlet = outlets.find((outlet) => outlet._id === form.outletId);
 
   async function loadOptions() {
     const res = await fetch("/api/customer-deliveries/options", { cache: "no-store" });
@@ -256,6 +272,7 @@ export function CustomerDeliveriesPageClient() {
     }
 
     setCustomers(json.data?.customers || []);
+    setOutlets(json.data?.outlets || []);
     setBodegaProducts(json.data?.bodegaProducts || []);
     setProducts(json.data?.products || []);
   }
@@ -266,6 +283,7 @@ export function CustomerDeliveriesPageClient() {
 
     if (filters.search.trim()) params.set("search", filters.search.trim());
     if (filters.customerId !== "ALL") params.set("customerId", filters.customerId);
+    if (filters.outletId !== "ALL") params.set("outletId", filters.outletId);
     if (filters.status !== "ALL") params.set("status", filters.status);
     if (filters.category !== "ALL") params.set("category", filters.category);
     if (filters.dateFrom) params.set("dateFrom", filters.dateFrom);
@@ -392,6 +410,11 @@ export function CustomerDeliveriesPageClient() {
       return;
     }
 
+    if (!form.outletId) {
+      toast.error("Select an outlet to receive this delivery.");
+      return;
+    }
+
     const validItems = items.filter((item) => item.productId && numberValue(item.qty) > 0);
 
     if (validItems.length === 0) {
@@ -426,6 +449,7 @@ export function CustomerDeliveriesPageClient() {
       setForm({
         deliveryCode: `CD-${Date.now().toString().slice(-6)}`,
         customerId: "",
+        outletId: "",
         category: "DELIVER",
         requestDate: todayString(),
         scheduledDate: todayString(),
@@ -442,7 +466,7 @@ export function CustomerDeliveriesPageClient() {
 
   async function confirmDelivery(record: DeliveryRow) {
     const ok = window.confirm(
-      `Confirm ${record.deliveryCode}? This will deduct main inventory and add items to the customer's inventory.`
+      `Confirm ${record.deliveryCode}? This will deduct main inventory and add items to the selected outlet inventory.`
     );
 
     if (!ok) return;
@@ -494,7 +518,7 @@ export function CustomerDeliveriesPageClient() {
       <ErpPageHeader
         eyebrow="Customer operations"
         title="Customer Deliveries"
-        description="Create delivery or pickup orders for customers. Confirmation deducts main stock and adds items to customer inventory for mobile POS sync."
+        description="Create delivery or pickup orders for customers/outlets. Confirmation deducts main stock and adds items to outlet inventory for Flutter POS sync."
         actions={
           <Button variant="outline" onClick={() => void loadPage()} disabled={isLoading}>
             <RefreshCcw className="mr-2 h-4 w-4" />
@@ -553,6 +577,30 @@ export function CustomerDeliveriesPageClient() {
                 </div>
               ) : (
                 <p className="text-xs text-slate-500">Select an existing customer or use the + button to add one.</p>
+              )}
+            </div>
+          </ErpField>
+          <ErpField label="Outlet Receiver">
+            <div className="space-y-2">
+              <Select
+                value={form.outletId}
+                onValueChange={(value) => setForm((current) => ({ ...current, outletId: value }))}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder={outlets.length ? "Select outlet" : "No outlets found"} />
+                </SelectTrigger>
+                <SelectContent>
+                  {outlets.map((outlet) => (
+                    <SelectItem key={outlet._id} value={outlet._id}>
+                      {outlet.name} {outlet.code ? `(${outlet.code})` : ""}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {selectedOutlet ? (
+                <p className="text-xs text-slate-500">{selectedOutlet.address || "No outlet address"}</p>
+              ) : (
+                <p className="text-xs text-slate-500">Confirmed items will be added to this outlet inventory.</p>
               )}
             </div>
           </ErpField>
@@ -775,6 +823,21 @@ export function CustomerDeliveriesPageClient() {
             </SelectContent>
           </Select>
         </ErpField>
+        <ErpField label="Outlet">
+          <Select value={filters.outletId} onValueChange={(value) => setFilters((current) => ({ ...current, outletId: value }))}>
+            <SelectTrigger>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="ALL">All Outlets</SelectItem>
+              {outlets.map((outlet) => (
+                <SelectItem key={outlet._id} value={outlet._id}>
+                  {outlet.name} {outlet.code ? `(${outlet.code})` : ""}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </ErpField>
         <ErpField label="Status">
           <Select value={filters.status} onValueChange={(value) => setFilters((current) => ({ ...current, status: value }))}>
             <SelectTrigger>
@@ -822,7 +885,7 @@ export function CustomerDeliveriesPageClient() {
           <Button
             variant="secondary"
             onClick={() => {
-              setFilters({ search: "", customerId: "ALL", status: "ALL", category: "ALL", dateFrom: todayString(), dateTo: todayString() });
+              setFilters({ search: "", customerId: "ALL", outletId: "ALL", status: "ALL", category: "ALL", dateFrom: todayString(), dateTo: todayString() });
               setTimeout(() => void loadRecords(), 0);
             }}
           >
@@ -831,7 +894,7 @@ export function CustomerDeliveriesPageClient() {
         </div>
       </ErpToolbar>
 
-      <ErpSection title="Delivery queue" description="Pending items can be confirmed by main system or Flutter mobile app.">
+      <ErpSection title="Delivery queue" description="Pending items can be confirmed by main system or Flutter mobile app. Confirmed items are added to the selected outlet inventory.">
         {isLoading ? (
           <div className="flex h-48 items-center justify-center">
             <Loader2 className="h-6 w-6 animate-spin" />
@@ -846,6 +909,7 @@ export function CustomerDeliveriesPageClient() {
                   <TableRow>
                     <TableHead className="text-white">Code</TableHead>
                     <TableHead className="text-white">Customer</TableHead>
+                    <TableHead className="text-white">Outlet</TableHead>
                     <TableHead className="text-white">Category</TableHead>
                     <TableHead className="text-white">Status</TableHead>
                     <TableHead className="text-white">Request</TableHead>
@@ -862,6 +926,10 @@ export function CustomerDeliveriesPageClient() {
                       <TableCell>
                         <div className="font-semibold">{record.customerName}</div>
                         <div className="text-xs text-slate-500">{record.customerAddress || record.customerPhone || "-"}</div>
+                      </TableCell>
+                      <TableCell>
+                        <div className="font-semibold">{record.outletName || "-"}</div>
+                        <div className="text-xs text-slate-500">{record.outletCode || ""}</div>
                       </TableCell>
                       <TableCell>{categoryBadge(record.category)}</TableCell>
                       <TableCell>{statusBadge(record.status)}</TableCell>
@@ -899,6 +967,7 @@ export function CustomerDeliveriesPageClient() {
                     <div>
                       <div className="font-black">{record.deliveryCode}</div>
                       <div className="text-sm text-slate-500">{record.customerName}</div>
+                      <div className="text-xs text-slate-500">Outlet: {record.outletName || "-"}</div>
                     </div>
                     <div className="flex flex-col items-end gap-1">
                       {categoryBadge(record.category)}

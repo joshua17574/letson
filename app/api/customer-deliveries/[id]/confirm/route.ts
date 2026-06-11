@@ -4,6 +4,7 @@ import mongoose, { isValidObjectId } from "mongoose";
 import dbConnect from "@/lib/mongodb";
 import { requirePermission } from "@/lib/require-permission";
 import { serializeCustomerDelivery } from "@/lib/customer-delivery-utils";
+import AuditLogModel from "@/models/AuditLog";
 import BodegaProductModel from "@/models/BodegaProduct";
 import BodegaStockTransactionModel from "@/models/BodegaStockTransaction";
 import CustomerDeliveryModel from "@/models/CustomerDelivery";
@@ -11,6 +12,8 @@ import CustomerDeliveryItemModel from "@/models/CustomerDeliveryItem";
 import CustomerInventoryModel from "@/models/CustomerInventory";
 import CustomerInventoryTransactionModel from "@/models/CustomerInventoryTransaction";
 import InventoryTransactionModel from "@/models/InventoryTransaction";
+import OutletInventoryModel from "@/models/OutletInventory";
+import OutletStockTransactionModel from "@/models/OutletStockTransaction";
 import ProductModel from "@/models/Product";
 
 class ApiError extends Error {
@@ -21,6 +24,97 @@ class ApiError extends Error {
 
 function fail(status: number, message: string): never {
   throw new ApiError(status, message);
+}
+
+function makeUserObjectId(value?: string) {
+  return value && isValidObjectId(value) ? new mongoose.Types.ObjectId(value) : undefined;
+}
+
+function numberValue(value: unknown) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+async function addToOutletInventory({
+  delivery,
+  item,
+  quantity,
+  sourceProduct,
+  session,
+  userId,
+}: {
+  delivery: any;
+  item: any;
+  quantity: number;
+  sourceProduct: any;
+  session: mongoose.ClientSession;
+  userId?: string;
+}) {
+  if (!delivery.outletId) return;
+
+  const productId = item.source === "BODEGA" ? item.bodegaProductId : item.productId;
+
+  if (!productId) {
+    fail(400, `Missing product reference for ${item.productName}.`);
+  }
+
+  const outletInventory = await OutletInventoryModel.findOneAndUpdate(
+    {
+      outletId: delivery.outletId,
+      productSource: item.source,
+      productId,
+      isActive: true,
+    },
+    {
+      $setOnInsert: {
+        outletId: delivery.outletId,
+        productSource: item.source,
+        productId,
+        productName: item.productName,
+        categoryName: item.categoryName,
+        unitLabel: item.source === "BODEGA" && numberValue(item.packSize) > 0 ? "PCS" : "QTY",
+        lowStockAlert: numberValue(sourceProduct?.lowStockAlert),
+        createdBy: makeUserObjectId(userId),
+        isActive: true,
+      },
+      $set: {
+        productName: item.productName,
+        categoryName: item.categoryName,
+        packSize: numberValue(item.packSize),
+        buyingPrice: numberValue(sourceProduct?.buyingPrice),
+        sellingPrice: item.source === "BODEGA" ? numberValue(sourceProduct?.sellingPrice) : numberValue(sourceProduct?.unitPrice),
+        updatedBy: makeUserObjectId(userId),
+      },
+      $inc: { stockQty: quantity },
+    },
+    { new: true, upsert: true, session }
+  );
+
+  const newStock = numberValue(outletInventory.stockQty);
+  const previousStock = newStock - quantity;
+
+  await OutletStockTransactionModel.create(
+    [
+      {
+        outletId: delivery.outletId,
+        outletInventoryId: outletInventory._id,
+        productSource: item.source,
+        productId,
+        productName: item.productName,
+        transactionDate: new Date(),
+        type: "DELIVERY_RECEIVED",
+        quantity,
+        previousStock,
+        newStock,
+        referenceType: "CUSTOMER_DELIVERY",
+        referenceId: delivery._id,
+        sourceChannel: "WEB",
+        remarks: `DELIVERY RECEIVED ${delivery.deliveryCode}`,
+        createdBy: makeUserObjectId(userId),
+      },
+    ],
+    { session }
+  );
 }
 
 export async function POST(
@@ -73,6 +167,7 @@ export async function POST(
       const customerInventoryTransactions = [];
       const bodegaStockTransactions = [];
       const productInventoryTransactions = [];
+      const auditLogs = [];
 
       for (const item of items) {
         const stockQtyOut = Number(item.stockPcsOut || 0);
@@ -80,6 +175,8 @@ export async function POST(
         if (stockQtyOut <= 0) {
           fail(400, `Invalid stock quantity for ${item.productName}.`);
         }
+
+        let sourceProduct: any = null;
 
         if (item.source === "BODEGA") {
           const updatedProduct = await BodegaProductModel.findOneAndUpdate(
@@ -98,6 +195,7 @@ export async function POST(
             fail(400, `Not enough bodega stock for ${item.productName}.`);
           }
 
+          sourceProduct = updatedProduct;
           const newStock = Number(updatedProduct.stockQty || 0);
           const previousStock = newStock + stockQtyOut;
 
@@ -131,6 +229,7 @@ export async function POST(
             fail(400, `Not enough grocery/product stock for ${item.productName}.`);
           }
 
+          sourceProduct = updatedProduct;
           const newStock = Number(updatedProduct.stockPcs || 0);
           const previousStock = newStock + stockQtyOut;
 
@@ -145,6 +244,17 @@ export async function POST(
             referenceType: "CUSTOMER_DELIVERY",
             referenceId: delivery._id,
             createdBy: authSession?.user?.id,
+          });
+        }
+
+        if (delivery.outletId) {
+          await addToOutletInventory({
+            delivery,
+            item,
+            quantity: stockQtyOut,
+            sourceProduct,
+            session: mongoSession,
+            userId: authSession?.user?.id,
           });
         }
 
@@ -222,22 +332,48 @@ export async function POST(
         );
       }
 
+      auditLogs.push({
+        outletId: delivery.outletId || undefined,
+        module: "CUSTOMER_DELIVERIES",
+        action: "CONFIRM_DELIVERY",
+        entityType: "CUSTOMER_DELIVERY",
+        entityId: delivery._id,
+        newValue: {
+          deliveryCode: delivery.deliveryCode,
+          customerId: delivery.customerId,
+          outletId: delivery.outletId || undefined,
+          totalItems: delivery.totalItems,
+          totalQty: delivery.totalQty,
+          totalAmount: delivery.totalAmount,
+        },
+        remarks: delivery.outletId
+          ? `CONFIRMED DELIVERY ${delivery.deliveryCode} AND ADDED STOCK TO OUTLET INVENTORY`
+          : `CONFIRMED DELIVERY ${delivery.deliveryCode}`,
+        sourceChannel: "WEB",
+        createdBy: makeUserObjectId(authSession?.user?.id),
+      });
+
+      if (auditLogs.length > 0) {
+        await AuditLogModel.insertMany(auditLogs, { session: mongoSession });
+      }
+
       delivery.status = "CONFIRMED";
       delivery.confirmedAt = new Date();
-      delivery.confirmedBy = authSession?.user?.id
-        ? new mongoose.Types.ObjectId(authSession.user.id)
-        : undefined;
+      delivery.confirmedBy = makeUserObjectId(authSession?.user?.id);
       await delivery.save({ session: mongoSession });
       confirmedDeliveryId = delivery._id;
     });
 
     const confirmedDelivery = await CustomerDeliveryModel.findById(confirmedDeliveryId)
       .populate("customerId", "name phone address type")
+      .populate("outletId", "name code address")
       .lean();
 
     return NextResponse.json({
       success: true,
-      message: "Customer delivery confirmed and added to customer inventory.",
+      message: confirmedDelivery?.outletId
+        ? "Customer delivery confirmed and added to outlet inventory."
+        : "Customer delivery confirmed and added to customer inventory.",
       data: serializeCustomerDelivery(confirmedDelivery),
     });
   } catch (error) {
