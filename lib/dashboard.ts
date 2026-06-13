@@ -4,12 +4,20 @@ import BodegaProductModel from "@/models/BodegaProduct";
 import CustomerModel from "@/models/Customer";
 import DeliveryModel from "@/models/Delivery";
 import ExpenseModel from "@/models/Expense";
+import OutletModel from "@/models/Outlet";
+import OutletInventoryModel from "@/models/OutletInventory";
 import PaymentModel from "@/models/Payment";
 import PurchaseBatchModel from "@/models/PurchaseBatch";
 import SaleModel from "@/models/Sale";
 import SupplierModel from "@/models/Supplier";
 import SlicingBatchModel from "@/models/SlicingBatch";
 import StandardPackingModel from "@/models/StandardPacking";
+import {
+  addDays,
+  startOfDayManila,
+  startOfMonthManila,
+  startOfNextMonthManila,
+} from "@/lib/date-utils";
 
 type AnyRecord = Record<string, any>;
 
@@ -39,6 +47,14 @@ export type DashboardActivityItem = {
   status?: string;
 };
 
+export type DashboardOutlet = {
+  id: string;
+  name: string;
+  code: string;
+  itemCount: number;
+  stockValue: number;
+};
+
 export type DashboardSummary = {
   generatedAt: string;
   totalCustomers: number;
@@ -46,6 +62,8 @@ export type DashboardSummary = {
   totalSales: number;
   totalPayments: number;
   totalExpenses: number;
+  totalBodegaExpenses: number;
+  totalGroceryExpenses: number;
   outstandingReceivables: number;
   totalSupplierDeliveries: number;
   totalPurchaseBatches: number;
@@ -55,6 +73,8 @@ export type DashboardSummary = {
     sales: number;
     payments: number;
     expenses: number;
+    bodegaExpenses: number;
+    groceryExpenses: number;
     operatingCash: number;
     supplierDeliveries: number;
     purchaseBatches: number;
@@ -77,6 +97,8 @@ export type DashboardSummary = {
     sales: number;
     payments: number;
     expenses: number;
+    bodegaExpenses: number;
+    groceryExpenses: number;
     operatingCash: number;
     supplierDeliveries: number;
     purchaseBatches: number;
@@ -84,6 +106,13 @@ export type DashboardSummary = {
     slicingHeads: number;
     slicingPacks: number;
     slicingActualPcs: number;
+  };
+  outlets: {
+    totalOutlets: number;
+    activeOutlets: number;
+    totalStockValue: number;
+    totalItems: number;
+    topOutlets: DashboardOutlet[];
   };
   bodegaStock: {
     totalPcs: number;
@@ -139,15 +168,12 @@ function notVoidedFilter() {
 
 function getDateRanges() {
   const now = new Date();
-  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const tomorrowStart = new Date(todayStart);
-  tomorrowStart.setDate(tomorrowStart.getDate() + 1);
+  const todayStart = startOfDayManila(now);
+  const tomorrowStart = addDays(todayStart, 1);
+  const yesterdayStart = addDays(todayStart, -1);
 
-  const yesterdayStart = new Date(todayStart);
-  yesterdayStart.setDate(yesterdayStart.getDate() - 1);
-
-  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-  const nextMonthStart = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+  const monthStart = startOfMonthManila(now);
+  const nextMonthStart = startOfNextMonthManila(now);
 
   return {
     todayStart,
@@ -446,6 +472,78 @@ async function sumSlicing(
   };
 }
 
+async function buildOutletsSummary() {
+  const [totalOutlets, activeOutlets, inventoryByOutlet, outlets] =
+    await Promise.all([
+      countDocuments(OutletModel, {}),
+      countDocuments(OutletModel, { isActive: true, status: "ACTIVE" }),
+      (OutletInventoryModel as any).aggregate([
+        { $match: { isActive: true } },
+        {
+          $group: {
+            _id: "$outletId",
+            itemCount: { $sum: 1 },
+            stockValue: {
+              $sum: {
+                $multiply: [
+                  { $ifNull: ["$stockQty", 0] },
+                  { $ifNull: ["$sellingPrice", 0] },
+                ],
+              },
+            },
+          },
+        },
+      ]),
+      (OutletModel as any)
+        .find({})
+        .select("name code")
+        .lean(),
+    ]);
+
+  const outletMeta = new Map<string, { name: string; code: string }>();
+  for (const outlet of outlets as AnyRecord[]) {
+    outletMeta.set(objectIdString(outlet._id), {
+      name: String(outlet.name || ""),
+      code: String(outlet.code || ""),
+    });
+  }
+
+  let totalStockValue = 0;
+  let totalItems = 0;
+
+  const rows: DashboardOutlet[] = (inventoryByOutlet as AnyRecord[]).map(
+    (row) => {
+      const id = objectIdString(row._id);
+      const meta = outletMeta.get(id);
+      const stockValue = roundMoney(numberValue(row.stockValue));
+      const itemCount = numberValue(row.itemCount);
+
+      totalStockValue += stockValue;
+      totalItems += itemCount;
+
+      return {
+        id,
+        name: meta?.name || "Unknown outlet",
+        code: meta?.code || "",
+        itemCount,
+        stockValue,
+      };
+    }
+  );
+
+  const topOutlets = rows
+    .sort((a, b) => b.stockValue - a.stockValue)
+    .slice(0, 5);
+
+  return {
+    totalOutlets,
+    activeOutlets,
+    totalStockValue: roundMoney(totalStockValue),
+    totalItems,
+    topOutlets,
+  };
+}
+
 export async function getDashboardSummary(): Promise<DashboardSummary> {
   await dbConnect();
 
@@ -463,6 +561,18 @@ export async function getDashboardSummary(): Promise<DashboardSummary> {
   const deliveryFilter = notVoidedFilter();
   const purchaseBatchFilter = notVoidedFilter();
   const expenseFilter = { isActive: true };
+  // BODEGA must include legacy expenses created before expenseCategory existed
+  // (missing / null / empty), mirroring the Expenses API's categoryFilter.
+  const bodegaExpenseFilter = {
+    isActive: true,
+    $or: [
+      { expenseCategory: "BODEGA" },
+      { expenseCategory: { $exists: false } },
+      { expenseCategory: null },
+      { expenseCategory: "" },
+    ],
+  };
+  const groceryExpenseFilter = { isActive: true, expenseCategory: "GROCERY" };
 
   const [
     totalCustomers,
@@ -491,6 +601,13 @@ export async function getDashboardSummary(): Promise<DashboardSummary> {
     todaySlicing,
     thisMonthSlicing,
     bodegaStock,
+    outletsSummary,
+    totalBodegaExpenses,
+    totalGroceryExpenses,
+    todayBodegaExpenses,
+    todayGroceryExpenses,
+    thisMonthBodegaExpenses,
+    thisMonthGroceryExpenses,
     salesActivity,
     paymentsActivity,
     expensesActivity,
@@ -522,6 +639,13 @@ export async function getDashboardSummary(): Promise<DashboardSummary> {
     sumSlicing(todayStart, tomorrowStart),
     sumSlicing(monthStart, nextMonthStart),
     buildBodegaStockSummary(),
+    buildOutletsSummary(),
+    sumAmount(ExpenseModel, bodegaExpenseFilter, "$amount"),
+    sumAmount(ExpenseModel, groceryExpenseFilter, "$amount"),
+    sumAmount(ExpenseModel, withDateRange(bodegaExpenseFilter, "expenseDate", todayStart, tomorrowStart), "$amount"),
+    sumAmount(ExpenseModel, withDateRange(groceryExpenseFilter, "expenseDate", todayStart, tomorrowStart), "$amount"),
+    sumAmount(ExpenseModel, withDateRange(bodegaExpenseFilter, "expenseDate", monthStart, nextMonthStart), "$amount"),
+    sumAmount(ExpenseModel, withDateRange(groceryExpenseFilter, "expenseDate", monthStart, nextMonthStart), "$amount"),
     recentSales(),
     recentPayments(),
     recentExpenses(),
@@ -543,6 +667,8 @@ export async function getDashboardSummary(): Promise<DashboardSummary> {
     totalSales: roundMoney(totalSales),
     totalPayments: roundMoney(totalPayments),
     totalExpenses: roundMoney(totalExpenses),
+    totalBodegaExpenses: roundMoney(totalBodegaExpenses),
+    totalGroceryExpenses: roundMoney(totalGroceryExpenses),
     outstandingReceivables: roundMoney(outstandingReceivables),
     totalSupplierDeliveries: roundMoney(totalSupplierDeliveries),
     totalPurchaseBatches: roundMoney(totalPurchaseBatches),
@@ -552,6 +678,8 @@ export async function getDashboardSummary(): Promise<DashboardSummary> {
       sales: roundMoney(todaySales),
       payments: roundMoney(todayPayments),
       expenses: roundMoney(todayExpenses),
+      bodegaExpenses: roundMoney(todayBodegaExpenses),
+      groceryExpenses: roundMoney(todayGroceryExpenses),
       operatingCash: roundMoney(todayOperatingCash),
       supplierDeliveries: roundMoney(todaySupplierDeliveries),
       purchaseBatches: roundMoney(todayPurchaseBatches),
@@ -574,6 +702,8 @@ export async function getDashboardSummary(): Promise<DashboardSummary> {
       sales: roundMoney(thisMonthSales),
       payments: roundMoney(thisMonthPayments),
       expenses: roundMoney(thisMonthExpenses),
+      bodegaExpenses: roundMoney(thisMonthBodegaExpenses),
+      groceryExpenses: roundMoney(thisMonthGroceryExpenses),
       operatingCash: roundMoney(monthOperatingCash),
       supplierDeliveries: roundMoney(thisMonthSupplierDeliveries),
       purchaseBatches: roundMoney(thisMonthPurchaseBatches),
@@ -583,6 +713,7 @@ export async function getDashboardSummary(): Promise<DashboardSummary> {
       slicingActualPcs: numberValue(thisMonthSlicing.actualPcs),
     },
     bodegaStock,
+    outlets: outletsSummary,
     recent: {
       sales: salesActivity,
       payments: paymentsActivity,

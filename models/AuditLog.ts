@@ -88,6 +88,7 @@ AuditLogSchema.index({ outletId: 1, createdAt: -1 });
 AuditLogSchema.index({ module: 1 });
 AuditLogSchema.index({ action: 1 });
 AuditLogSchema.index({ entityType: 1, entityId: 1 });
+AuditLogSchema.index({ createdBy: 1, createdAt: -1 });
 
 const AuditLogModel: Model<IAuditLog> =
   mongoose.models.AuditLog || mongoose.model<IAuditLog>("AuditLog", AuditLogSchema);

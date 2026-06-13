@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import mongoose, { isValidObjectId, type PipelineStage } from "mongoose";
 
 import dbConnect from "@/lib/mongodb";
-import { requireApiAuth } from "@/lib/require-auth";
+import { requirePermission } from "@/lib/require-permission";
 import BodegaProductModel from "@/models/BodegaProduct";
 import SlicingItemModel from "@/models/SlicingItem";
 
@@ -75,7 +75,7 @@ function serializeProduct(product: AnyRecord) {
 }
 
 export async function GET(req: NextRequest) {
-  const { response } = await requireApiAuth();
+  const { response } = await requirePermission(["slicing.view", "slicing.manage"]);
   if (response) return response;
 
   await dbConnect();

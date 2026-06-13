@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 
 import dbConnect from "@/lib/mongodb";
 import { requirePermission } from "@/lib/require-permission";
+import { withAuditLog } from "@/lib/audit-log";
 import {
   cleanNumber,
   cleanString,
@@ -207,7 +208,7 @@ export async function GET(req: NextRequest) {
   });
 }
 
-export async function POST(req: NextRequest) {
+async function handlePOST(req: NextRequest) {
   const { response, session } = await requirePermission("expenses-bodega.manage");
   if (response) return response;
 
@@ -270,3 +271,9 @@ export async function POST(req: NextRequest) {
     { status: 201 }
   );
 }
+
+export const POST = withAuditLog(handlePOST, {
+  module: "EXPENSES",
+  action: "CREATE",
+  entityType: "EXPENSE",
+});

@@ -10,6 +10,9 @@ export const ROLE_PERMISSION_GROUPS = [
       { key: "outlets.manage", label: "Manage Outlets" },
       { key: "outlet-inventory.view", label: "View Outlet Inventory" },
       { key: "outlet-inventory.manage", label: "Manage Outlet Inventory" },
+      { key: "stock-transfers.view", label: "View Stock Transfers" },
+      { key: "stock-transfers.manage", label: "Manage Stock Transfers (Main Branch)" },
+      { key: "stock-transfers.confirm", label: "Confirm Incoming Deliveries (Outlet)" },
     ],
   },
   {
@@ -51,8 +54,7 @@ export const ROLE_PERMISSION_GROUPS = [
       { key: "sales.view", label: "View Sales" },
       { key: "sales.manage", label: "Manage Sales" },
       { key: "sales-lines.view", label: "View Sales Per Item" },
-      { key: "customer-deliveries.view", label: "View Customer Deliveries" },
-      { key: "customer-deliveries.manage", label: "Manage Customer Deliveries" },
+      { key: "customer-inventory.view", label: "View Customer Inventory" },
     ],
   },
   {
@@ -111,3 +113,58 @@ export type RolePermission = (typeof ROLE_PERMISSION_KEYS)[number];
 export function isValidRolePermission(value: string) {
   return ROLE_PERMISSION_KEYS.includes(value as RolePermission);
 }
+
+// "Any of" permission sets for shared lookup endpoints (GET only).
+// These reference lists are consumed by forms on several different pages,
+// so any permission that grants access to one of those pages also grants
+// read access to the lookup. Write operations always require the strict
+// single permission for that resource.
+
+export const CUSTOMER_LOOKUP_PERMISSIONS: RolePermission[] = [
+  "customers.view",
+  "customers.manage",
+  "sales.view",
+  "sales.manage",
+  "customer-inventory.view",
+  "payments.view",
+  "payments.manage",
+];
+
+export const CATEGORY_LOOKUP_PERMISSIONS: RolePermission[] = [
+  "categories.view",
+  "categories.manage",
+  "products.view",
+  "products.manage",
+  "bodega-products.view",
+  "bodega-products.manage",
+  "supplier-deliveries.view",
+  "supplier-deliveries.manage",
+  "inventory.view",
+  "inventory.manage",
+  "sales-lines.view",
+];
+
+export const BODEGA_PRODUCT_LOOKUP_PERMISSIONS: RolePermission[] = [
+  "bodega-products.view",
+  "bodega-products.manage",
+  "stock-transfers.view",
+  "stock-transfers.manage",
+  "supplier-deliveries.view",
+  "supplier-deliveries.manage",
+  "standard-packing.view",
+  "standard-packing.manage",
+  "slicing.view",
+  "slicing.manage",
+  "outlet-inventory.view",
+  "outlet-inventory.manage",
+  "sales-lines.view",
+  "sales.view",
+  "sales.manage",
+];
+
+export const SUPPLIER_LOOKUP_PERMISSIONS: RolePermission[] = [
+  "suppliers.view",
+  "suppliers.manage",
+  "supplier-deliveries.view",
+  "supplier-deliveries.manage",
+];

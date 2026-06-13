@@ -3,7 +3,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { isValidObjectId } from "mongoose";
 
 import dbConnect from "@/lib/mongodb";
-import { requireApiAuth } from "@/lib/require-auth";
+import { requirePermission } from "@/lib/require-permission";
+import { withAuditLog } from "@/lib/audit-log";
 import { cleanNumber, cleanString } from "@/lib/crud-utils";
 import ProductModel from "@/models/Product";
 import PurchaseBatchModel from "@/models/PurchaseBatch";
@@ -169,7 +170,7 @@ export async function GET(
   _req: NextRequest,
   context: { params: Promise<{ id: string }> }
 ) {
-  const { response } = await requireApiAuth();
+  const { response } = await requirePermission(["purchase-items.view", "purchase-items.manage"]);
 
   if (response) return response;
 
@@ -215,11 +216,11 @@ export async function GET(
   });
 }
 
-export async function PATCH(
+async function handlePATCH(
   req: NextRequest,
   context: { params: Promise<{ id: string }> }
 ) {
-  const { response, session } = await requireApiAuth();
+  const { response, session } = await requirePermission("purchase-items.manage");
 
   if (response) return response;
 
@@ -340,11 +341,11 @@ export async function PATCH(
   });
 }
 
-export async function DELETE(
+async function handleDELETE(
   _req: NextRequest,
   context: { params: Promise<{ id: string }> }
 ) {
-  const { response } = await requireApiAuth();
+  const { response } = await requirePermission("purchase-items.manage");
 
   if (response) return response;
 
@@ -387,3 +388,15 @@ export async function DELETE(
     message: "Purchase batch voided successfully and product stock was reversed.",
   });
 }
+
+export const PATCH = withAuditLog(handlePATCH, {
+  module: "PURCHASE_ITEMS",
+  action: "UPDATE",
+  entityType: "PURCHASE_BATCH",
+});
+
+export const DELETE = withAuditLog(handleDELETE, {
+  module: "PURCHASE_ITEMS",
+  action: "DELETE",
+  entityType: "PURCHASE_BATCH",
+});

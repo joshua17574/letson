@@ -39,3 +39,9 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# tooling artifacts
+type-errors.txt
+
+# runtime receipt uploads (move to object storage for serverless deploys)
+/public/uploads/

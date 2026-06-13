@@ -3,6 +3,7 @@ import mongoose, { isValidObjectId, type QueryFilter } from "mongoose";
 
 import dbConnect from "@/lib/mongodb";
 import { requirePermission } from "@/lib/require-permission";
+import { withAuditLog } from "@/lib/audit-log";
 import {
   cleanNumber,
   cleanString,
@@ -127,7 +128,7 @@ export async function GET(req: NextRequest) {
   });
 }
 
-export async function POST(req: NextRequest) {
+async function handlePOST(req: NextRequest) {
   const { response, session: authSession } = await requirePermission(
     "supplier-deliveries.manage"
   );
@@ -362,3 +363,9 @@ export async function POST(req: NextRequest) {
     await mongoSession.endSession();
   }
 }
+
+export const POST = withAuditLog(handlePOST, {
+  module: "SUPPLIER_DELIVERIES",
+  action: "CREATE",
+  entityType: "DELIVERY",
+});

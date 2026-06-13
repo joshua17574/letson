@@ -8,7 +8,9 @@
     "start": "next start",
     "lint": "eslint",
     "typecheck": "tsc --noEmit --pretty false",
-    "seed:admin": "tsx scripts/seed-admin.ts"
+    "seed:admin": "tsx scripts/seed-admin.ts",
+    "seed:test": "tsx scripts/seed-test-data.ts --confirm",
+    "cleanup:test": "tsx scripts/cleanup-test-data.ts --confirm"
   },
   "dependencies": {
     "bcryptjs": "^3.0.3",

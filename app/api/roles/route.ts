@@ -3,6 +3,7 @@ import type { QueryFilter } from "mongoose";
 
 import dbConnect from "@/lib/mongodb";
 import { requirePermission } from "@/lib/require-permission";
+import { withAuditLog } from "@/lib/audit-log";
 import { cleanString, escapeRegex, getPagination } from "@/lib/crud-utils";
 import { isValidRolePermission } from "@/lib/role-permissions";
 import RoleModel from "@/models/Role";
@@ -71,7 +72,7 @@ export async function GET(req: NextRequest) {
   });
 }
 
-export async function POST(req: NextRequest) {
+async function handlePOST(req: NextRequest) {
   const { response, session: authSession } = await requirePermission("roles.manage");
   if (response) return response;
 
@@ -114,3 +115,9 @@ export async function POST(req: NextRequest) {
     { status: 201 }
   );
 }
+
+export const POST = withAuditLog(handlePOST, {
+  module: "ROLES",
+  action: "CREATE",
+  entityType: "ROLE",
+});

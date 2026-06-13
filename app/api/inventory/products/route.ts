@@ -3,6 +3,7 @@ import { isValidObjectId } from "mongoose";
 
 import dbConnect from "@/lib/mongodb";
 import { requirePermission } from "@/lib/require-permission";
+import { withAuditLog } from "@/lib/audit-log";
 import { cleanNumber, cleanString, escapeRegex, getPagination } from "@/lib/crud-utils";
 import CategoryModel from "@/models/Category";
 import ProductModel from "@/models/Product";
@@ -164,7 +165,7 @@ export async function GET(req: NextRequest) {
   });
 }
 
-export async function POST(req: NextRequest) {
+async function handlePOST(req: NextRequest) {
   const { response } = await requirePermission("inventory.manage");
   if (response) return response;
 
@@ -228,3 +229,9 @@ export async function POST(req: NextRequest) {
     { status: 201 }
   );
 }
+
+export const POST = withAuditLog(handlePOST, {
+  module: "INVENTORY",
+  action: "CREATE",
+  entityType: "PRODUCT",
+});

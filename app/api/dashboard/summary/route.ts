@@ -2,10 +2,10 @@
 import { NextResponse } from "next/server";
 
 import { getDashboardSummary } from "@/lib/dashboard";
-import { requireApiAuth } from "@/lib/require-auth";
+import { requirePermission } from "@/lib/require-permission";
 
 export async function GET() {
-  const { response } = await requireApiAuth();
+  const { response } = await requirePermission("dashboard.view");
 
   if (response) {
     return response;

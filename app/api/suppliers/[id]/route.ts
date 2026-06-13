@@ -3,7 +3,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { isValidObjectId } from "mongoose";
 
 import dbConnect from "@/lib/mongodb";
-import { requireApiAuth } from "@/lib/require-auth";
+import { requirePermission } from "@/lib/require-permission";
+import { withAuditLog } from "@/lib/audit-log";
 import { cleanString, serializeDocument } from "@/lib/crud-utils";
 import SupplierModel from "@/models/Supplier";
 
@@ -11,7 +12,7 @@ export async function GET(
   _req: NextRequest,
   context: { params: Promise<{ id: string }> }
 ) {
-  const { response } = await requireApiAuth();
+  const { response } = await requirePermission(["suppliers.view", "suppliers.manage"]);
 
   if (response) return response;
 
@@ -50,11 +51,11 @@ export async function GET(
   });
 }
 
-export async function PATCH(
+async function handlePATCH(
   req: NextRequest,
   context: { params: Promise<{ id: string }> }
 ) {
-  const { response } = await requireApiAuth();
+  const { response } = await requirePermission("suppliers.manage");
 
   if (response) return response;
 
@@ -122,11 +123,11 @@ export async function PATCH(
   });
 }
 
-export async function DELETE(
+async function handleDELETE(
   _req: NextRequest,
   context: { params: Promise<{ id: string }> }
 ) {
-  const { response } = await requireApiAuth();
+  const { response } = await requirePermission("suppliers.manage");
 
   if (response) return response;
 
@@ -172,3 +173,15 @@ export async function DELETE(
     message: "Supplier deleted successfully.",
   });
 }
+
+export const PATCH = withAuditLog(handlePATCH, {
+  module: "SUPPLIERS",
+  action: "UPDATE",
+  entityType: "SUPPLIER",
+});
+
+export const DELETE = withAuditLog(handleDELETE, {
+  module: "SUPPLIERS",
+  action: "DELETE",
+  entityType: "SUPPLIER",
+});

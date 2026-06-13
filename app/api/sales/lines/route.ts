@@ -4,7 +4,7 @@ import { Types } from "mongoose";
 
 import dbConnect from "@/lib/mongodb";
 import { cleanString, escapeRegex, getPagination } from "@/lib/crud-utils";
-import { requireApiAuth } from "@/lib/require-auth";
+import { requirePermission } from "@/lib/require-permission";
 
 import BodegaProductModel from "@/models/BodegaProduct";
 import CustomerModel from "@/models/Customer";
@@ -53,7 +53,7 @@ function getLineTotal(line: any) {
 }
 
 export async function GET(req: NextRequest) {
-  const { response } = await requireApiAuth();
+  const { response } = await requirePermission("sales-lines.view");
 
   if (response) return response;
 

@@ -1,14 +1,25 @@
 import { NextRequest, NextResponse } from "next/server";
-import { isValidObjectId } from "mongoose";
+import mongoose, { isValidObjectId } from "mongoose";
 
 import dbConnect from "@/lib/mongodb";
-import { requireApiAuth } from "@/lib/require-auth";
+import { requirePermission } from "@/lib/require-permission";
+import { withAuditLog } from "@/lib/audit-log";
 import BodegaProductModel from "@/models/BodegaProduct";
 import BodegaStockTransactionModel from "@/models/BodegaStockTransaction";
 import InventoryTransactionModel from "@/models/InventoryTransaction";
 import ProductModel from "@/models/Product";
 import SaleModel from "@/models/Sale";
 import SaleLineModel from "@/models/SaleLine";
+
+class ApiError extends Error {
+  constructor(public status: number, message: string) {
+    super(message);
+  }
+}
+
+function fail(status: number, message: string): never {
+  throw new ApiError(status, message);
+}
 
 function serializeSale(sale: any, lines: any[] = []) {
   return {
@@ -46,7 +57,7 @@ export async function GET(
   _req: NextRequest,
   context: { params: Promise<{ id: string }> }
 ) {
-  const { response } = await requireApiAuth();
+  const { response } = await requirePermission(["sales.view", "sales.manage"]);
   if (response) return response;
 
   const { id } = await context.params;
@@ -80,11 +91,11 @@ export async function GET(
   });
 }
 
-export async function DELETE(
+async function handleDELETE(
   _req: NextRequest,
   context: { params: Promise<{ id: string }> }
 ) {
-  const { response, session } = await requireApiAuth();
+  const { response, session } = await requirePermission("sales.manage");
   if (response) return response;
 
   const { id } = await context.params;
@@ -98,99 +109,133 @@ export async function DELETE(
 
   await dbConnect();
 
-  const sale = await SaleModel.findOne({ _id: id, isVoided: false });
+  const mongoSession = await mongoose.startSession();
 
-  if (!sale) {
-    return NextResponse.json(
-      { success: false, message: "Sale not found." },
-      { status: 404 }
-    );
-  }
+  try {
+    await mongoSession.withTransaction(async () => {
+      // Atomically claim the sale so two simultaneous voids cannot both run.
+      const sale = await SaleModel.findOneAndUpdate(
+        { _id: id, isVoided: false, paidAmount: { $lte: 0 } },
+        { $set: { isVoided: true, status: "VOIDED", balance: 0 } },
+        { new: true, session: mongoSession }
+      );
 
-  if (sale.paidAmount > 0) {
-    return NextResponse.json(
-      {
-        success: false,
-        message: "This sale already has payment. Remove or adjust payment first.",
-      },
-      { status: 400 }
-    );
-  }
+      if (!sale) {
+        const existing = await SaleModel.findById(id)
+          .select("isVoided paidAmount")
+          .session(mongoSession)
+          .lean();
 
-  const lines = await SaleLineModel.find({ saleId: sale._id });
-  const inventoryTransactions = [];
-  const bodegaTransactions = [];
+        if (!existing || (existing as any).isVoided) {
+          fail(404, "Sale not found.");
+        }
 
-  for (const line of lines) {
-    const stockToRestore = Number(line.stockPcsOut || line.qty || 0);
+        fail(
+          400,
+          "This sale already has payment. Remove or adjust payment first."
+        );
+      }
 
-    if (line.source === "CHICKEN" && line.bodegaProductId) {
-      const product = await BodegaProductModel.findOne({
-        _id: line.bodegaProductId,
-        isActive: true,
-      });
+      const lines = await SaleLineModel.find({ saleId: sale._id }).session(
+        mongoSession
+      );
 
-      if (!product) continue;
+      const inventoryTransactions = [];
+      const bodegaTransactions = [];
 
-      const previousStock = Number(product.stockQty || 0);
-      product.stockQty = previousStock + stockToRestore;
-      await product.save();
+      for (const line of lines) {
+        const stockToRestore = Number(line.stockPcsOut || line.qty || 0);
 
-      bodegaTransactions.push({
-        bodegaProductId: product._id,
-        type: "VOID_REVERSAL",
-        quantity: stockToRestore,
-        previousStock,
-        newStock: product.stockQty,
-        remarks: `VOID SALE ${sale.receiptNumber}`,
-        referenceType: "SALE_VOID",
-        referenceId: sale._id,
-        createdBy: session?.user?.id,
-      });
+        if (stockToRestore <= 0) continue;
+
+        if (line.source === "CHICKEN" && line.bodegaProductId) {
+          const product = await BodegaProductModel.findOneAndUpdate(
+            { _id: line.bodegaProductId },
+            { $inc: { stockQty: stockToRestore } },
+            { new: true, session: mongoSession }
+          );
+
+          if (!product) continue;
+
+          const newStock = Number(product.stockQty || 0);
+
+          bodegaTransactions.push({
+            bodegaProductId: product._id,
+            type: "VOID_REVERSAL",
+            quantity: stockToRestore,
+            previousStock: newStock - stockToRestore,
+            newStock,
+            remarks: `VOID SALE ${sale.receiptNumber}`,
+            referenceType: "SALE_VOID",
+            referenceId: sale._id,
+            createdBy: session?.user?.id,
+          });
+        }
+
+        if (line.source === "BODEGA" && line.productId) {
+          const product = await ProductModel.findOneAndUpdate(
+            { _id: line.productId },
+            { $inc: { stockPcs: stockToRestore } },
+            { new: true, session: mongoSession }
+          );
+
+          if (!product) continue;
+
+          const newStock = Number(product.stockPcs || 0);
+
+          inventoryTransactions.push({
+            productId: product._id,
+            type: "VOID_REVERSAL",
+            unit: "PCS",
+            quantity: stockToRestore,
+            previousStock: newStock - stockToRestore,
+            newStock,
+            remarks: `VOID SALE ${sale.receiptNumber}`,
+            referenceType: "SALE_VOID",
+            referenceId: sale._id,
+            createdBy: session?.user?.id,
+          });
+        }
+      }
+
+      if (inventoryTransactions.length > 0) {
+        await InventoryTransactionModel.insertMany(inventoryTransactions, {
+          session: mongoSession,
+        });
+      }
+
+      if (bodegaTransactions.length > 0) {
+        await BodegaStockTransactionModel.insertMany(bodegaTransactions, {
+          session: mongoSession,
+        });
+      }
+    });
+
+    return NextResponse.json({
+      success: true,
+      message: "Sale voided successfully and stocks were reversed.",
+    });
+  } catch (error) {
+    if (error instanceof ApiError) {
+      return NextResponse.json(
+        { success: false, message: error.message },
+        { status: error.status }
+      );
     }
 
-    if (line.source === "BODEGA" && line.productId) {
-      const product = await ProductModel.findOne({
-        _id: line.productId,
-        isActive: true,
-      });
+    console.error(error);
 
-      if (!product) continue;
-
-      const previousStock = Number(product.stockPcs || 0);
-      product.stockPcs = previousStock + stockToRestore;
-      await product.save();
-
-      inventoryTransactions.push({
-        productId: product._id,
-        type: "VOID_REVERSAL",
-        unit: "PCS",
-        quantity: stockToRestore,
-        previousStock,
-        newStock: product.stockPcs,
-        remarks: `VOID SALE ${sale.receiptNumber}`,
-        referenceType: "SALE_VOID",
-        referenceId: sale._id,
-        createdBy: session?.user?.id,
-      });
-    }
+    return NextResponse.json(
+      { success: false, message: "Unable to void sale." },
+      { status: 500 }
+    );
+  } finally {
+    await mongoSession.endSession();
   }
-
-  sale.isVoided = true;
-  sale.status = "VOIDED";
-  sale.balance = 0;
-  await sale.save();
-
-  if (inventoryTransactions.length > 0) {
-    await InventoryTransactionModel.insertMany(inventoryTransactions);
-  }
-
-  if (bodegaTransactions.length > 0) {
-    await BodegaStockTransactionModel.insertMany(bodegaTransactions);
-  }
-
-  return NextResponse.json({
-    success: true,
-    message: "Sale voided successfully and stocks were reversed.",
-  });
 }
+
+export const DELETE = withAuditLog(handleDELETE, {
+  module: "SALES",
+  action: "VOID",
+  entityType: "SALE",
+});

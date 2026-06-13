@@ -49,7 +49,6 @@ export const authOptions: NextAuthOptions = {
           credentials?.identifier ||
             credentials?.email ||
             credentials?.username ||
-            credentials?.name ||
             ""
         )
           .trim()
@@ -63,11 +62,7 @@ export const authOptions: NextAuthOptions = {
 
         const user = await UserModel.findOne({
           isActive: true,
-          $or: [
-            { email: identifier },
-            { username: identifier },
-            { name: identifier.toUpperCase() },
-          ],
+          $or: [{ email: identifier }, { username: identifier }],
         })
           .populate("roleId", "name permissions")
           .lean();

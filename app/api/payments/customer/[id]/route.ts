@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { isValidObjectId, Types } from "mongoose";
 
 import dbConnect from "@/lib/mongodb";
-import { requireApiAuth } from "@/lib/require-auth";
+import { requirePermission } from "@/lib/require-permission";
 import { cleanString } from "@/lib/crud-utils";
 import CustomerModel from "@/models/Customer";
 import PaymentModel from "@/models/Payment";
@@ -109,7 +109,7 @@ export async function GET(
   req: NextRequest,
   context: { params: Promise<{ id: string }> }
 ) {
-  const { response } = await requireApiAuth();
+  const { response } = await requirePermission(["payments.view", "payments.manage"]);
 
   if (response) return response;
 

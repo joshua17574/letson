@@ -3,7 +3,9 @@ import { NextRequest, NextResponse } from "next/server";
 import type { QueryFilter } from "mongoose";
 
 import dbConnect from "@/lib/mongodb";
-import { requireApiAuth } from "@/lib/require-auth";
+import { requirePermission } from "@/lib/require-permission";
+import { withAuditLog } from "@/lib/audit-log";
+import { CUSTOMER_LOOKUP_PERMISSIONS } from "@/lib/role-permissions";
 import {
   cleanString,
   escapeRegex,
@@ -20,7 +22,7 @@ function isCustomerType(value: string): value is CustomerType {
 }
 
 export async function GET(req: NextRequest) {
-  const { response } = await requireApiAuth();
+  const { response } = await requirePermission(CUSTOMER_LOOKUP_PERMISSIONS);
 
   if (response) return response;
 
@@ -64,8 +66,8 @@ export async function GET(req: NextRequest) {
   });
 }
 
-export async function POST(req: NextRequest) {
-  const { response, session } = await requireApiAuth();
+async function handlePOST(req: NextRequest) {
+  const { response, session } = await requirePermission("customers.manage");
 
   if (response) return response;
 
@@ -107,3 +109,9 @@ export async function POST(req: NextRequest) {
     { status: 201 }
   );
 }
+
+export const POST = withAuditLog(handlePOST, {
+  module: "CUSTOMERS",
+  action: "CREATE",
+  entityType: "CUSTOMER",
+});

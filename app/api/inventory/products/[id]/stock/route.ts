@@ -3,6 +3,7 @@ import { isValidObjectId } from "mongoose";
 
 import dbConnect from "@/lib/mongodb";
 import { requirePermission } from "@/lib/require-permission";
+import { withAuditLog } from "@/lib/audit-log";
 import { cleanNumber, cleanString } from "@/lib/crud-utils";
 import InventoryTransactionModel from "@/models/InventoryTransaction";
 import ProductModel from "@/models/Product";
@@ -30,7 +31,7 @@ function normalizeAction(value: unknown): StockAction | null {
   return null;
 }
 
-export async function POST(
+async function handlePOST(
   req: NextRequest,
   context: { params: Promise<{ id: string }> }
 ) {
@@ -140,3 +141,9 @@ export async function POST(
     },
   });
 }
+
+export const POST = withAuditLog(handlePOST, {
+  module: "INVENTORY",
+  action: "STOCK_ADJUSTMENT",
+  entityType: "PRODUCT",
+});

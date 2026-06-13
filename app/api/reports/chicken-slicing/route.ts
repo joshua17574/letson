@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { isValidObjectId } from "mongoose";
 
 import dbConnect from "@/lib/mongodb";
-import { requireApiAuth } from "@/lib/require-auth";
+import { requirePermission } from "@/lib/require-permission";
 import BodegaProductModel from "@/models/BodegaProduct";
 import ExpenseModel from "@/models/Expense";
 import SlicingBatchModel from "@/models/SlicingBatch";
@@ -97,7 +97,7 @@ async function getTotalBodegaExpenses(dateFrom: string, dateTo: string) {
 }
 
 export async function GET(req: NextRequest) {
-  const { response, session } = await requireApiAuth();
+  const { response, session } = await requirePermission("reports.profit");
   if (response) return response;
 
   if (!hasProfitPermission(session)) {

@@ -3,7 +3,8 @@ import bcrypt from "bcryptjs";
 import { isValidObjectId } from "mongoose";
 
 import dbConnect from "@/lib/mongodb";
-import { requirePermission } from "@/lib/require-permission";
+import { invalidateUserAccessCache, requirePermission } from "@/lib/require-permission";
+import { withAuditLog } from "@/lib/audit-log";
 import { cleanString } from "@/lib/crud-utils";
 import RoleModel from "@/models/Role";
 import UserModel, { type UserRole } from "@/models/User";
@@ -65,7 +66,7 @@ export async function GET(
   return NextResponse.json({ success: true, data: serializeUser(user) });
 }
 
-export async function PATCH(
+async function handlePATCH(
   req: NextRequest,
   context: { params: Promise<{ id: string }> }
 ) {
@@ -169,6 +170,9 @@ export async function PATCH(
 
   await user.save();
 
+  // User role/status changed: drop cached access so it applies immediately.
+  invalidateUserAccessCache(user._id.toString());
+
   const populatedUser = await UserModel.findById(user._id)
     .populate("roleId", "name permissions")
     .lean();
@@ -180,7 +184,7 @@ export async function PATCH(
   });
 }
 
-export async function DELETE(
+async function handleDELETE(
   _req: NextRequest,
   context: { params: Promise<{ id: string }> }
 ) {
@@ -217,8 +221,23 @@ export async function DELETE(
   user.isActive = false;
   await user.save();
 
+  // User role/status changed: drop cached access so it applies immediately.
+  invalidateUserAccessCache(user._id.toString());
+
   return NextResponse.json({
     success: true,
     message: "User disabled successfully.",
   });
 }
+
+export const PATCH = withAuditLog(handlePATCH, {
+  module: "USERS",
+  action: "UPDATE",
+  entityType: "USER",
+});
+
+export const DELETE = withAuditLog(handleDELETE, {
+  module: "USERS",
+  action: "DELETE",
+  entityType: "USER",
+});

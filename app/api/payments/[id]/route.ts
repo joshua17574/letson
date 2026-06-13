@@ -1,18 +1,29 @@
 // app/api/payments/[id]/route.ts
 import { NextRequest, NextResponse } from "next/server";
-import { isValidObjectId } from "mongoose";
+import mongoose, { isValidObjectId } from "mongoose";
 
 import dbConnect from "@/lib/mongodb";
-import { requireApiAuth } from "@/lib/require-auth";
+import { requirePermission } from "@/lib/require-permission";
+import { withAuditLog } from "@/lib/audit-log";
 import PaymentModel from "@/models/Payment";
 import PaymentAllocationModel from "@/models/PaymentAllocation";
 import SaleModel from "@/models/Sale";
 
-export async function DELETE(
+class ApiError extends Error {
+  constructor(public status: number, message: string) {
+    super(message);
+  }
+}
+
+function fail(status: number, message: string): never {
+  throw new ApiError(status, message);
+}
+
+async function handleDELETE(
   _req: NextRequest,
   context: { params: Promise<{ id: string }> }
 ) {
-  const { response } = await requireApiAuth();
+  const { response } = await requirePermission("payments.manage");
 
   if (response) return response;
 
@@ -20,63 +31,87 @@ export async function DELETE(
 
   if (!isValidObjectId(id)) {
     return NextResponse.json(
-      {
-        success: false,
-        message: "Invalid payment ID.",
-      },
+      { success: false, message: "Invalid payment ID." },
       { status: 400 }
     );
   }
 
   await dbConnect();
 
-  const payment = await PaymentModel.findOne({
-    _id: id,
-    isVoided: false,
-  });
+  const mongoSession = await mongoose.startSession();
 
-  if (!payment) {
-    return NextResponse.json(
-      {
-        success: false,
-        message: "Payment not found.",
-      },
-      { status: 404 }
-    );
-  }
+  try {
+    await mongoSession.withTransaction(async () => {
+      // Atomically claim the payment so two simultaneous voids cannot both
+      // reverse the same allocations.
+      const payment = await PaymentModel.findOneAndUpdate(
+        { _id: id, isVoided: false },
+        { $set: { isVoided: true } },
+        { new: true, session: mongoSession }
+      );
 
-  const allocations = await PaymentAllocationModel.find({
-    paymentId: payment._id,
-  });
+      if (!payment) {
+        fail(404, "Payment not found.");
+      }
 
-  for (const allocation of allocations) {
-    const sale = await SaleModel.findById(allocation.saleId);
+      const allocations = await PaymentAllocationModel.find({
+        paymentId: payment._id,
+      }).session(mongoSession);
 
-    if (!sale || sale.isVoided) continue;
+      for (const allocation of allocations) {
+        const sale = await SaleModel.findById(allocation.saleId).session(
+          mongoSession
+        );
 
-    sale.paidAmount = Math.max(
-      Number(sale.paidAmount || 0) - Number(allocation.amount || 0),
-      0
-    );
+        if (!sale || sale.isVoided) continue;
 
-    sale.balance = Math.max(Number(sale.totalAmount || 0) - sale.paidAmount, 0);
+        sale.paidAmount = Math.max(
+          Number(sale.paidAmount || 0) - Number(allocation.amount || 0),
+          0
+        );
 
-    if (sale.balance <= 0) {
-      sale.status = "PAID";
-    } else if (sale.paidAmount > 0) {
-      sale.status = "PARTIAL";
-    } else {
-      sale.status = "UNPAID";
+        sale.balance = Math.max(
+          Number(sale.totalAmount || 0) - sale.paidAmount,
+          0
+        );
+
+        if (sale.balance <= 0) {
+          sale.status = "PAID";
+        } else if (sale.paidAmount > 0) {
+          sale.status = "PARTIAL";
+        } else {
+          sale.status = "UNPAID";
+        }
+
+        await sale.save({ session: mongoSession });
+      }
+    });
+
+    return NextResponse.json({
+      success: true,
+      message: "Payment voided successfully.",
+    });
+  } catch (error) {
+    if (error instanceof ApiError) {
+      return NextResponse.json(
+        { success: false, message: error.message },
+        { status: error.status }
+      );
     }
 
-    await sale.save();
+    console.error(error);
+
+    return NextResponse.json(
+      { success: false, message: "Unable to void payment." },
+      { status: 500 }
+    );
+  } finally {
+    await mongoSession.endSession();
   }
-
-  payment.isVoided = true;
-  await payment.save();
-
-  return NextResponse.json({
-    success: true,
-    message: "Payment voided successfully.",
-  });
 }
+
+export const DELETE = withAuditLog(handleDELETE, {
+  module: "PAYMENTS",
+  action: "VOID",
+  entityType: "PAYMENT",
+});

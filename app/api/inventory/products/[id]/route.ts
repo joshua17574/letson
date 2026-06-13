@@ -3,6 +3,7 @@ import { isValidObjectId } from "mongoose";
 
 import dbConnect from "@/lib/mongodb";
 import { requirePermission } from "@/lib/require-permission";
+import { withAuditLog } from "@/lib/audit-log";
 import { cleanNumber, cleanString } from "@/lib/crud-utils";
 import CategoryModel from "@/models/Category";
 import ProductModel from "@/models/Product";
@@ -65,7 +66,7 @@ export async function GET(
   return NextResponse.json({ success: true, data: serializeProduct(product) });
 }
 
-export async function PATCH(
+async function handlePATCH(
   req: NextRequest,
   context: { params: Promise<{ id: string }> }
 ) {
@@ -153,7 +154,7 @@ export async function PATCH(
   });
 }
 
-export async function DELETE(
+async function handleDELETE(
   _req: NextRequest,
   context: { params: Promise<{ id: string }> }
 ) {
@@ -188,3 +189,15 @@ export async function DELETE(
     message: "Grocery/Product item deleted successfully.",
   });
 }
+
+export const PATCH = withAuditLog(handlePATCH, {
+  module: "INVENTORY",
+  action: "UPDATE",
+  entityType: "PRODUCT",
+});
+
+export const DELETE = withAuditLog(handleDELETE, {
+  module: "INVENTORY",
+  action: "DELETE",
+  entityType: "PRODUCT",
+});

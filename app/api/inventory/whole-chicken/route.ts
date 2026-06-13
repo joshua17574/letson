@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import dbConnect from "@/lib/mongodb";
-import { requireApiAuth } from "@/lib/require-auth";
+import { requirePermission } from "@/lib/require-permission";
 import { cleanString, escapeRegex } from "@/lib/crud-utils";
 import BodegaProductModel from "@/models/BodegaProduct";
 import BodegaStockTransactionModel from "@/models/BodegaStockTransaction";
@@ -58,7 +58,7 @@ async function getWholeChickenProductIds() {
 }
 
 export async function GET(req: NextRequest) {
-  const { response } = await requireApiAuth();
+  const { response } = await requirePermission(["inventory.view", "inventory.manage"]);
   if (response) return response;
 
   await dbConnect();

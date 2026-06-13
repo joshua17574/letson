@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import mongoose, { isValidObjectId } from "mongoose";
 
 import dbConnect from "@/lib/mongodb";
-import { requireApiAuth } from "@/lib/require-auth";
+import { requirePermission } from "@/lib/require-permission";
+import { withAuditLog } from "@/lib/audit-log";
 import { cleanNumber, cleanString, getPagination } from "@/lib/crud-utils";
 import BodegaProductModel from "@/models/BodegaProduct";
 import BodegaStockTransactionModel from "@/models/BodegaStockTransaction";
@@ -96,7 +97,7 @@ function serializeSlicingItem(item: any) {
 }
 
 export async function GET(req: NextRequest) {
-  const { response } = await requireApiAuth();
+  const { response } = await requirePermission(["slicing.view", "slicing.manage"]);
   if (response) return response;
 
   await dbConnect();
@@ -347,8 +348,8 @@ export async function GET(req: NextRequest) {
   );
 }
 
-export async function POST(req: NextRequest) {
-  const { response, session } = await requireApiAuth();
+async function handlePOST(req: NextRequest) {
+  const { response, session } = await requirePermission("slicing.manage");
   if (response) return response;
 
   await dbConnect();
@@ -675,3 +676,9 @@ export async function POST(req: NextRequest) {
     await mongoSession.endSession();
   }
 }
+
+export const POST = withAuditLog(handlePOST, {
+  module: "SLICING",
+  action: "CREATE",
+  entityType: "SLICING_BATCH",
+});

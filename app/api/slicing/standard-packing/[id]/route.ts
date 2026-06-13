@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { isValidObjectId } from "mongoose";
 
 import dbConnect from "@/lib/mongodb";
-import { requireApiAuth } from "@/lib/require-auth";
+import { requirePermission } from "@/lib/require-permission";
+import { withAuditLog } from "@/lib/audit-log";
 import { cleanNumber, cleanString } from "@/lib/crud-utils";
 import BodegaProductModel from "@/models/BodegaProduct";
 
@@ -25,11 +26,11 @@ function serializeStandard(item: any) {
   };
 }
 
-export async function PATCH(
+async function handlePATCH(
   req: NextRequest,
   context: { params: Promise<{ id: string }> }
 ) {
-  const { response } = await requireApiAuth();
+  const { response } = await requirePermission("standard-packing.manage");
 
   if (response) return response;
 
@@ -125,11 +126,11 @@ export async function PATCH(
   });
 }
 
-export async function DELETE(
+async function handleDELETE(
   _req: NextRequest,
   context: { params: Promise<{ id: string }> }
 ) {
-  const { response } = await requireApiAuth();
+  const { response } = await requirePermission("standard-packing.manage");
 
   if (response) return response;
 
@@ -166,3 +167,15 @@ export async function DELETE(
     message: "Standard packing deleted successfully.",
   });
 }
+
+export const PATCH = withAuditLog(handlePATCH, {
+  module: "STANDARD_PACKING",
+  action: "UPDATE",
+  entityType: "STANDARD_PACKING",
+});
+
+export const DELETE = withAuditLog(handleDELETE, {
+  module: "STANDARD_PACKING",
+  action: "DELETE",
+  entityType: "STANDARD_PACKING",
+});

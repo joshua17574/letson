@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import dbConnect from "@/lib/mongodb";
-import { requireApiAuth } from "@/lib/require-auth";
+import { requirePermission } from "@/lib/require-permission";
 import BodegaProductModel from "@/models/BodegaProduct";
 import StandardPackingModel from "@/models/StandardPacking";
 
@@ -10,7 +10,7 @@ function cleanLabel(value: string) {
 }
 
 export async function GET(_req: NextRequest) {
-  const { response } = await requireApiAuth();
+  const { response } = await requirePermission(["slicing.manage", "slicing.view", "standard-packing.view", "standard-packing.manage"]);
   if (response) return response;
 
   await dbConnect();

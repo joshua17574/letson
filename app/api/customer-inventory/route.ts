@@ -4,8 +4,23 @@ import { isValidObjectId } from "mongoose";
 import dbConnect from "@/lib/mongodb";
 import { requirePermission } from "@/lib/require-permission";
 import { cleanString, escapeRegex, getPagination } from "@/lib/crud-utils";
-import { idToString, numberValue } from "@/lib/customer-delivery-utils";
 import CustomerInventoryModel from "@/models/CustomerInventory";
+import { Types } from "mongoose";
+
+function numberValue(value: unknown) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function idToString(value: unknown) {
+  if (!value) return "";
+  if (typeof value === "string") return value;
+  if (value instanceof Types.ObjectId) return value.toString();
+  if (typeof value === "object" && "toString" in value) {
+    return String((value as { toString: () => string }).toString());
+  }
+  return "";
+}
 
 function getPackBreakdown(stockQtyValue: unknown, packSizeValue: unknown) {
   const stockQty = Math.max(0, Math.trunc(numberValue(stockQtyValue)));
@@ -33,13 +48,21 @@ function getPackBreakdown(stockQtyValue: unknown, packSizeValue: unknown) {
   };
 }
 
-function serializeInventory(item: any) {
+type LeanInventoryItem = {
+  [key: string]: unknown;
+  customerId?: { _id?: unknown; name?: string } | unknown;
+};
+
+function serializeInventory(item: LeanInventoryItem) {
   const breakdown = getPackBreakdown(item?.stockQty, item?.packSize);
 
   return {
     _id: idToString(item?._id),
-    customerId: idToString(item?.customerId?._id || item?.customerId),
-    customerName: item?.customerId?.name || "",
+    customerId: idToString(
+      (item?.customerId as { _id?: unknown })?._id || item?.customerId
+    ),
+    customerName:
+      (item?.customerId as { name?: string })?.name || "",
     source: item?.source || "GROCERY",
     productId: idToString(item?.productId),
     bodegaProductId: idToString(item?.bodegaProductId),
@@ -51,13 +74,17 @@ function serializeInventory(item: any) {
     stockPacks: breakdown.packs,
     stockLoosePcs: breakdown.loosePcs,
     isPackProduct: breakdown.isPackProduct,
-    lastDeliveryAt: item?.lastDeliveryAt ? new Date(item.lastDeliveryAt).toISOString() : undefined,
-    updatedAt: item?.updatedAt ? new Date(item.updatedAt).toISOString() : undefined,
+    lastDeliveryAt: item?.lastDeliveryAt
+      ? new Date(item.lastDeliveryAt as string).toISOString()
+      : undefined,
+    updatedAt: item?.updatedAt
+      ? new Date(item.updatedAt as string).toISOString()
+      : undefined,
   };
 }
 
 export async function GET(req: NextRequest) {
-  const { response } = await requirePermission("customer-deliveries.view");
+  const { response } = await requirePermission("customer-inventory.view");
   if (response) return response;
 
   await dbConnect();
@@ -68,7 +95,7 @@ export async function GET(req: NextRequest) {
   const source = cleanString(searchParams.get("source")).toUpperCase();
   const search = cleanString(searchParams.get("search"));
 
-  const filter: Record<string, any> = {
+  const filter: Record<string, unknown> = {
     isActive: true,
   };
 
@@ -99,7 +126,7 @@ export async function GET(req: NextRequest) {
 
   return NextResponse.json({
     success: true,
-    data: items.map(serializeInventory),
+    data: (items as unknown as LeanInventoryItem[]).map(serializeInventory),
     meta: {
       page,
       limit,

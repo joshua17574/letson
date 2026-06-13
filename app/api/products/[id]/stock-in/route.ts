@@ -3,16 +3,17 @@ import { NextRequest, NextResponse } from "next/server";
 import { isValidObjectId } from "mongoose";
 
 import dbConnect from "@/lib/mongodb";
-import { requireApiAuth } from "@/lib/require-auth";
+import { requirePermission } from "@/lib/require-permission";
+import { withAuditLog } from "@/lib/audit-log";
 import { cleanNumber, cleanString } from "@/lib/crud-utils";
 import InventoryTransactionModel from "@/models/InventoryTransaction";
 import ProductModel from "@/models/Product";
 
-export async function POST(
+async function handlePOST(
   req: NextRequest,
   context: { params: Promise<{ id: string }> }
 ) {
-  const { response, session } = await requireApiAuth();
+  const { response, session } = await requirePermission(["products.manage", "inventory.manage"]);
 
   if (response) return response;
 
@@ -132,3 +133,9 @@ export async function POST(
     },
   });
 }
+
+export const POST = withAuditLog(handlePOST, {
+  module: "PRODUCTS",
+  action: "STOCK_IN",
+  entityType: "PRODUCT",
+});

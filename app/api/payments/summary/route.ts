@@ -3,14 +3,14 @@ import { NextRequest, NextResponse } from "next/server";
 import type { QueryFilter } from "mongoose";
 
 import dbConnect from "@/lib/mongodb";
-import { requireApiAuth } from "@/lib/require-auth";
+import { requirePermission } from "@/lib/require-permission";
 import { cleanString, escapeRegex } from "@/lib/crud-utils";
 import CustomerModel, { ICustomer } from "@/models/Customer";
 import PaymentModel from "@/models/Payment";
 import SaleModel from "@/models/Sale";
 
 export async function GET(req: NextRequest) {
-  const { response } = await requireApiAuth();
+  const { response } = await requirePermission(["payments.view", "payments.manage"]);
 
   if (response) return response;
 

@@ -22,7 +22,6 @@ const PAGE_RULES: PageRule[] = [
   { prefix: "/bodega-products", permission: "bodega-products.view" },
   { prefix: "/purchase-items", permission: "purchase-items.view" },
   { prefix: "/deliveries", permission: "supplier-deliveries.view" },
-  { prefix: "/customer-deliveries", permission: "customer-deliveries.view" },
   { prefix: "/slicing/new", permission: "slicing.manage" },
   { prefix: "/slicing/standard-packing", permission: "standard-packing.view" },
   { prefix: "/slicing", permission: "slicing.view" },
@@ -41,6 +40,8 @@ const PAGE_RULES: PageRule[] = [
   { prefix: "/users", permission: "users.view" },
   { prefix: "/roles", permission: "roles.view" },
   { prefix: "/expenses-bodega", permission: "expenses-bodega.view" },
+  { prefix: "/audit-logs", permission: "audit-logs.view" },
+  { prefix: "/stock-transfers", permission: "stock-transfers.view" },
 ];
 
 function normalizePath(pathname: string) {
@@ -128,7 +129,6 @@ export const config = {
     "/bodega-products/:path*",
     "/purchase-items/:path*",
     "/deliveries/:path*",
-    "/customer-deliveries/:path*",
     "/slicing/:path*",
     "/sales/:path*",
     "/payments/:path*",
@@ -137,5 +137,7 @@ export const config = {
     "/users/:path*",
     "/roles/:path*",
     "/expenses-bodega/:path*",
+    "/audit-logs/:path*",
+    "/stock-transfers/:path*",
   ],
 };

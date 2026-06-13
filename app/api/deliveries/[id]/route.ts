@@ -1,15 +1,26 @@
 // app/api/deliveries/[id]/route.ts
 import { NextRequest, NextResponse } from "next/server";
-import { isValidObjectId } from "mongoose";
+import mongoose, { isValidObjectId } from "mongoose";
 
 import dbConnect from "@/lib/mongodb";
-import { requireApiAuth } from "@/lib/require-auth";
+import { requirePermission } from "@/lib/require-permission";
+import { withAuditLog } from "@/lib/audit-log";
 import { cleanNumber, cleanString } from "@/lib/crud-utils";
 import BodegaProductModel from "@/models/BodegaProduct";
 import BodegaStockTransactionModel from "@/models/BodegaStockTransaction";
 import DeliveryModel from "@/models/Delivery";
 import DeliveryItemModel from "@/models/DeliveryItem";
 import SupplierModel from "@/models/Supplier";
+
+class ApiError extends Error {
+  constructor(public status: number, message: string) {
+    super(message);
+  }
+}
+
+function fail(status: number, message: string): never {
+  throw new ApiError(status, message);
+}
 
 type DeliveryItemInput = {
   categoryId?: string;
@@ -102,14 +113,16 @@ async function reverseDeliveryStock({
   deliveryId,
   deliveryCode,
   createdBy,
+  mongoSession,
 }: {
   deliveryId: string;
   deliveryCode: string;
   createdBy?: string;
+  mongoSession: mongoose.ClientSession;
 }) {
-  const oldItems = await DeliveryItemModel.find({
-    deliveryId,
-  });
+  const oldItems = await DeliveryItemModel.find({ deliveryId }).session(
+    mongoSession
+  );
 
   const transactions = [];
 
@@ -120,13 +133,6 @@ async function reverseDeliveryStock({
 
     if (!bodegaProductId || !isValidObjectId(bodegaProductId)) continue;
 
-    const product = await BodegaProductModel.findOne({
-      _id: bodegaProductId,
-      isActive: true,
-    });
-
-    if (!product) continue;
-
     const stockQtyToReverse = getStockQty({
       bags: Number((item as any).bags || 0),
       kilos: Number((item as any).kilos || 0),
@@ -135,17 +141,40 @@ async function reverseDeliveryStock({
 
     if (stockQtyToReverse <= 0) continue;
 
-    const previousStock = Number(product.stockQty || 0);
-    product.stockQty = Math.max(previousStock - stockQtyToReverse, 0);
+    // Conditional $gte guard: refuse to reverse stock that was already
+    // consumed (sliced/sold), instead of silently clamping to zero and
+    // corrupting the stock ledger.
+    const product = await BodegaProductModel.findOneAndUpdate(
+      { _id: bodegaProductId, stockQty: { $gte: stockQtyToReverse } },
+      { $inc: { stockQty: -stockQtyToReverse } },
+      { new: true, session: mongoSession }
+    );
 
-    await product.save();
+    if (!product) {
+      const current = await BodegaProductModel.findById(bodegaProductId)
+        .select("name stockQty")
+        .session(mongoSession)
+        .lean();
+
+      if (!current) continue;
+
+      const available = Number((current as any).stockQty ?? 0);
+      const name = String((current as any).name || "This product");
+
+      fail(
+        400,
+        `Cannot reverse delivery ${deliveryCode}: ${name} only has ${available} in stock but this delivery added ${stockQtyToReverse}. Some stock was already used (sliced or sold). Void or adjust those records first.`
+      );
+    }
+
+    const newStock = Number(product.stockQty || 0);
 
     transactions.push({
       bodegaProductId: product._id,
       type: "VOID_REVERSAL",
       quantity: stockQtyToReverse,
-      previousStock,
-      newStock: product.stockQty,
+      previousStock: newStock + stockQtyToReverse,
+      newStock,
       remarks: `VOID DELIVERY ${deliveryCode}`,
       referenceType: "DELIVERY_VOID",
       referenceId: deliveryId,
@@ -154,7 +183,9 @@ async function reverseDeliveryStock({
   }
 
   if (transactions.length > 0) {
-    await BodegaStockTransactionModel.insertMany(transactions);
+    await BodegaStockTransactionModel.insertMany(transactions, {
+      session: mongoSession,
+    });
   }
 }
 
@@ -162,7 +193,7 @@ export async function GET(
   _req: NextRequest,
   context: { params: Promise<{ id: string }> }
 ) {
-  const { response } = await requireApiAuth();
+  const { response } = await requirePermission(["supplier-deliveries.view", "supplier-deliveries.manage"]);
 
   if (response) return response;
 
@@ -207,11 +238,11 @@ export async function GET(
   });
 }
 
-export async function PATCH(
+async function handlePATCH(
   req: NextRequest,
   context: { params: Promise<{ id: string }> }
 ) {
-  const { response, session } = await requireApiAuth();
+  const { response, session } = await requirePermission("supplier-deliveries.manage");
 
   if (response) return response;
 
@@ -318,7 +349,19 @@ export async function PATCH(
   let totalPieces = 0;
   let totalAmount = 0;
 
-  const preparedItems = [];
+  type PreparedDeliveryItem = {
+    categoryId: string;
+    bodegaProductId: mongoose.Types.ObjectId;
+    productName: string;
+    bags: number;
+    kilos: number;
+    pieces: number;
+    buyingPrice: number;
+    lineTotal: number;
+    stockQtyToAdd: number;
+  };
+
+  const preparedItems: PreparedDeliveryItem[] = [];
 
   for (const item of items) {
     const bodegaProductId = cleanString(
@@ -385,7 +428,6 @@ export async function PATCH(
     totalAmount += lineTotal;
 
     preparedItems.push({
-      product,
       categoryId,
       bodegaProductId: product._id,
       productName: product.name,
@@ -398,72 +440,106 @@ export async function PATCH(
     });
   }
 
-  await reverseDeliveryStock({
-    deliveryId: id,
-    deliveryCode: delivery.deliveryCode,
-    createdBy: session?.user?.id,
-  });
+  const mongoSession = await mongoose.startSession();
 
-  await DeliveryItemModel.deleteMany({
-    deliveryId: id,
-  });
+  try {
+    await mongoSession.withTransaction(async () => {
+      // Reverse the old delivery's stock first (fails cleanly if stock was
+      // already consumed), then re-apply the edited items atomically.
+      await reverseDeliveryStock({
+        deliveryId: id,
+        deliveryCode: delivery.deliveryCode,
+        createdBy: session?.user?.id,
+        mongoSession,
+      });
 
-  delivery.supplierId = supplierId as any;
-  delivery.deliveryCode = deliveryCode;
-  delivery.receiptNumber = receiptNumber;
-  delivery.totalBags = totalBags;
-  delivery.totalKilos = totalKilos;
-  delivery.totalPieces = totalPieces;
-  delivery.totalAmount = totalAmount;
-  delivery.deliveryDate = deliveryDate ? new Date(deliveryDate) : new Date();
-  delivery.remarks = remarks;
+      await DeliveryItemModel.deleteMany({ deliveryId: id }, { session: mongoSession });
 
-  await delivery.save();
+      delivery.supplierId = supplierId as any;
+      delivery.deliveryCode = deliveryCode;
+      delivery.receiptNumber = receiptNumber;
+      delivery.totalBags = totalBags;
+      delivery.totalKilos = totalKilos;
+      delivery.totalPieces = totalPieces;
+      delivery.totalAmount = totalAmount;
+      delivery.deliveryDate = deliveryDate ? new Date(deliveryDate) : new Date();
+      delivery.remarks = remarks;
 
-  const deliveryItemsToInsert = [];
-  const bodegaStockTransactions = [];
+      await delivery.save({ session: mongoSession });
 
-  for (const item of preparedItems) {
-    const product = item.product;
+      const deliveryItemsToInsert = [];
+      const bodegaStockTransactions = [];
 
-    deliveryItemsToInsert.push({
-      deliveryId: delivery._id,
+      for (const item of preparedItems) {
+        deliveryItemsToInsert.push({
+          deliveryId: delivery._id,
 
-      productId: item.bodegaProductId,
-      bodegaProductId: item.bodegaProductId,
-      categoryId: item.categoryId,
+          productId: item.bodegaProductId,
+          bodegaProductId: item.bodegaProductId,
+          categoryId: item.categoryId,
 
-      productName: item.productName,
-      bags: item.bags,
-      kilos: item.kilos,
-      pieces: item.pieces,
-      buyingPrice: item.buyingPrice,
-      lineTotal: item.lineTotal,
+          productName: item.productName,
+          bags: item.bags,
+          kilos: item.kilos,
+          pieces: item.pieces,
+          buyingPrice: item.buyingPrice,
+          lineTotal: item.lineTotal,
+        });
+
+        const updatedProduct = await BodegaProductModel.findOneAndUpdate(
+          { _id: item.bodegaProductId },
+          {
+            $inc: { stockQty: item.stockQtyToAdd },
+            $set: { buyingPrice: item.buyingPrice },
+          },
+          { new: true, session: mongoSession }
+        );
+
+        if (!updatedProduct) {
+          fail(404, `${item.productName} was not found.`);
+        }
+
+        const newStock = Number(updatedProduct.stockQty || 0);
+
+        bodegaStockTransactions.push({
+          bodegaProductId: updatedProduct._id,
+          type: "STOCK_IN",
+          quantity: item.stockQtyToAdd,
+          previousStock: newStock - item.stockQtyToAdd,
+          newStock,
+          remarks: `EDIT DELIVERY ${deliveryCode}`,
+          referenceType: "DELIVERY",
+          referenceId: delivery._id,
+          createdBy: session?.user?.id,
+        });
+      }
+
+      await DeliveryItemModel.insertMany(deliveryItemsToInsert, {
+        session: mongoSession,
+      });
+
+      if (bodegaStockTransactions.length > 0) {
+        await BodegaStockTransactionModel.insertMany(bodegaStockTransactions, {
+          session: mongoSession,
+        });
+      }
     });
+  } catch (error) {
+    if (error instanceof ApiError) {
+      return NextResponse.json(
+        { success: false, message: error.message },
+        { status: error.status }
+      );
+    }
 
-    const previousStock = Number(product.stockQty || 0);
-    product.stockQty = previousStock + item.stockQtyToAdd;
-    product.buyingPrice = item.buyingPrice;
+    console.error(error);
 
-    await product.save();
-
-    bodegaStockTransactions.push({
-      bodegaProductId: product._id,
-      type: "STOCK_IN",
-      quantity: item.stockQtyToAdd,
-      previousStock,
-      newStock: product.stockQty,
-      remarks: `EDIT DELIVERY ${deliveryCode}`,
-      referenceType: "DELIVERY",
-      referenceId: delivery._id,
-      createdBy: session?.user?.id,
-    });
-  }
-
-  await DeliveryItemModel.insertMany(deliveryItemsToInsert);
-
-  if (bodegaStockTransactions.length > 0) {
-    await BodegaStockTransactionModel.insertMany(bodegaStockTransactions);
+    return NextResponse.json(
+      { success: false, message: "Unable to update delivery." },
+      { status: 500 }
+    );
+  } finally {
+    await mongoSession.endSession();
   }
 
   const populatedDelivery = await DeliveryModel.findById(delivery._id)
@@ -481,11 +557,11 @@ export async function PATCH(
   });
 }
 
-export async function DELETE(
+async function handleDELETE(
   _req: NextRequest,
   context: { params: Promise<{ id: string }> }
 ) {
-  const { response, session } = await requireApiAuth();
+  const { response, session } = await requirePermission("supplier-deliveries.manage");
 
   if (response) return response;
 
@@ -518,17 +594,60 @@ export async function DELETE(
     );
   }
 
-  await reverseDeliveryStock({
-    deliveryId: id,
-    deliveryCode: delivery.deliveryCode,
-    createdBy: session?.user?.id,
-  });
+  const mongoSession = await mongoose.startSession();
 
-  delivery.isVoided = true;
-  await delivery.save();
+  try {
+    await mongoSession.withTransaction(async () => {
+      // Atomically claim the delivery so two simultaneous voids cannot both run.
+      const claimed = await DeliveryModel.findOneAndUpdate(
+        { _id: id, isVoided: false },
+        { $set: { isVoided: true } },
+        { new: true, session: mongoSession }
+      );
 
-  return NextResponse.json({
-    success: true,
-    message: "Delivery voided successfully and bodega stock was reversed.",
-  });
+      if (!claimed) {
+        fail(404, "Delivery not found.");
+      }
+
+      await reverseDeliveryStock({
+        deliveryId: id,
+        deliveryCode: claimed.deliveryCode,
+        createdBy: session?.user?.id,
+        mongoSession,
+      });
+    });
+
+    return NextResponse.json({
+      success: true,
+      message: "Delivery voided successfully and bodega stock was reversed.",
+    });
+  } catch (error) {
+    if (error instanceof ApiError) {
+      return NextResponse.json(
+        { success: false, message: error.message },
+        { status: error.status }
+      );
+    }
+
+    console.error(error);
+
+    return NextResponse.json(
+      { success: false, message: "Unable to void delivery." },
+      { status: 500 }
+    );
+  } finally {
+    await mongoSession.endSession();
+  }
 }
+
+export const PATCH = withAuditLog(handlePATCH, {
+  module: "SUPPLIER_DELIVERIES",
+  action: "UPDATE",
+  entityType: "DELIVERY",
+});
+
+export const DELETE = withAuditLog(handleDELETE, {
+  module: "SUPPLIER_DELIVERIES",
+  action: "VOID",
+  entityType: "DELIVERY",
+});

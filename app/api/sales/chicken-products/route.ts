@@ -2,7 +2,7 @@
 import { NextResponse } from "next/server";
 
 import dbConnect from "@/lib/mongodb";
-import { requireApiAuth } from "@/lib/require-auth";
+import { requirePermission } from "@/lib/require-permission";
 import BodegaProductModel from "@/models/BodegaProduct";
 import StandardPackingModel from "@/models/StandardPacking";
 
@@ -16,7 +16,7 @@ function wholeNumber(value: unknown) {
 }
 
 export async function GET() {
-  const { response } = await requireApiAuth();
+  const { response } = await requirePermission(["sales.manage", "sales.view"]);
   if (response) return response;
 
   await dbConnect();

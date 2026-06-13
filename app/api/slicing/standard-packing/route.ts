@@ -3,7 +3,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { isValidObjectId } from "mongoose";
 
 import dbConnect from "@/lib/mongodb";
-import { requireApiAuth } from "@/lib/require-auth";
+import { requirePermission } from "@/lib/require-permission";
+import { withAuditLog } from "@/lib/audit-log";
 import { cleanNumber, cleanString } from "@/lib/crud-utils";
 import BodegaProductModel from "@/models/BodegaProduct";
 import StandardPackingModel from "@/models/StandardPacking";
@@ -31,7 +32,7 @@ function serializeStandard(item: any) {
 }
 
 export async function GET() {
-  const { response } = await requireApiAuth();
+  const { response } = await requirePermission(["standard-packing.view", "standard-packing.manage", "slicing.manage"]);
 
   if (response) return response;
 
@@ -53,8 +54,8 @@ export async function GET() {
   });
 }
 
-export async function POST(req: NextRequest) {
-  const { response } = await requireApiAuth();
+async function handlePOST(req: NextRequest) {
+  const { response } = await requirePermission("standard-packing.manage");
 
   if (response) return response;
 
@@ -162,3 +163,9 @@ export async function POST(req: NextRequest) {
     { status: 201 }
   );
 }
+
+export const POST = withAuditLog(handlePOST, {
+  module: "STANDARD_PACKING",
+  action: "CREATE",
+  entityType: "STANDARD_PACKING",
+});

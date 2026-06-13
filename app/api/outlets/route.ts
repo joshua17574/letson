@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from "next/server";
-import type { FilterQuery } from "mongoose";
 
 import dbConnect from "@/lib/mongodb";
 import { requirePermission } from "@/lib/require-permission";
@@ -43,7 +42,7 @@ export async function GET(req: NextRequest) {
   const search = cleanString(searchParams.get("search"));
   const status = cleanString(searchParams.get("status")).toUpperCase();
 
-  const filter: FilterQuery<IOutlet> = {
+  const filter: Record<string, any> = {
     isActive: true,
   };
 

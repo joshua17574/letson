@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { isValidObjectId } from "mongoose";
 
 import dbConnect from "@/lib/mongodb";
-import { requireApiAuth } from "@/lib/require-auth";
+import { requirePermission } from "@/lib/require-permission";
 import CategoryModel from "@/models/Category";
 import CustomerModel from "@/models/Customer";
 import ExpenseModel from "@/models/Expense";
@@ -130,7 +130,7 @@ async function getFilterOptions() {
 }
 
 export async function GET(req: NextRequest) {
-  const { response, session } = await requireApiAuth();
+  const { response, session } = await requirePermission("reports.profit");
   if (response) return response;
 
   if (!hasProfitPermission(session)) {

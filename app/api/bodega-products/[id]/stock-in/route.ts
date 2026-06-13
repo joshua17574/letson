@@ -3,16 +3,17 @@ import { NextRequest, NextResponse } from "next/server";
 import { isValidObjectId } from "mongoose";
 
 import dbConnect from "@/lib/mongodb";
-import { requireApiAuth } from "@/lib/require-auth";
+import { requirePermission } from "@/lib/require-permission";
+import { withAuditLog } from "@/lib/audit-log";
 import { cleanNumber, cleanString } from "@/lib/crud-utils";
 import BodegaProductModel from "@/models/BodegaProduct";
 import BodegaStockTransactionModel from "@/models/BodegaStockTransaction";
 
-export async function POST(
+async function handlePOST(
   req: NextRequest,
   context: { params: Promise<{ id: string }> }
 ) {
-  const { response, session } = await requireApiAuth();
+  const { response, session } = await requirePermission("bodega-products.manage");
 
   if (response) return response;
 
@@ -85,3 +86,9 @@ export async function POST(
     },
   });
 }
+
+export const POST = withAuditLog(handlePOST, {
+  module: "BODEGA_PRODUCTS",
+  action: "STOCK_IN",
+  entityType: "BODEGA_PRODUCT",
+});

@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { isValidObjectId } from "mongoose";
 
 import dbConnect from "@/lib/mongodb";
-import { requirePermission } from "@/lib/require-permission";
+import { invalidateUserAccessCache, requirePermission } from "@/lib/require-permission";
+import { withAuditLog } from "@/lib/audit-log";
 import { cleanString } from "@/lib/crud-utils";
 import { isValidRolePermission } from "@/lib/role-permissions";
 import RoleModel from "@/models/Role";
@@ -63,7 +64,7 @@ export async function GET(
   return NextResponse.json({ success: true, data: serializeRole(role) });
 }
 
-export async function PATCH(
+async function handlePATCH(
   req: NextRequest,
   context: { params: Promise<{ id: string }> }
 ) {
@@ -127,6 +128,9 @@ export async function PATCH(
   role.permissions = permissions;
   await role.save();
 
+  // Role permissions changed: drop cached access so it applies immediately.
+  invalidateUserAccessCache();
+
   return NextResponse.json({
     success: true,
     message: "Role updated successfully.",
@@ -134,7 +138,7 @@ export async function PATCH(
   });
 }
 
-export async function DELETE(
+async function handleDELETE(
   _req: NextRequest,
   context: { params: Promise<{ id: string }> }
 ) {
@@ -171,8 +175,23 @@ export async function DELETE(
   role.isActive = false;
   await role.save();
 
+  // Role permissions changed: drop cached access so it applies immediately.
+  invalidateUserAccessCache();
+
   return NextResponse.json({
     success: true,
     message: "Role disabled successfully.",
   });
 }
+
+export const PATCH = withAuditLog(handlePATCH, {
+  module: "ROLES",
+  action: "UPDATE",
+  entityType: "ROLE",
+});
+
+export const DELETE = withAuditLog(handleDELETE, {
+  module: "ROLES",
+  action: "DELETE",
+  entityType: "ROLE",
+});

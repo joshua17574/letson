@@ -3,7 +3,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { isValidObjectId } from "mongoose";
 
 import dbConnect from "@/lib/mongodb";
-import { requireApiAuth } from "@/lib/require-auth";
+import { requirePermission } from "@/lib/require-permission";
+import { withAuditLog } from "@/lib/audit-log";
 import {
   cleanNumber,
   cleanString,
@@ -42,7 +43,7 @@ function serializePurchaseBatch(batch: any) {
 }
 
 export async function GET(req: NextRequest) {
-  const { response } = await requireApiAuth();
+  const { response } = await requirePermission(["purchase-items.view", "purchase-items.manage"]);
 
   if (response) return response;
 
@@ -137,8 +138,8 @@ export async function GET(req: NextRequest) {
   });
 }
 
-export async function POST(req: NextRequest) {
-  const { response, session } = await requireApiAuth();
+async function handlePOST(req: NextRequest) {
+  const { response, session } = await requirePermission("purchase-items.manage");
 
   if (response) return response;
 
@@ -287,3 +288,9 @@ export async function POST(req: NextRequest) {
     { status: 201 }
   );
 }
+
+export const POST = withAuditLog(handlePOST, {
+  module: "PURCHASE_ITEMS",
+  action: "CREATE",
+  entityType: "PURCHASE_BATCH",
+});

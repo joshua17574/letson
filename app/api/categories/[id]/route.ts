@@ -3,7 +3,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { isValidObjectId } from "mongoose";
 
 import dbConnect from "@/lib/mongodb";
-import { requireApiAuth } from "@/lib/require-auth";
+import { requirePermission } from "@/lib/require-permission";
+import { withAuditLog } from "@/lib/audit-log";
 import { cleanString, serializeDocument } from "@/lib/crud-utils";
 import CategoryModel from "@/models/Category";
 
@@ -11,7 +12,7 @@ export async function GET(
   _req: NextRequest,
   context: { params: Promise<{ id: string }> }
 ) {
-  const { response } = await requireApiAuth();
+  const { response } = await requirePermission(["categories.view", "categories.manage"]);
 
   if (response) return response;
 
@@ -50,11 +51,11 @@ export async function GET(
   });
 }
 
-export async function PATCH(
+async function handlePATCH(
   req: NextRequest,
   context: { params: Promise<{ id: string }> }
 ) {
-  const { response } = await requireApiAuth();
+  const { response } = await requirePermission("categories.manage");
 
   if (response) return response;
 
@@ -118,11 +119,11 @@ export async function PATCH(
   });
 }
 
-export async function DELETE(
+async function handleDELETE(
   _req: NextRequest,
   context: { params: Promise<{ id: string }> }
 ) {
-  const { response } = await requireApiAuth();
+  const { response } = await requirePermission("categories.manage");
 
   if (response) return response;
 
@@ -168,3 +169,15 @@ export async function DELETE(
     message: "Category deleted successfully.",
   });
 }
+
+export const PATCH = withAuditLog(handlePATCH, {
+  module: "CATEGORIES",
+  action: "UPDATE",
+  entityType: "CATEGORY",
+});
+
+export const DELETE = withAuditLog(handleDELETE, {
+  module: "CATEGORIES",
+  action: "DELETE",
+  entityType: "CATEGORY",
+});

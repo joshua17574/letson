@@ -3,6 +3,7 @@ import mongoose, { isValidObjectId } from "mongoose";
 
 import dbConnect from "@/lib/mongodb";
 import { requirePermission } from "@/lib/require-permission";
+import { withAuditLog } from "@/lib/audit-log";
 import { cleanDeliveryCategory, serializeCustomerDelivery, serializeCustomerDeliveryItem } from "@/lib/customer-delivery-utils";
 import { cleanString } from "@/lib/crud-utils";
 import CustomerDeliveryModel from "@/models/CustomerDelivery";
@@ -52,7 +53,7 @@ export async function GET(
   });
 }
 
-export async function PATCH(
+async function handlePATCH(
   req: NextRequest,
   context: { params: Promise<{ id: string }> }
 ) {
@@ -135,7 +136,7 @@ export async function PATCH(
   });
 }
 
-export async function DELETE(
+async function handleDELETE(
   _req: NextRequest,
   context: { params: Promise<{ id: string }> }
 ) {
@@ -175,3 +176,15 @@ export async function DELETE(
     message: "Customer delivery cancelled successfully.",
   });
 }
+
+export const PATCH = withAuditLog(handlePATCH, {
+  module: "CUSTOMER_DELIVERIES",
+  action: "UPDATE",
+  entityType: "CUSTOMER_DELIVERY",
+});
+
+export const DELETE = withAuditLog(handleDELETE, {
+  module: "CUSTOMER_DELIVERIES",
+  action: "DELETE",
+  entityType: "CUSTOMER_DELIVERY",
+});

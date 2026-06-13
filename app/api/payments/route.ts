@@ -6,6 +6,7 @@ import crypto from "node:crypto";
 
 import dbConnect from "@/lib/mongodb";
 import { requirePermission } from "@/lib/require-permission";
+import { withAuditLog } from "@/lib/audit-log";
 import {
   cleanNumber,
   cleanString,
@@ -150,7 +151,7 @@ export async function GET(req: NextRequest) {
   });
 }
 
-export async function POST(req: NextRequest) {
+async function handlePOST(req: NextRequest) {
   const { response, session: authSession } = await requirePermission("payments.manage");
   if (response) return response;
 
@@ -318,3 +319,9 @@ export async function POST(req: NextRequest) {
     await mongoSession.endSession();
   }
 }
+
+export const POST = withAuditLog(handlePOST, {
+  module: "PAYMENTS",
+  action: "CREATE",
+  entityType: "PAYMENT",
+});

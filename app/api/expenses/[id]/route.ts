@@ -3,6 +3,7 @@ import { isValidObjectId } from "mongoose";
 
 import dbConnect from "@/lib/mongodb";
 import { requirePermission } from "@/lib/require-permission";
+import { withAuditLog } from "@/lib/audit-log";
 import { cleanNumber, cleanString } from "@/lib/crud-utils";
 import ExpenseModel, { ExpenseCategory, ExpenseType } from "@/models/Expense";
 
@@ -63,7 +64,7 @@ function serializeExpense(expense: any) {
   };
 }
 
-export async function PATCH(
+async function handlePATCH(
   req: NextRequest,
   context: { params: Promise<{ id: string }> }
 ) {
@@ -146,7 +147,7 @@ export async function PATCH(
   });
 }
 
-export async function DELETE(
+async function handleDELETE(
   _req: NextRequest,
   context: { params: Promise<{ id: string }> }
 ) {
@@ -182,3 +183,15 @@ export async function DELETE(
     message: "Expense deleted successfully.",
   });
 }
+
+export const PATCH = withAuditLog(handlePATCH, {
+  module: "EXPENSES",
+  action: "UPDATE",
+  entityType: "EXPENSE",
+});
+
+export const DELETE = withAuditLog(handleDELETE, {
+  module: "EXPENSES",
+  action: "DELETE",
+  entityType: "EXPENSE",
+});

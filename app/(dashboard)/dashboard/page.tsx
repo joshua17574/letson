@@ -16,6 +16,7 @@ import {
   Scissors,
   ShoppingCart,
   Sparkles,
+  Store,
   TrendingDown,
   TrendingUp,
   Users,
@@ -728,6 +729,160 @@ export default async function DashboardPage() {
                 </div>
               </div>
             )}
+          </CardContent>
+        </Card>
+      </section>
+
+      <section className="grid gap-6 xl:grid-cols-2">
+        <Card className="rounded-[2rem] border-slate-200 bg-white shadow-sm">
+          <CardHeader className="pb-2">
+            <SectionTitle
+              icon={ReceiptText}
+              title="Expenses by Business"
+              description="Bodega and grocery operating expenses, split by category."
+              action={
+                <Button asChild variant="outline" className="rounded-2xl">
+                  <Link href="/expenses-bodega">Open Expenses</Link>
+                </Button>
+              }
+            />
+          </CardHeader>
+          <CardContent className="space-y-5 p-6 pt-2">
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="rounded-3xl border border-amber-100 bg-amber-50/70 p-4">
+                <p className="text-xs font-bold uppercase tracking-[0.2em] text-amber-700">
+                  Bodega Expenses
+                </p>
+                <p className="mt-2 text-2xl font-black text-slate-950">
+                  {formatPeso(summary.thisMonth.bodegaExpenses)}
+                </p>
+                <p className="mt-1 text-xs text-slate-500">
+                  Today {formatPeso(summary.today.bodegaExpenses)} · All-time{" "}
+                  {formatPeso(summary.totalBodegaExpenses)}
+                </p>
+              </div>
+              <div className="rounded-3xl border border-violet-100 bg-violet-50/70 p-4">
+                <p className="text-xs font-bold uppercase tracking-[0.2em] text-violet-700">
+                  Grocery Expenses
+                </p>
+                <p className="mt-2 text-2xl font-black text-slate-950">
+                  {formatPeso(summary.thisMonth.groceryExpenses)}
+                </p>
+                <p className="mt-1 text-xs text-slate-500">
+                  Today {formatPeso(summary.today.groceryExpenses)} · All-time{" "}
+                  {formatPeso(summary.totalGroceryExpenses)}
+                </p>
+              </div>
+            </div>
+
+            <div>
+              <p className="mb-2 text-xs font-bold uppercase tracking-[0.2em] text-slate-500">
+                This Month Split
+              </p>
+              <ProgressLine
+                label="Bodega"
+                value={formatPeso(summary.thisMonth.bodegaExpenses)}
+                percent={safePercent(
+                  summary.thisMonth.bodegaExpenses,
+                  summary.thisMonth.expenses
+                )}
+                tone="bg-amber-500"
+              />
+              <div className="mt-3" />
+              <ProgressLine
+                label="Grocery"
+                value={formatPeso(summary.thisMonth.groceryExpenses)}
+                percent={safePercent(
+                  summary.thisMonth.groceryExpenses,
+                  summary.thisMonth.expenses
+                )}
+                tone="bg-violet-500"
+              />
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="rounded-[2rem] border-slate-200 bg-white shadow-sm">
+          <CardHeader className="pb-2">
+            <SectionTitle
+              icon={Store}
+              title="Outlets"
+              description="Outlet network and stock value held across outlets."
+              action={
+                <Button asChild variant="outline" className="rounded-2xl">
+                  <Link href="/outlets">Open Outlets</Link>
+                </Button>
+              }
+            />
+          </CardHeader>
+          <CardContent className="space-y-5 p-6 pt-2">
+            <div className="grid gap-3 sm:grid-cols-3">
+              <div className="rounded-3xl bg-slate-50 p-4">
+                <p className="text-xs font-bold uppercase tracking-[0.2em] text-slate-500">
+                  Active Outlets
+                </p>
+                <p className="mt-2 text-2xl font-black text-slate-950">
+                  {formatNumber(summary.outlets.activeOutlets)}
+                  <span className="text-base font-bold text-slate-400">
+                    {" "}
+                    / {formatNumber(summary.outlets.totalOutlets)}
+                  </span>
+                </p>
+              </div>
+              <div className="rounded-3xl bg-slate-50 p-4">
+                <p className="text-xs font-bold uppercase tracking-[0.2em] text-slate-500">
+                  Stock Value
+                </p>
+                <p className="mt-2 text-2xl font-black text-slate-950">
+                  {formatPeso(summary.outlets.totalStockValue)}
+                </p>
+              </div>
+              <div className="rounded-3xl bg-slate-50 p-4">
+                <p className="text-xs font-bold uppercase tracking-[0.2em] text-slate-500">
+                  Stocked Items
+                </p>
+                <p className="mt-2 text-2xl font-black text-slate-950">
+                  {formatNumber(summary.outlets.totalItems)}
+                </p>
+              </div>
+            </div>
+
+            <div>
+              <p className="mb-2 text-xs font-bold uppercase tracking-[0.2em] text-slate-500">
+                Top Outlets by Stock Value
+              </p>
+              <div className="overflow-hidden rounded-3xl border border-slate-100">
+                {summary.outlets.topOutlets.length ? (
+                  summary.outlets.topOutlets.map((outlet) => (
+                    <div
+                      key={outlet.id}
+                      className="grid gap-3 border-b border-slate-100 p-4 last:border-0 sm:grid-cols-[1fr_auto_auto] sm:items-center"
+                    >
+                      <div>
+                        <p className="font-bold text-slate-900">
+                          {outlet.name}
+                        </p>
+                        {outlet.code ? (
+                          <p className="text-xs text-slate-500">
+                            {outlet.code}
+                          </p>
+                        ) : null}
+                      </div>
+                      <p className="text-sm text-slate-500">
+                        {formatNumber(outlet.itemCount)} items
+                      </p>
+                      <p className="text-right font-black text-slate-950">
+                        {formatPeso(outlet.stockValue)}
+                      </p>
+                    </div>
+                  ))
+                ) : (
+                  <p className="p-4 text-sm text-slate-500">
+                    No outlet inventory recorded yet.
+                  </p>
+                )}
+              </div>
+            </div>
           </CardContent>
         </Card>
       </section>

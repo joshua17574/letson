@@ -3,7 +3,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { isValidObjectId } from "mongoose";
 
 import dbConnect from "@/lib/mongodb";
-import { requireApiAuth } from "@/lib/require-auth";
+import { requirePermission } from "@/lib/require-permission";
+import { withAuditLog } from "@/lib/audit-log";
 import { cleanString, serializeDocument } from "@/lib/crud-utils";
 import CustomerModel, { CustomerType } from "@/models/Customer";
 
@@ -17,7 +18,7 @@ export async function GET(
   _req: NextRequest,
   context: { params: Promise<{ id: string }> }
 ) {
-  const { response } = await requireApiAuth();
+  const { response } = await requirePermission(["customers.view", "customers.manage"]);
 
   if (response) return response;
 
@@ -56,11 +57,11 @@ export async function GET(
   });
 }
 
-export async function PATCH(
+async function handlePATCH(
   req: NextRequest,
   context: { params: Promise<{ id: string }> }
 ) {
-  const { response } = await requireApiAuth();
+  const { response } = await requirePermission("customers.manage");
 
   if (response) return response;
 
@@ -130,11 +131,11 @@ export async function PATCH(
   });
 }
 
-export async function DELETE(
+async function handleDELETE(
   _req: NextRequest,
   context: { params: Promise<{ id: string }> }
 ) {
-  const { response } = await requireApiAuth();
+  const { response } = await requirePermission("customers.manage");
 
   if (response) return response;
 
@@ -180,3 +181,15 @@ export async function DELETE(
     message: "Customer deleted successfully.",
   });
 }
+
+export const PATCH = withAuditLog(handlePATCH, {
+  module: "CUSTOMERS",
+  action: "UPDATE",
+  entityType: "CUSTOMER",
+});
+
+export const DELETE = withAuditLog(handleDELETE, {
+  module: "CUSTOMERS",
+  action: "DELETE",
+  entityType: "CUSTOMER",
+});

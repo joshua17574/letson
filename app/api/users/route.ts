@@ -4,6 +4,7 @@ import { isValidObjectId } from "mongoose";
 
 import dbConnect from "@/lib/mongodb";
 import { requirePermission } from "@/lib/require-permission";
+import { withAuditLog } from "@/lib/audit-log";
 import { cleanString, escapeRegex, getPagination } from "@/lib/crud-utils";
 import RoleModel from "@/models/Role";
 import UserModel, { type UserRole } from "@/models/User";
@@ -77,7 +78,7 @@ export async function GET(req: NextRequest) {
   });
 }
 
-export async function POST(req: NextRequest) {
+async function handlePOST(req: NextRequest) {
   const { response } = await requirePermission("users.manage");
   if (response) return response;
 
@@ -171,3 +172,9 @@ export async function POST(req: NextRequest) {
     { status: 201 }
   );
 }
+
+export const POST = withAuditLog(handlePOST, {
+  module: "USERS",
+  action: "CREATE",
+  entityType: "USER",
+});

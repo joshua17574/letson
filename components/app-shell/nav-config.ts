@@ -2,6 +2,8 @@
 import type { LucideIcon } from "lucide-react";
 import {
   ArrowLeftRight,
+  ScrollText,
+  Send,
   BarChart3,
   Building2,
   Boxes,
@@ -11,7 +13,6 @@ import {
   Gauge,
   LayoutDashboard,
   Package,
-  PackageCheck,
   PackagePlus,
   ReceiptText,
   Scissors,
@@ -65,6 +66,13 @@ export const appNavItems: AppNavItem[] = [
     section: "Workspace",
   },
   {
+    title: "Stock Transfers",
+    href: "/stock-transfers",
+    icon: Send,
+    permission: "stock-transfers.view",
+    section: "Workspace",
+  },
+  {
     title: "Suppliers",
     href: "/suppliers",
     icon: Truck,
@@ -110,13 +118,6 @@ export const appNavItems: AppNavItem[] = [
     href: "/deliveries",
     icon: Truck,
     permission: "supplier-deliveries.view",
-    section: "Operations",
-  },
-  {
-    title: "Customer Deliveries",
-    href: "/customer-deliveries",
-    icon: PackageCheck,
-    permission: "customer-deliveries.view",
     section: "Operations",
   },
   {
@@ -312,6 +313,13 @@ export const appNavItems: AppNavItem[] = [
     href: "/roles",
     icon: ShieldCheck,
     permission: "roles.view",
+    section: "Admin",
+  },
+  {
+    title: "Audit Logs",
+    href: "/audit-logs",
+    icon: ScrollText,
+    permission: "audit-logs.view",
     section: "Admin",
   },
 ];
