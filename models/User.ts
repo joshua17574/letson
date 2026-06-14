@@ -11,6 +11,7 @@ export interface IUser extends Document {
   password: string;
   role: UserRole;
   roleId?: Types.ObjectId;
+  outletId?: Types.ObjectId;
   isActive: boolean;
   createdAt: Date;
   updatedAt: Date;
@@ -58,6 +59,11 @@ const UserSchema = new Schema<IUser>(
       ref: "Role",
     },
 
+    outletId: {
+      type: Schema.Types.ObjectId,
+      ref: "Outlet",
+    },
+
     isActive: {
       type: Boolean,
       default: true,
@@ -72,6 +78,7 @@ UserSchema.index({ username: 1 }, { unique: true });
 UserSchema.index({ email: 1 });
 UserSchema.index({ role: 1 });
 UserSchema.index({ roleId: 1 });
+UserSchema.index({ outletId: 1 });
 UserSchema.index({ isActive: 1 });
 
 const UserModel: Model<IUser> =

@@ -17,6 +17,7 @@ function isUserRole(value: string): value is UserRole {
 
 function serializeUser(user: any) {
   const role = user.roleId;
+  const outlet = user.outletId;
 
   return {
     _id: user._id.toString(),
@@ -26,6 +27,8 @@ function serializeUser(user: any) {
     role: user.role || "USER",
     roleId: role?._id?.toString?.() || user.roleId?.toString?.() || "",
     roleName: role?.name || "",
+    outletId: outlet?._id?.toString?.() || user.outletId?.toString?.() || "",
+    outletName: outlet?.name || "",
     permissions: role?.permissions || [],
     permissionCount: Number(role?.permissions?.length || 0),
     isActive: Boolean(user.isActive),
@@ -54,6 +57,7 @@ export async function GET(
 
   const user = await UserModel.findOne({ _id: id, isActive: true })
     .populate("roleId", "name permissions")
+    .populate("outletId", "name code")
     .lean();
 
   if (!user) {
@@ -100,6 +104,7 @@ async function handlePATCH(
   const password = cleanString(body.password);
   const roleInput = cleanString(body.role).toUpperCase();
   const roleId = cleanString(body.roleId);
+  const outletId = cleanString(body.outletId);
 
   if (!name) {
     return NextResponse.json(
@@ -156,6 +161,7 @@ async function handlePATCH(
   user.email = email;
   user.role = isUserRole(roleInput) ? roleInput : user.role || "USER";
   user.roleId = roleId as any;
+  user.outletId = (outletId && isValidObjectId(outletId) ? outletId : undefined) as any;
 
   if (password) {
     if (password.length < 8) {
@@ -175,6 +181,7 @@ async function handlePATCH(
 
   const populatedUser = await UserModel.findById(user._id)
     .populate("roleId", "name permissions")
+    .populate("outletId", "name code")
     .lean();
 
   return NextResponse.json({

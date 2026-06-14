@@ -156,31 +156,36 @@ async function main() {
   ]);
   console.log(`Grocery products: ${groceryProducts.length}`);
 
-  // ---- Bodega products -----------------------------------------------------
-  const wholeChicken = await (BodegaProductModel as any).create({
-    name: `${TEST_PREFIX} Whole Chicken`, categoryId: catChicken._id, stockQty: 100000, buyingPrice: 160, sellingPrice: 0,
+  // ---- Bodega products: OS1, OS4 (raw whole chicken, per head) + C10 -------
+  // OS1 and OS4 are raw whole-chicken types counted PER HEAD.
+  // C10 is the sliced output, sold/transferred in PACKS (50 pcs/pack), P377/pack.
+  const os1 = await (BodegaProductModel as any).create({
+    name: `${TEST_PREFIX} OS1`, categoryId: catChicken._id, stockQty: 2000, buyingPrice: 150, sellingPrice: 0,
   });
-  const slicedC10 = await (BodegaProductModel as any).create({
-    name: `${TEST_PREFIX} Chicken Cut C10`, categoryId: catChicken._id, stockQty: 0, buyingPrice: 18, sellingPrice: 25,
+  const os4 = await (BodegaProductModel as any).create({
+    name: `${TEST_PREFIX} OS4`, categoryId: catChicken._id, stockQty: 2000, buyingPrice: 175, sellingPrice: 0,
   });
-  const legQuarter = await (BodegaProductModel as any).create({
-    name: `${TEST_PREFIX} Leg Quarter`, categoryId: catChicken._id, stockQty: 20000, buyingPrice: 70, sellingPrice: 95,
+  const c10 = await (BodegaProductModel as any).create({
+    name: `${TEST_PREFIX} C10`, categoryId: catChicken._id, stockQty: 0, buyingPrice: 300, sellingPrice: 377,
   });
-  const chickenWings = await (BodegaProductModel as any).create({
-    name: `${TEST_PREFIX} Chicken Wings`, categoryId: catChicken._id, stockQty: 15000, buyingPrice: 90, sellingPrice: 120,
-  });
-  console.log("Bodega products: 4");
+  console.log("Bodega products: 3 (OS1, OS4 raw heads; C10 packed @ P377)");
 
-  // C10 is a pack product (10 pcs/pack)
-  const packingC10 = await (StandardPackingModel as any).create({
-    wholeChickenId: wholeChicken._id, productId: slicedC10._id, standardPacking: 10, standardSlice: 34, chickenSizeType: "MEDIUM",
+  // Two slicing standards, both produce C10 packed at 50 pcs/pack:
+  //   OS1 -> C10: slice 26 pcs/head
+  //   OS4 -> C10: slice 34 pcs/head
+  const C10_PACK = 50;
+  const packingOS1 = await (StandardPackingModel as any).create({
+    wholeChickenId: os1._id, productId: c10._id, standardPacking: C10_PACK, standardSlice: 26, chickenSizeType: "OS1",
   });
-  console.log("Standard packing: 1 (C10 = 10 pcs/pack)");
+  const packingOS4 = await (StandardPackingModel as any).create({
+    wholeChickenId: os4._id, productId: c10._id, standardPacking: C10_PACK, standardSlice: 34, chickenSizeType: "OS4",
+  });
+  console.log("Standard packings: 2 (OS1->C10 slice 26/pack 50, OS4->C10 slice 34/pack 50)");
 
   // Running stock trackers (kept positive)
   let c10Stock = 0;
-  let legStock = 20000;
-  let wingStock = 15000;
+  let os1Stock = 2000;
+  let os4Stock = 2000;
   const groceryStock = groceryProducts.map((p: any) => Number(p.stockPcs));
 
   // ---- Per-day slicing (replenish C10) -------------------------------------
@@ -198,42 +203,64 @@ async function main() {
   for (let d = DAYS; d >= 1; d -= 1) {
     const date = daysAgo(d);
 
-    // --- Slicing: 1-2 batches/day, whole chicken -> C10 ---
+    // --- Slicing: 1-2 batches/day, alternating OS1/OS4 -> C10 ---
     const batchesToday = randInt(1, 2);
     for (let b = 0; b < batchesToday; b += 1) {
-      // const heads = randInt(15, 30);
-      const heads = 1;
-      const actualSlicedPcs = heads * 34;
-      const prevWhole = 100000 - slicingCount * 0; // informational only
+      // Alternate which raw head we slice from.
+      const useOS1 = (slicingCount + b) % 2 === 0;
+      const mainProduct = useOS1 ? os1 : os4;
+      const standard = useOS1 ? packingOS1 : packingOS4;
+      const standardSlice = useOS1 ? 26 : 34;
+
+      const heads = randInt(20, 40);
+      // Actual sliced pcs ~= heads * slice, with a little real-world variance.
+      const actualSlicedPcs = heads * standardSlice - randInt(0, heads);
+      const totalStd = heads * standardSlice;
+      const actualPacks = Math.floor(actualSlicedPcs / C10_PACK);
+      const butal = actualSlicedPcs % C10_PACK;
+      const variance = actualSlicedPcs - totalStd;
+
+      const prevMain = useOS1 ? os1Stock : os4Stock;
 
       const batch = await (SlicingBatchModel as any).create({
         slicingDate: date,
         slicer: `${TEST_PREFIX} Slicer ${(b % 2) + 1}`,
         packer: `${TEST_PREFIX} Packer ${(b % 2) + 1}`,
         totalHeads: heads,
+        totalStdPcs: totalStd,
         totalActualPcs: actualSlicedPcs,
-        remarks: `${TEST_PREFIX} Slicing batch`,
+        totalPacks: actualPacks,
+        totalButal: butal,
+        totalVariance: variance,
+        remarks: `${TEST_PREFIX} Slicing batch (${useOS1 ? "OS1" : "OS4"} -> C10)`,
         createdBy,
       });
       await (SlicingItemModel as any).create({
         batchId: batch._id,
-        standardId: packingC10._id,
-        mainProductId: wholeChicken._id,
-        mainProductName: wholeChicken.name,
-        slicedProductId: slicedC10._id,
-        slicedProductName: slicedC10.name,
+        standardId: standard._id,
+        mainProductId: mainProduct._id,
+        mainProductName: mainProduct.name,
+        slicedProductId: c10._id,
+        slicedProductName: c10.name,
         heads,
-        standardSlice: 34,
-        standardPacking: 50,
+        standardSlice,
+        standardPacking: C10_PACK,
+        totalStdPcs: totalStd,
         actualSlicedPcs,
+        actualPacks,
+        butal,
+        variance,
       });
-      await (BodegaProductModel as any).updateOne({ _id: wholeChicken._id }, { $inc: { stockQty: -heads } });
-      await (BodegaProductModel as any).updateOne({ _id: slicedC10._id }, { $inc: { stockQty: actualSlicedPcs } });
+
+      // Stock effect: deduct heads from OS1/OS4, add sliced pcs to C10.
+      await (BodegaProductModel as any).updateOne({ _id: mainProduct._id }, { $inc: { stockQty: -heads } });
+      await (BodegaProductModel as any).updateOne({ _id: c10._id }, { $inc: { stockQty: actualSlicedPcs } });
       await (BodegaStockTransactionModel as any).create([
-        { bodegaProductId: wholeChicken._id, type: "STOCK_OUT", quantity: heads, previousStock: 0, newStock: 0, remarks: `${TEST_PREFIX} SLICING`, referenceType: "SLICING_BATCH", referenceId: batch._id, createdBy },
-        { bodegaProductId: slicedC10._id, type: "STOCK_IN", quantity: actualSlicedPcs, previousStock: c10Stock, newStock: c10Stock + actualSlicedPcs, remarks: `${TEST_PREFIX} SLICING`, referenceType: "SLICING_BATCH", referenceId: batch._id, createdBy },
+        { bodegaProductId: mainProduct._id, type: "STOCK_OUT", quantity: heads, previousStock: prevMain, newStock: prevMain - heads, remarks: `${TEST_PREFIX} SLICING`, referenceType: "SLICING_BATCH", referenceId: batch._id, createdBy },
+        { bodegaProductId: c10._id, type: "STOCK_IN", quantity: actualSlicedPcs, previousStock: c10Stock, newStock: c10Stock + actualSlicedPcs, remarks: `${TEST_PREFIX} SLICING`, referenceType: "SLICING_BATCH", referenceId: batch._id, createdBy },
       ]);
-      void prevWhole;
+
+      if (useOS1) os1Stock -= heads; else os4Stock -= heads;
       c10Stock += actualSlicedPcs;
       slicingCount += 1;
     }
@@ -247,12 +274,11 @@ async function main() {
       const receiptNumber = `TEST-${String(saleSeq).padStart(5, "0")}`;
 
       if (isChicken) {
-        // Sell C10 in packs (PACK) OR leg/wings by... CHICKEN must be PACK unit.
-        // Use C10 packs to respect the PACK convention.
+        // Sell C10 in PACKS at P377/pack (50 pcs per pack).
         const packs = randInt(1, 6);
-        const pcs = packs * 10;
+        const pcs = packs * C10_PACK;
         if (c10Stock < pcs) continue;
-        const price = 250;
+        const price = 377;
         const total = price * packs;
         const paid = Math.random() < 0.7;
 
@@ -262,11 +288,11 @@ async function main() {
           totalPacks: packs, totalQty: packs, status: paid ? "PAID" : "UNPAID", createdBy,
         });
         await (SaleLineModel as any).create({
-          saleId: sale._id, source: "CHICKEN", bodegaProductId: slicedC10._id,
-          categoryName: catChicken.name, productName: slicedC10.name,
-          qty: packs, price, lineTotal: total, stockUnit: "PACK", packSize: 10, stockPcsOut: pcs,
+          saleId: sale._id, source: "CHICKEN", bodegaProductId: c10._id,
+          categoryName: catChicken.name, productName: c10.name,
+          qty: packs, price, lineTotal: total, stockUnit: "PACK", packSize: C10_PACK, stockPcsOut: pcs,
         });
-        await (BodegaProductModel as any).updateOne({ _id: slicedC10._id }, { $inc: { stockQty: -pcs } });
+        await (BodegaProductModel as any).updateOne({ _id: c10._id }, { $inc: { stockQty: -pcs } });
         c10Stock -= pcs;
         totalSales += total;
 
@@ -334,18 +360,18 @@ async function main() {
       transferSeq += 1;
       const transferNumber = `TEST-TRF-${String(transferSeq).padStart(4, "0")}`;
 
-      // Mix: C10 packs + leg quarter pcs
+      // Delivery: C10 packs (50 pcs/pack) + some raw OS1 heads to the outlet.
       const c10Packs = randInt(2, 8);
-      const c10Pcs = c10Packs * 10;
-      const legPcs = randInt(10, 40);
-      if (c10Stock < c10Pcs || legStock < legPcs) continue;
+      const c10Pcs = c10Packs * C10_PACK;
+      const osHeads = randInt(10, 40);
+      if (c10Stock < c10Pcs || os1Stock < osHeads) continue;
 
       const confirmed = Math.random() < 0.8; // 80% confirmed, 20% left in transit
       const hasDisc = confirmed && Math.random() < 0.25; // some discrepancies
-      const legReceived = hasDisc ? legPcs - randInt(1, 5) : legPcs;
-      const legVariance = legPcs - legReceived;
-      const totalQtyPcs = c10Pcs + legPcs;
-      const receivedPcs = c10Pcs + legReceived;
+      const osReceived = hasDisc ? osHeads - randInt(1, 5) : osHeads;
+      const osVariance = osHeads - osReceived;
+      const totalQtyPcs = c10Pcs + osHeads;
+      const receivedPcs = c10Pcs + osReceived;
 
       const transfer = await (StockTransferModel as any).create({
         transferNumber, outletId: outlet._id,
@@ -353,49 +379,49 @@ async function main() {
         transferDate: date,
         totalItems: 2, totalQty: totalQtyPcs,
         totalReceivedQty: confirmed ? receivedPcs : 0,
-        totalVarianceQty: confirmed ? legVariance : 0,
+        totalVarianceQty: confirmed ? osVariance : 0,
         hasDiscrepancy: hasDisc,
         remarks: `${TEST_PREFIX} Stock transfer`,
-        outletRemarks: hasDisc ? `${TEST_PREFIX} Some leg quarters short on arrival` : "",
+        outletRemarks: hasDisc ? `${TEST_PREFIX} Some OS1 heads short on arrival` : "",
         dispatchedAt: date, deliveredAt: confirmed ? date : undefined, confirmedAt: confirmed ? date : undefined,
         createdBy, dispatchedBy: createdBy, confirmedBy: confirmed ? createdBy : undefined,
       });
 
       await (StockTransferItemModel as any).create([
         {
-          transferId: transfer._id, source: "BODEGA", bodegaProductId: slicedC10._id,
-          productName: slicedC10.name, categoryName: catChicken.name, packSize: 10, unitLabel: "PACK",
-          buyingPrice: 18, sellingPrice: 25, qty: c10Packs, qtyPcs: c10Pcs,
+          transferId: transfer._id, source: "BODEGA", bodegaProductId: c10._id,
+          productName: c10.name, categoryName: catChicken.name, packSize: C10_PACK, unitLabel: "PACK",
+          buyingPrice: 300, sellingPrice: 377, qty: c10Packs, qtyPcs: c10Pcs,
           receivedQty: confirmed ? c10Packs : 0, receivedPcs: confirmed ? c10Pcs : 0,
           varianceQty: 0, itemStatus: confirmed ? "ACCEPTED" : "PENDING",
         },
         {
-          transferId: transfer._id, source: "BODEGA", bodegaProductId: legQuarter._id,
-          productName: legQuarter.name, categoryName: catChicken.name, packSize: 0, unitLabel: "PCS",
-          buyingPrice: 70, sellingPrice: 95, qty: legPcs, qtyPcs: legPcs,
-          receivedQty: confirmed ? legReceived : 0, receivedPcs: confirmed ? legReceived : 0,
-          varianceQty: confirmed ? legVariance : 0,
-          itemStatus: confirmed ? (legVariance > 0 ? "PARTIAL" : "ACCEPTED") : "PENDING",
-          remarks: hasDisc ? `${TEST_PREFIX} ${legVariance} pcs short` : "",
+          transferId: transfer._id, source: "BODEGA", bodegaProductId: os1._id,
+          productName: os1.name, categoryName: catChicken.name, packSize: 0, unitLabel: "PCS",
+          buyingPrice: 150, sellingPrice: 0, qty: osHeads, qtyPcs: osHeads,
+          receivedQty: confirmed ? osReceived : 0, receivedPcs: confirmed ? osReceived : 0,
+          varianceQty: confirmed ? osVariance : 0,
+          itemStatus: confirmed ? (osVariance > 0 ? "PARTIAL" : "ACCEPTED") : "PENDING",
+          remarks: hasDisc ? `${TEST_PREFIX} ${osVariance} heads short` : "",
         },
       ]);
 
       // Dispatch always deducts main-branch stock
-      await (BodegaProductModel as any).updateOne({ _id: slicedC10._id }, { $inc: { stockQty: -c10Pcs } });
-      await (BodegaProductModel as any).updateOne({ _id: legQuarter._id }, { $inc: { stockQty: -legPcs } });
+      await (BodegaProductModel as any).updateOne({ _id: c10._id }, { $inc: { stockQty: -c10Pcs } });
+      await (BodegaProductModel as any).updateOne({ _id: os1._id }, { $inc: { stockQty: -osHeads } });
       c10Stock -= c10Pcs;
-      legStock -= legPcs;
+      os1Stock -= osHeads;
       await (BodegaStockTransactionModel as any).create([
-        { bodegaProductId: slicedC10._id, type: "STOCK_OUT", quantity: c10Pcs, previousStock: 0, newStock: 0, remarks: `${TEST_PREFIX} STOCK TRANSFER ${transferNumber}`, referenceType: "STOCK_TRANSFER", referenceId: transfer._id, createdBy },
-        { bodegaProductId: legQuarter._id, type: "STOCK_OUT", quantity: legPcs, previousStock: 0, newStock: 0, remarks: `${TEST_PREFIX} STOCK TRANSFER ${transferNumber}`, referenceType: "STOCK_TRANSFER", referenceId: transfer._id, createdBy },
+        { bodegaProductId: c10._id, type: "STOCK_OUT", quantity: c10Pcs, previousStock: 0, newStock: 0, remarks: `${TEST_PREFIX} STOCK TRANSFER ${transferNumber}`, referenceType: "STOCK_TRANSFER", referenceId: transfer._id, createdBy },
+        { bodegaProductId: os1._id, type: "STOCK_OUT", quantity: osHeads, previousStock: 0, newStock: 0, remarks: `${TEST_PREFIX} STOCK TRANSFER ${transferNumber}`, referenceType: "STOCK_TRANSFER", referenceId: transfer._id, createdBy },
       ]);
       totalTransfers += 1;
 
       // If confirmed, increase outlet inventory + ledger for received pcs
       if (confirmed) {
         const items: Array<{ pid: any; name: string; cat: string; pack: number; buy: number; sell: number; recv: number }> = [
-          { pid: slicedC10._id, name: slicedC10.name, cat: catChicken.name, pack: 10, buy: 18, sell: 25, recv: c10Pcs },
-          { pid: legQuarter._id, name: legQuarter.name, cat: catChicken.name, pack: 0, buy: 70, sell: 95, recv: legReceived },
+          { pid: c10._id, name: c10.name, cat: catChicken.name, pack: C10_PACK, buy: 300, sell: 377, recv: c10Pcs },
+          { pid: os1._id, name: os1.name, cat: catChicken.name, pack: 0, buy: 150, sell: 0, recv: osReceived },
         ];
         for (const it of items) {
           if (it.recv <= 0) continue;
@@ -428,16 +454,16 @@ async function main() {
   }
 
   // One DRAFT transfer so you can test dispatch/cancel in the UI
-  if (legStock >= 30) {
+  if (c10Stock >= 2 * C10_PACK) {
     const draft = await (StockTransferModel as any).create({
       transferNumber: `TEST-TRF-${String(transferSeq + 1).padStart(4, "0")}`,
       outletId: outlets[0]._id, status: "DRAFT", transferDate: new Date(),
-      totalItems: 1, totalQty: 30, remarks: `${TEST_PREFIX} Draft transfer to test dispatch`, createdBy,
+      totalItems: 1, totalQty: 2 * C10_PACK, remarks: `${TEST_PREFIX} Draft transfer to test dispatch`, createdBy,
     });
     await (StockTransferItemModel as any).create({
-      transferId: draft._id, source: "BODEGA", bodegaProductId: legQuarter._id,
-      productName: legQuarter.name, categoryName: catChicken.name, packSize: 0, unitLabel: "PCS",
-      buyingPrice: 70, sellingPrice: 95, qty: 30, qtyPcs: 30, receivedQty: 0, receivedPcs: 0,
+      transferId: draft._id, source: "BODEGA", bodegaProductId: c10._id,
+      productName: c10.name, categoryName: catChicken.name, packSize: C10_PACK, unitLabel: "PACK",
+      buyingPrice: 300, sellingPrice: 377, qty: 2, qtyPcs: 2 * C10_PACK, receivedQty: 0, receivedPcs: 0,
       varianceQty: 0, itemStatus: "PENDING",
     });
   }

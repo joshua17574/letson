@@ -7,7 +7,7 @@ export type SaleStatus = "UNPAID" | "PARTIAL" | "PAID" | "VOIDED";
 export interface ISale extends Document {
   _id: Types.ObjectId;
   receiptNumber: string;
-  customerId: Types.ObjectId;
+  customerId?: Types.ObjectId;
   saleDate: Date;
   source: SaleSource;
   totalAmount: number;
@@ -34,7 +34,7 @@ const SaleSchema = new Schema<ISale>(
     customerId: {
       type: Schema.Types.ObjectId,
       ref: "Customer",
-      required: true,
+      required: false,
     },
 
     saleDate: {

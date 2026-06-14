@@ -55,7 +55,15 @@ type UserRow = {
   role: string;
   roleId: string;
   roleName: string;
+  outletId: string;
+  outletName: string;
   permissionCount: number;
+};
+
+type OutletOption = {
+  _id: string;
+  name: string;
+  code: string;
 };
 
 type ApiMeta = {
@@ -71,11 +79,13 @@ const emptyForm = {
   password: "",
   role: "USER",
   roleId: "",
+  outletId: "",
 };
 
 export function UsersPageClient() {
   const [users, setUsers] = useState<UserRow[]>([]);
   const [roles, setRoles] = useState<RoleOption[]>([]);
+  const [outlets, setOutlets] = useState<OutletOption[]>([]);
 
   const [meta, setMeta] = useState<ApiMeta>({
     page: 1,
@@ -110,6 +120,22 @@ export function UsersPageClient() {
       }
     } catch {
       toast.error("Failed to load roles.");
+    }
+  }
+
+  async function loadOutlets() {
+    try {
+      const res = await fetch("/api/outlets?limit=1000", {
+        cache: "no-store",
+      });
+
+      const json = await res.json();
+
+      if (res.ok && json.success) {
+        setOutlets(json.data || []);
+      }
+    } catch {
+      // outlets are optional for non-cashier users; fail quietly
     }
   }
 
@@ -156,6 +182,7 @@ export function UsersPageClient() {
 
   useEffect(() => {
     void loadRoles();
+    void loadOutlets();
   }, []);
 
   useEffect(() => {
@@ -178,6 +205,7 @@ export function UsersPageClient() {
       password: "",
       role: user.role || "USER",
       roleId: user.roleId || "",
+      outletId: user.outletId || "",
     });
 
     setDialogOpen(true);
@@ -238,6 +266,7 @@ export function UsersPageClient() {
           password: form.password,
           role: form.role,
           roleId: form.roleId,
+          outletId: form.outletId,
         }),
       });
 
@@ -501,6 +530,35 @@ export function UsersPageClient() {
                   </SelectContent>
                 </Select>
               </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label>
+                Outlet{" "}
+                <span className="text-xs font-normal text-slate-400">
+                  (required for cashiers — the outlet they sell from)
+                </span>
+              </Label>
+              <Select
+                value={form.outletId || "none"}
+                onValueChange={(value) =>
+                  updateForm("outletId", value === "none" ? "" : value)
+                }
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="No outlet" />
+                </SelectTrigger>
+
+                <SelectContent>
+                  <SelectItem value="none">No outlet</SelectItem>
+                  {outlets.map((outlet) => (
+                    <SelectItem key={outlet._id} value={outlet._id}>
+                      {outlet.name}
+                      {outlet.code ? ` (${outlet.code})` : ""}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
 
             <div className="space-y-2">

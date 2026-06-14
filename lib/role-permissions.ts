@@ -13,6 +13,7 @@ export const ROLE_PERMISSION_GROUPS = [
       { key: "stock-transfers.view", label: "View Stock Transfers" },
       { key: "stock-transfers.manage", label: "Manage Stock Transfers (Main Branch)" },
       { key: "stock-transfers.confirm", label: "Confirm Incoming Deliveries (Outlet)" },
+      { key: "cash.manage", label: "Open / Close Cash (Cashier)" },
     ],
   },
   {
@@ -54,6 +55,8 @@ export const ROLE_PERMISSION_GROUPS = [
       { key: "sales.view", label: "View Sales" },
       { key: "sales.manage", label: "Manage Sales" },
       { key: "sales-lines.view", label: "View Sales Per Item" },
+      { key: "customer-deliveries.view", label: "View Customer Deliveries" },
+      { key: "customer-deliveries.manage", label: "Manage Customer Deliveries" },
       { key: "customer-inventory.view", label: "View Customer Inventory" },
     ],
   },

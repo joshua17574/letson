@@ -17,6 +17,7 @@ function isUserRole(value: string): value is UserRole {
 
 function serializeUser(user: any) {
   const role = user.roleId;
+  const outlet = user.outletId;
 
   return {
     _id: user._id.toString(),
@@ -26,6 +27,8 @@ function serializeUser(user: any) {
     role: user.role || "USER",
     roleId: role?._id?.toString?.() || user.roleId?.toString?.() || "",
     roleName: role?.name || "",
+    outletId: outlet?._id?.toString?.() || user.outletId?.toString?.() || "",
+    outletName: outlet?.name || "",
     permissions: role?.permissions || [],
     permissionCount: Number(role?.permissions?.length || 0),
     isActive: Boolean(user.isActive),
@@ -59,6 +62,7 @@ export async function GET(req: NextRequest) {
   const [items, total] = await Promise.all([
     UserModel.find(filter)
       .populate("roleId", "name permissions")
+      .populate("outletId", "name code")
       .sort({ name: 1 })
       .skip(skip)
       .limit(limit)
@@ -90,6 +94,7 @@ async function handlePOST(req: NextRequest) {
   const password = cleanString(body.password);
   const roleInput = cleanString(body.role).toUpperCase();
   const roleId = cleanString(body.roleId);
+  const outletId = cleanString(body.outletId);
   const username = cleanString(body.username || body.email || body.name).toLowerCase();
 
   if (!name) {
@@ -157,10 +162,12 @@ async function handlePOST(req: NextRequest) {
     password: hashedPassword,
     role: isUserRole(roleInput) ? roleInput : "USER",
     roleId,
+    outletId: outletId && isValidObjectId(outletId) ? outletId : undefined,
   });
 
   const populatedUser = await UserModel.findById(user._id)
     .populate("roleId", "name permissions")
+    .populate("outletId", "name code")
     .lean();
 
   return NextResponse.json(
