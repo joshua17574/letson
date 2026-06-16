@@ -74,6 +74,13 @@ export const appNavItems: AppNavItem[] = [
     section: "Workspace",
   },
   {
+    title: "Outlet Summary",
+    href: "/outlet-summary",
+    icon: BarChart3,
+    permission: "outlets.view",
+    section: "Workspace",
+  },
+  {
     title: "Stock Transfers",
     href: "/stock-transfers",
     icon: Send,
