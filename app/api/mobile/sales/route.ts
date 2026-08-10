@@ -14,6 +14,7 @@ import mongoose, { isValidObjectId } from "mongoose";
 import dbConnect from "@/lib/mongodb";
 import { requireMobileAuth } from "@/lib/mobile-auth";
 import { manilaDateString } from "@/lib/date-utils";
+import { ensureMongooseOutletPaymentCustomer } from "@/lib/mongoose-outlet-payment-customer";
 import OutletMenuItemModel from "@/models/OutletMenuItem";
 import OutletInventoryModel from "@/models/OutletInventory";
 import OutletStockTransactionModel from "@/models/OutletStockTransaction";
@@ -24,7 +25,10 @@ import CashShiftModel from "@/models/CashShift";
 export const dynamic = "force-dynamic";
 
 class ApiError extends Error {
-  constructor(public status: number, message: string) {
+  constructor(
+    public status: number,
+    message: string,
+  ) {
     super(message);
   }
 }
@@ -36,28 +40,38 @@ async function nextReceiptNumber(): Promise<string> {
   // we retry once on duplicate.
   const datePart = manilaDateString().replaceAll("-", "");
   const prefix = `MOB-${datePart}-`;
-  const latest = await SaleModel.findOne({ receiptNumber: { $regex: `^${prefix}` } })
+  const latest = await SaleModel.findOne({
+    receiptNumber: { $regex: `^${prefix}` },
+  })
     .sort({ receiptNumber: -1 })
     .select("receiptNumber")
     .lean<{ receiptNumber?: string }>();
-  const last = latest ? Number(String(latest.receiptNumber).slice(prefix.length)) || 0 : 0;
+  const last = latest
+    ? Number(String(latest.receiptNumber).slice(prefix.length)) || 0
+    : 0;
   return `${prefix}${String(last + 1).padStart(4, "0")}`;
 }
 
 export async function GET(req: NextRequest) {
-  const { user, response } = await requireMobileAuth(req, ["sales.view", "sales.manage"]);
+  const { user, response } = await requireMobileAuth(req, [
+    "sales.view",
+    "sales.manage",
+  ]);
   if (response) return response;
   if (!user.outlet) {
     return NextResponse.json(
       { success: false, message: "Your account is not assigned to an outlet." },
-      { status: 400 }
+      { status: 400 },
     );
   }
 
   await dbConnect();
 
   const { searchParams } = new URL(req.url);
-  const limit = Math.min(Math.max(Number(searchParams.get("limit") || 30), 1), 100);
+  const limit = Math.min(
+    Math.max(Number(searchParams.get("limit") || 30), 1),
+    100,
+  );
 
   // Today's mobile sales for this outlet (by receipt prefix + remarks tag).
   const datePart = manilaDateString().replaceAll("-", "");
@@ -96,7 +110,7 @@ export async function POST(req: NextRequest) {
   if (!user.outlet) {
     return NextResponse.json(
       { success: false, message: "Your account is not assigned to an outlet." },
-      { status: 400 }
+      { status: 400 },
     );
   }
 
@@ -106,15 +120,22 @@ export async function POST(req: NextRequest) {
   try {
     body = await req.json();
   } catch {
-    return NextResponse.json({ success: false, message: "Invalid request body." }, { status: 400 });
+    return NextResponse.json(
+      { success: false, message: "Invalid request body." },
+      { status: 400 },
+    );
   }
 
   const cart = Array.isArray(body?.items) ? body.items : [];
   if (cart.length === 0) {
-    return NextResponse.json({ success: false, message: "Cart is empty." }, { status: 400 });
+    return NextResponse.json(
+      { success: false, message: "Cart is empty." },
+      { status: 400 },
+    );
   }
 
-  const outletId = user.outlet.id;
+  const outlet = user.outlet;
+  const outletId = outlet.id;
   const mongoSession = await mongoose.startSession();
 
   try {
@@ -150,13 +171,20 @@ export async function POST(req: NextRequest) {
 
       // 2) Build sale lines + accumulate stock deductions.
       const lines: any[] = [];
-      const stockDeductions = new Map<string, { source: string; productId: string; qty: number; name: string }>();
+      const stockDeductions = new Map<
+        string,
+        { source: string; productId: string; qty: number; name: string }
+      >();
       let totalAmount = 0;
       let totalQty = 0;
 
       for (const c of cart) {
         const menu = menuById.get(String(c.menuItemId));
-        if (!menu) throw new ApiError(404, "A menu item was not found or is unavailable.");
+        if (!menu)
+          throw new ApiError(
+            404,
+            "A menu item was not found or is unavailable.",
+          );
 
         const qty = Math.trunc(Number(c.qty || 0));
         if (!Number.isFinite(qty) || qty < 1) {
@@ -198,6 +226,11 @@ export async function POST(req: NextRequest) {
         }
       }
 
+      const outletPaymentCustomer = await ensureMongooseOutletPaymentCustomer({
+        outlet,
+        createdBy: user.id,
+      });
+
       // 3) Create the sale.
       let receiptNumber = await nextReceiptNumber();
       let sale;
@@ -207,6 +240,7 @@ export async function POST(req: NextRequest) {
             [
               {
                 receiptNumber,
+                customerId: outletPaymentCustomer.id,
                 saleDate: new Date(),
                 source: "BODEGA",
                 totalAmount,
@@ -218,7 +252,7 @@ export async function POST(req: NextRequest) {
                 createdBy: user.id,
               },
             ],
-            { session: mongoSession }
+            { session: mongoSession },
           );
           sale = created;
           break;
@@ -230,11 +264,15 @@ export async function POST(req: NextRequest) {
           throw e;
         }
       }
-      if (!sale) throw new ApiError(500, "Could not generate a receipt number. Try again.");
+      if (!sale)
+        throw new ApiError(
+          500,
+          "Could not generate a receipt number. Try again.",
+        );
 
       await (SaleLineModel as any).insertMany(
         lines.map((l) => ({ ...l, saleId: sale._id })),
-        { session: mongoSession }
+        { session: mongoSession },
       );
 
       // 4) Deduct mapped raw stock from outlet inventory. Does NOT block on
@@ -249,7 +287,9 @@ export async function POST(req: NextRequest) {
         }).session(mongoSession);
 
         if (!inv) {
-          warnings.push(`${dec.name || "An ingredient"} is not stocked at this outlet.`);
+          warnings.push(
+            `${dec.name || "An ingredient"} is not stocked at this outlet.`,
+          );
           continue;
         }
 
@@ -257,7 +297,7 @@ export async function POST(req: NextRequest) {
         const after = before - dec.qty;
         if (after < 0) {
           warnings.push(
-            `${inv.productName}: sold ${dec.qty} but only ${before} in stock (now ${after}).`
+            `${inv.productName}: sold ${dec.qty} but only ${before} in stock (now ${after}).`,
           );
         }
 
@@ -284,7 +324,7 @@ export async function POST(req: NextRequest) {
               createdBy: user.id,
             },
           ],
-          { session: mongoSession }
+          { session: mongoSession },
         );
       }
 
@@ -300,13 +340,23 @@ export async function POST(req: NextRequest) {
       };
     });
 
-    return NextResponse.json({ success: true, message: "Sale recorded.", sale: result });
+    return NextResponse.json({
+      success: true,
+      message: "Sale recorded.",
+      sale: result,
+    });
   } catch (error) {
     if (error instanceof ApiError) {
-      return NextResponse.json({ success: false, message: error.message }, { status: error.status });
+      return NextResponse.json(
+        { success: false, message: error.message },
+        { status: error.status },
+      );
     }
     console.error(error);
-    return NextResponse.json({ success: false, message: "Unable to record the sale." }, { status: 500 });
+    return NextResponse.json(
+      { success: false, message: "Unable to record the sale." },
+      { status: 500 },
+    );
   } finally {
     await mongoSession.endSession();
   }

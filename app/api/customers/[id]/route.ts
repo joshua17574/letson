@@ -6,6 +6,7 @@ import dbConnect from "@/lib/mongodb";
 import { requirePermission } from "@/lib/require-permission";
 import { withAuditLog } from "@/lib/audit-log";
 import { cleanString, serializeDocument } from "@/lib/crud-utils";
+import { isOutletManagedCustomer } from "@/lib/outlet-payment-customer-policy";
 import CustomerModel, { CustomerType } from "@/models/Customer";
 
 const customerTypes: CustomerType[] = ["SALE", "DELIVERY", "BOTH"];
@@ -14,11 +15,47 @@ function isCustomerType(value: string): value is CustomerType {
   return customerTypes.includes(value as CustomerType);
 }
 
+function editableCustomerFilter(id: string) {
+  return {
+    _id: id,
+    isActive: true,
+    $or: [{ outletId: { $exists: false } }, { outletId: null }],
+  };
+}
+
+async function customerMutationFailure(id: string) {
+  const customer = await CustomerModel.findById(id)
+    .select("outletId isActive")
+    .lean();
+
+  if (customer && isOutletManagedCustomer(customer)) {
+    return NextResponse.json(
+      {
+        success: false,
+        message:
+          "Outlet payment accounts are managed by the outlet and cannot be changed here.",
+      },
+      { status: 409 },
+    );
+  }
+
+  return NextResponse.json(
+    {
+      success: false,
+      message: "Customer not found.",
+    },
+    { status: 404 },
+  );
+}
+
 export async function GET(
   _req: NextRequest,
-  context: { params: Promise<{ id: string }> }
+  context: { params: Promise<{ id: string }> },
 ) {
-  const { response } = await requirePermission(["customers.view", "customers.manage"]);
+  const { response } = await requirePermission([
+    "customers.view",
+    "customers.manage",
+  ]);
 
   if (response) return response;
 
@@ -30,7 +67,7 @@ export async function GET(
         success: false,
         message: "Invalid customer ID.",
       },
-      { status: 400 }
+      { status: 400 },
     );
   }
 
@@ -47,7 +84,7 @@ export async function GET(
         success: false,
         message: "Customer not found.",
       },
-      { status: 404 }
+      { status: 404 },
     );
   }
 
@@ -59,7 +96,7 @@ export async function GET(
 
 async function handlePATCH(
   req: NextRequest,
-  context: { params: Promise<{ id: string }> }
+  context: { params: Promise<{ id: string }> },
 ) {
   const { response } = await requirePermission("customers.manage");
 
@@ -73,7 +110,7 @@ async function handlePATCH(
         success: false,
         message: "Invalid customer ID.",
       },
-      { status: 400 }
+      { status: 400 },
     );
   }
 
@@ -93,15 +130,12 @@ async function handlePATCH(
         success: false,
         message: "Customer name is required.",
       },
-      { status: 400 }
+      { status: 400 },
     );
   }
 
   const updatedCustomer = await CustomerModel.findOneAndUpdate(
-    {
-      _id: id,
-      isActive: true,
-    },
+    editableCustomerFilter(id),
     {
       name,
       email,
@@ -111,17 +145,11 @@ async function handlePATCH(
     },
     {
       new: true,
-    }
+    },
   ).lean();
 
   if (!updatedCustomer) {
-    return NextResponse.json(
-      {
-        success: false,
-        message: "Customer not found.",
-      },
-      { status: 404 }
-    );
+    return customerMutationFailure(id);
   }
 
   return NextResponse.json({
@@ -133,7 +161,7 @@ async function handlePATCH(
 
 async function handleDELETE(
   _req: NextRequest,
-  context: { params: Promise<{ id: string }> }
+  context: { params: Promise<{ id: string }> },
 ) {
   const { response } = await requirePermission("customers.manage");
 
@@ -147,33 +175,24 @@ async function handleDELETE(
         success: false,
         message: "Invalid customer ID.",
       },
-      { status: 400 }
+      { status: 400 },
     );
   }
 
   await dbConnect();
 
   const deletedCustomer = await CustomerModel.findOneAndUpdate(
-    {
-      _id: id,
-      isActive: true,
-    },
+    editableCustomerFilter(id),
     {
       isActive: false,
     },
     {
       new: true,
-    }
+    },
   ).lean();
 
   if (!deletedCustomer) {
-    return NextResponse.json(
-      {
-        success: false,
-        message: "Customer not found.",
-      },
-      { status: 404 }
-    );
+    return customerMutationFailure(id);
   }
 
   return NextResponse.json({

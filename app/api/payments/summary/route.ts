@@ -5,12 +5,16 @@ import type { QueryFilter } from "mongoose";
 import dbConnect from "@/lib/mongodb";
 import { requirePermission } from "@/lib/require-permission";
 import { cleanString, escapeRegex } from "@/lib/crud-utils";
+import { paymentPosition } from "@/lib/payment-summary";
 import CustomerModel, { ICustomer } from "@/models/Customer";
 import PaymentModel from "@/models/Payment";
 import SaleModel from "@/models/Sale";
 
 export async function GET(req: NextRequest) {
-  const { response } = await requirePermission(["payments.view", "payments.manage"]);
+  const { response } = await requirePermission([
+    "payments.view",
+    "payments.manage",
+  ]);
 
   if (response) return response;
 
@@ -39,9 +43,7 @@ export async function GET(req: NextRequest) {
   }
 
   if (group === "OUTLET") {
-    customerFilter.type = {
-      $in: ["DELIVERY", "BOTH"],
-    };
+    customerFilter.outletId = { $type: "objectId" };
   }
 
   const customers = await CustomerModel.find(customerFilter)
@@ -54,7 +56,7 @@ export async function GET(req: NextRequest) {
     SaleModel.aggregate([
       {
         $match: {
-          isVoided: false,
+          isVoided: { $ne: true },
           customerId: {
             $in: customerIds,
           },
@@ -66,8 +68,28 @@ export async function GET(req: NextRequest) {
           sales: {
             $sum: "$totalAmount",
           },
+          immediateCashSales: {
+            $sum: {
+              $cond: [
+                {
+                  $regexMatch: {
+                    input: { $ifNull: ["$receiptNumber", ""] },
+                    regex: /^MOB-/,
+                  },
+                },
+                { $ifNull: ["$paidAmount", 0] },
+                0,
+              ],
+            },
+          },
           packs: {
-            $sum: "$totalPacks",
+            $sum: {
+              $cond: [
+                { $gt: [{ $ifNull: ["$totalPacks", 0] }, 0] },
+                "$totalPacks",
+                { $ifNull: ["$totalQty", 0] },
+              ],
+            },
           },
         },
       },
@@ -76,7 +98,7 @@ export async function GET(req: NextRequest) {
     PaymentModel.aggregate([
       {
         $match: {
-          isVoided: false,
+          isVoided: { $ne: true },
           customerId: {
             $in: customerIds,
           },
@@ -85,7 +107,7 @@ export async function GET(req: NextRequest) {
       {
         $group: {
           _id: "$customerId",
-          paid: {
+          recordedPayments: {
             $sum: "$amount",
           },
         },
@@ -98,33 +120,38 @@ export async function GET(req: NextRequest) {
       item._id.toString(),
       {
         sales: item.sales || 0,
+        immediateCashSales: item.immediateCashSales || 0,
         packs: item.packs || 0,
       },
-    ])
+    ]),
   );
 
   const paymentsMap = new Map(
     paymentsSummary.map((item) => [
       item._id.toString(),
       {
-        paid: item.paid || 0,
+        recordedPayments: item.recordedPayments || 0,
       },
-    ])
+    ]),
   );
 
   const data = customers.map((customer) => {
     const id = customer._id.toString();
     const sales = salesMap.get(id)?.sales || 0;
-    const paid = paymentsMap.get(id)?.paid || 0;
+    const position = paymentPosition({
+      sales,
+      immediateCashSales: salesMap.get(id)?.immediateCashSales || 0,
+      recordedPayments: paymentsMap.get(id)?.recordedPayments || 0,
+    });
     const packs = salesMap.get(id)?.packs || 0;
 
     return {
       _id: id,
       customer: customer.name,
       type: customer.type,
-      sales,
-      paid,
-      balance: sales - paid,
+      sales: position.sales,
+      paid: position.paid,
+      balance: position.balance,
       packs,
     };
   });
