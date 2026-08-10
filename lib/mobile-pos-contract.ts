@@ -52,7 +52,7 @@ function roundMoney(value: number): number {
 export function pricePerPiece(price: unknown, packSize: unknown): number {
   const amount = nonNegativeMoney(price);
   const size = Math.max(0, Math.trunc(finiteNumber(packSize) ?? 0));
-  return roundMoney(amount / (size > 0 ? size : 1));
+  return Math.round(amount / (size > 0 ? size : 1));
 }
 
 export function serializeMobileInventoryItem(

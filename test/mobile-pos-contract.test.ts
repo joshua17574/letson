@@ -34,7 +34,7 @@ test("serializes authoritative bodega prices as per-piece mobile prices", () => 
   assert.equal(item.buyingPrice, 300);
   assert.equal(item.sellingPrice, 377);
   assert.equal(item.pieceBuyingPrice, 6);
-  assert.equal(item.pieceSellingPrice, 7.54);
+  assert.equal(item.pieceSellingPrice, 8);
 });
 
 test("keeps grocery unitPrice per piece even when delivered in a pack", () => {
@@ -61,8 +61,9 @@ test("keeps grocery unitPrice per piece even when delivered in a pack", () => {
   assert.equal(item.pieceSellingPrice, 15);
 });
 
-test("rounds pack prices to centavos and safely handles invalid prices", () => {
-  assert.equal(pricePerPiece(377, 50), 7.54);
+test("rounds pack prices to whole pesos and safely handles invalid prices", () => {
+  assert.equal(pricePerPiece(374, 50), 7);
+  assert.equal(pricePerPiece(377, 50), 8);
   assert.equal(pricePerPiece(15, 0), 15);
   assert.equal(pricePerPiece(Number.NaN, 50), 0);
 });
@@ -134,8 +135,8 @@ test("builds a server-priced chicken sale line from direct outlet inventory", ()
       productName: "C10",
       categoryName: "CHICKEN",
       qty: 2,
-      price: 7.54,
-      lineTotal: 15.08,
+      price: 8,
+      lineTotal: 16,
       stockUnit: "QTY",
       packSize: 1,
       stockPcsOut: 2,
