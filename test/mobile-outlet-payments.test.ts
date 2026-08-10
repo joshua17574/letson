@@ -8,7 +8,7 @@ import {
   type OutletPaymentCustomer,
   type OutletPaymentCustomerStore,
 } from "../lib/mobile-outlet-payments";
-import { paymentPosition } from "../lib/payment-summary";
+import { paymentPosition, saleUnits } from "../lib/payment-summary";
 import { isOutletManagedCustomer } from "../lib/outlet-payment-customer-policy";
 
 const outlet = {
@@ -153,6 +153,82 @@ test("counts settled sales plus unapplied credit without double-counting", () =>
       sales: 250,
       paid: 250,
       balance: 0,
+    },
+  );
+});
+
+test("derives packs and pieces from sale lines, including legacy pack headers", () => {
+  assert.deepEqual(
+    saleUnits({
+      totalPacks: 1,
+      totalQty: 1,
+      lines: [
+        {
+          stockUnit: "PACK",
+          qty: 1,
+          packSize: 50,
+          stockPcsOut: 1,
+        },
+      ],
+    }),
+    {
+      packs: 1,
+      pcs: 50,
+    },
+  );
+
+  assert.deepEqual(
+    saleUnits({
+      totalPacks: 0,
+      totalQty: 3,
+      lines: [
+        {
+          stockUnit: "QTY",
+          qty: 3,
+          packSize: 1,
+          stockPcsOut: 3,
+        },
+      ],
+    }),
+    {
+      packs: 0,
+      pcs: 3,
+    },
+  );
+
+  assert.deepEqual(
+    saleUnits({
+      totalPacks: 0,
+      totalQty: 0,
+      lines: [
+        {
+          stockUnit: "PACK",
+          qty: 1,
+          packSize: 50,
+          stockPcsOut: 50,
+        },
+        {
+          stockUnit: "QTY",
+          qty: 3,
+          packSize: 1,
+          stockPcsOut: 3,
+        },
+      ],
+    }),
+    {
+      packs: 1,
+      pcs: 53,
+    },
+  );
+
+  assert.deepEqual(
+    saleUnits({
+      totalPacks: 2,
+      totalQty: 100,
+    }),
+    {
+      packs: 2,
+      pcs: 100,
     },
   );
 });

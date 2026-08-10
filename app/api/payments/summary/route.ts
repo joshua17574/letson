@@ -5,9 +5,13 @@ import type { QueryFilter } from "mongoose";
 import dbConnect from "@/lib/mongodb";
 import { requirePermission } from "@/lib/require-permission";
 import { cleanString, escapeRegex } from "@/lib/crud-utils";
-import { paymentPosition } from "@/lib/payment-summary";
+import {
+  paymentPosition,
+  saleLineUnitGroupFields,
+} from "@/lib/payment-summary";
 import CustomerModel, { ICustomer } from "@/models/Customer";
 import PaymentModel from "@/models/Payment";
+import SaleLineModel from "@/models/SaleLine";
 import SaleModel from "@/models/Sale";
 
 export async function GET(req: NextRequest) {
@@ -63,6 +67,27 @@ export async function GET(req: NextRequest) {
         },
       },
       {
+        $lookup: {
+          from: SaleLineModel.collection.name,
+          localField: "_id",
+          foreignField: "saleId",
+          pipeline: [
+            {
+              $group: {
+                _id: null,
+                ...saleLineUnitGroupFields(),
+              },
+            },
+          ],
+          as: "lineUnits",
+        },
+      },
+      {
+        $set: {
+          lineUnits: { $arrayElemAt: ["$lineUnits", 0] },
+        },
+      },
+      {
         $group: {
           _id: "$customerId",
           sales: {
@@ -84,11 +109,12 @@ export async function GET(req: NextRequest) {
           },
           packs: {
             $sum: {
-              $cond: [
-                { $gt: [{ $ifNull: ["$totalPacks", 0] }, 0] },
-                "$totalPacks",
-                { $ifNull: ["$totalQty", 0] },
-              ],
+              $ifNull: ["$lineUnits.packs", { $ifNull: ["$totalPacks", 0] }],
+            },
+          },
+          pcs: {
+            $sum: {
+              $ifNull: ["$lineUnits.pcs", { $ifNull: ["$totalQty", 0] }],
             },
           },
         },
@@ -122,6 +148,7 @@ export async function GET(req: NextRequest) {
         sales: item.sales || 0,
         immediateCashSales: item.immediateCashSales || 0,
         packs: item.packs || 0,
+        pcs: item.pcs || 0,
       },
     ]),
   );
@@ -144,6 +171,7 @@ export async function GET(req: NextRequest) {
       recordedPayments: paymentsMap.get(id)?.recordedPayments || 0,
     });
     const packs = salesMap.get(id)?.packs || 0;
+    const pcs = salesMap.get(id)?.pcs || 0;
 
     return {
       _id: id,
@@ -153,6 +181,7 @@ export async function GET(req: NextRequest) {
       paid: position.paid,
       balance: position.balance,
       packs,
+      pcs,
     };
   });
 

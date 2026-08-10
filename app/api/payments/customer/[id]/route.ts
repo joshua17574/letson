@@ -5,9 +5,14 @@ import { isValidObjectId, Types } from "mongoose";
 import dbConnect from "@/lib/mongodb";
 import { requirePermission } from "@/lib/require-permission";
 import { cleanString } from "@/lib/crud-utils";
-import { paymentPosition } from "@/lib/payment-summary";
+import {
+  paymentPosition,
+  saleLineUnitGroupFields,
+  saleUnits,
+} from "@/lib/payment-summary";
 import CustomerModel from "@/models/Customer";
 import PaymentModel from "@/models/Payment";
+import SaleLineModel from "@/models/SaleLine";
 import SaleModel from "@/models/Sale";
 
 function notVoidedFilter() {
@@ -49,7 +54,15 @@ function getAppliedAmount(payment: any) {
   return Number(payment.appliedAmount ?? amount ?? 0);
 }
 
-function formatSale(sale: any) {
+type UnitTotals = { packs: number; pcs: number };
+
+function unitsForSale(sale: any, lineUnits: Map<string, UnitTotals>) {
+  return lineUnits.get(sale._id.toString()) || saleUnits(sale);
+}
+
+function formatSale(sale: any, lineUnits: Map<string, UnitTotals>) {
+  const units = unitsForSale(sale, lineUnits);
+
   return {
     _id: sale._id.toString(),
     saleDate: sale.saleDate ? new Date(sale.saleDate).toISOString() : undefined,
@@ -57,7 +70,8 @@ function formatSale(sale: any) {
     totalAmount: Number(sale.totalAmount || 0),
     paidAmount: Number(sale.paidAmount || 0),
     balance: Number(sale.balance || 0),
-    totalPacks: Number(sale.totalPacks || sale.totalQty || 0),
+    totalPacks: units.packs,
+    totalPcs: units.pcs,
     remarks: sale.remarks || "",
     status: sale.status || "",
   };
@@ -81,22 +95,30 @@ function formatPayment(payment: any) {
   };
 }
 
-function summarizeSales(sales: any[]) {
+function summarizeSales(
+  sales: any[],
+  lineUnits: Map<string, UnitTotals>,
+) {
   return sales.reduce(
-    (sum, sale) => ({
-      totalSales: sum.totalSales + Number(sale.totalAmount || 0),
-      immediateCashSales:
-        sum.immediateCashSales +
-        (/^MOB-/.test(String(sale.receiptNumber || ""))
-          ? Number(sale.paidAmount || 0)
-          : 0),
-      totalPacks:
-        sum.totalPacks + Number(sale.totalPacks || sale.totalQty || 0),
-    }),
+    (sum, sale) => {
+      const units = unitsForSale(sale, lineUnits);
+
+      return {
+        totalSales: sum.totalSales + Number(sale.totalAmount || 0),
+        immediateCashSales:
+          sum.immediateCashSales +
+          (/^MOB-/.test(String(sale.receiptNumber || ""))
+            ? Number(sale.paidAmount || 0)
+            : 0),
+        totalPacks: sum.totalPacks + units.packs,
+        totalPcs: sum.totalPcs + units.pcs,
+      };
+    },
     {
       totalSales: 0,
       immediateCashSales: 0,
       totalPacks: 0,
+      totalPcs: 0,
     },
   );
 }
@@ -196,6 +218,32 @@ export async function GET(
       .lean(),
   ]);
 
+  const overallSaleIds = overallSalesRecords.map((sale) => sale._id);
+  const lineUnitRecords = overallSaleIds.length
+    ? await SaleLineModel.aggregate([
+        {
+          $match: {
+            saleId: { $in: overallSaleIds },
+          },
+        },
+        {
+          $group: {
+            _id: "$saleId",
+            ...saleLineUnitGroupFields(),
+          },
+        },
+      ])
+    : [];
+  const lineUnits = new Map<string, UnitTotals>(
+    lineUnitRecords.map((record) => [
+      record._id.toString(),
+      {
+        packs: Number(record.packs || 0),
+        pcs: Number(record.pcs || 0),
+      },
+    ]),
+  );
+
   if (
     !customer &&
     overallSalesRecords.length === 0 &&
@@ -210,7 +258,7 @@ export async function GET(
     );
   }
 
-  const overallSales = summarizeSales(overallSalesRecords);
+  const overallSales = summarizeSales(overallSalesRecords, lineUnits);
   const overallPayments = summarizePayments(overallPaymentsRecords);
   const overallPosition = paymentPosition({
     sales: overallSales.totalSales,
@@ -218,7 +266,7 @@ export async function GET(
     recordedPayments: overallPayments.recordedPayments,
   });
 
-  const filteredSales = summarizeSales(filteredSalesRecords);
+  const filteredSales = summarizeSales(filteredSalesRecords, lineUnits);
   const filteredPayments = summarizePayments(filteredPaymentsRecords);
   const filteredPosition = paymentPosition({
     sales: filteredSales.totalSales,
@@ -239,6 +287,7 @@ export async function GET(
       totalPaid: overallPosition.paid,
       balance: overallPosition.balance,
       totalPacks: overallSales.totalPacks,
+      totalPcs: overallSales.totalPcs,
     },
 
     filtered: {
@@ -246,9 +295,10 @@ export async function GET(
       totalPaid: filteredPosition.paid,
       balance: filteredPosition.balance,
       totalPacks: filteredSales.totalPacks,
+      totalPcs: filteredSales.totalPcs,
     },
 
-    recentSales: recentSales.map(formatSale),
+    recentSales: recentSales.map((sale) => formatSale(sale, lineUnits)),
     recentPayments: recentPayments.map(formatPayment),
   });
 }

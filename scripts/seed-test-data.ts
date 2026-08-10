@@ -285,7 +285,7 @@ async function main() {
         const sale = await (SaleModel as any).create({
           receiptNumber, customerId: customer._id, saleDate: date, source: "CHICKEN",
           totalAmount: total, paidAmount: paid ? total : 0, balance: paid ? 0 : total,
-          totalPacks: packs, totalQty: packs, status: paid ? "PAID" : "UNPAID", createdBy,
+          totalPacks: packs, totalQty: pcs, status: paid ? "PAID" : "UNPAID", createdBy,
         });
         await (SaleLineModel as any).create({
           saleId: sale._id, source: "CHICKEN", bodegaProductId: c10._id,
