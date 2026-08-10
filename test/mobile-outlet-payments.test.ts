@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   ensureOutletPaymentCustomer,
+  mobileOutletSalesFilter,
   mobileOutletSalesWithoutPaymentCustomerFilter,
   resolveMobileSaleOutletId,
   type OutletPaymentCustomer,
@@ -15,6 +16,19 @@ const outlet = {
   id: "507f1f77bcf86cd799439011",
   name: "Main Outlet",
 };
+
+test("matches an outlet's mobile sales across report dates", () => {
+  const filter = mobileOutletSalesFilter(outlet.id);
+
+  assert.match("MOB-20260807-0001", filter.receiptNumber.$regex);
+  assert.match("MOB-20260810-0002", filter.receiptNumber.$regex);
+  assert.match(`MOBILE SALE OUTLET:${outlet.id}`, filter.remarks.$regex);
+  assert.doesNotMatch(
+    "MOBILE SALE OUTLET:507f1f77bcf86cd799439012",
+    filter.remarks.$regex,
+  );
+  assert.deepEqual(filter.isVoided, { $ne: true });
+});
 
 test("matches missing and null customer links for only one tagged outlet", () => {
   const filter = mobileOutletSalesWithoutPaymentCustomerFilter(outlet.id);

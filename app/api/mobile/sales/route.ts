@@ -15,9 +15,11 @@ import dbConnect from "@/lib/mongodb";
 import { requireMobileAuth } from "@/lib/mobile-auth";
 import { manilaDateString } from "@/lib/date-utils";
 import { ensureMongooseOutletPaymentCustomer } from "@/lib/mongoose-outlet-payment-customer";
+import { mobileOutletSalesFilter } from "@/lib/mobile-outlet-payments";
 import {
   parseMobileCartLine,
   prepareDirectInventorySaleLine,
+  pricePerPiece,
   saleSourceForLines,
   validateMobileSaleTender,
   type CatalogPriceRecord,
@@ -94,29 +96,83 @@ export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
   const limit = Math.min(
     Math.max(Number(searchParams.get("limit") || 30), 1),
-    100,
+    500,
   );
 
-  // Today's mobile sales for this outlet (by receipt prefix + remarks tag).
-  const datePart = manilaDateString().replaceAll("-", "");
-  const sales = await SaleModel.find({
-    receiptNumber: { $regex: `^MOB-${datePart}-` },
-    remarks: { $regex: `OUTLET:${user.outlet.id}` },
-    isVoided: { $ne: true },
-  })
+  const sales = await SaleModel.find(mobileOutletSalesFilter(user.outlet.id))
     .sort({ createdAt: -1 })
     .limit(limit)
     .lean();
 
+  const saleIds = sales.map((sale) => sale._id);
+  const lines = await SaleLineModel.find({ saleId: { $in: saleIds } })
+    .sort({ createdAt: 1 })
+    .lean();
+  const inventoryIds = lines
+    .map((line) =>
+      /^OUTLET_INVENTORY:([a-f0-9]{24})$/i.exec(
+        String(line.remarks || ""),
+      )?.[1],
+    )
+    .filter((id): id is string => Boolean(id));
+  const inventory = await OutletInventoryModel.find({
+    _id: { $in: inventoryIds },
+    outletId: user.outlet.id,
+  }).lean();
+  const inventoryById = new Map(
+    inventory.map((item) => [item._id.toString(), item]),
+  );
+  const linesBySaleId = new Map<string, typeof lines>();
+  for (const line of lines) {
+    const saleId = line.saleId.toString();
+    const existing = linesBySaleId.get(saleId) || [];
+    existing.push(line);
+    linesBySaleId.set(saleId, existing);
+  }
+
   let total = 0;
-  const data = (sales as any[]).map((s) => {
+  const data = sales.map((s) => {
     total += Number(s.totalAmount || 0);
+    const items = (linesBySaleId.get(s._id.toString()) || []).map((line) => {
+      const inventoryId = /^OUTLET_INVENTORY:([a-f0-9]{24})$/i.exec(
+        String(line.remarks || ""),
+      )?.[1];
+      const menuItemId = /^MENU:([a-f0-9]{24})$/i.exec(
+        String(line.remarks || ""),
+      )?.[1];
+      const inventoryItem = inventoryId
+        ? inventoryById.get(inventoryId)
+        : undefined;
+      const cost = inventoryItem
+        ? pricePerPiece(
+            inventoryItem.buyingPrice,
+            inventoryItem.productSource === "BODEGA"
+              ? inventoryItem.packSize
+              : 0,
+          )
+        : 0;
+      return {
+        productId:
+          (inventoryId && `inventory:${inventoryId}`) ||
+          menuItemId ||
+          line.productId?.toString() ||
+          line.bodegaProductId?.toString() ||
+          line._id.toString(),
+        productName: String(line.productName || "Sale item"),
+        price: Number(line.price || 0),
+        cost,
+        qty: Number(line.qty || 0),
+      };
+    });
     return {
       id: s._id.toString(),
       receiptNumber: s.receiptNumber,
       totalAmount: Number(s.totalAmount || 0),
       totalQty: Number(s.totalQty || 0),
+      paidAmount: Number(s.paidAmount || 0),
+      saleDate: s.saleDate ? new Date(s.saleDate).toISOString() : undefined,
       createdAt: s.createdAt ? new Date(s.createdAt).toISOString() : undefined,
+      items,
     };
   });
 

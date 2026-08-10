@@ -36,17 +36,31 @@ function escapeRegex(value: string) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-/** Matches tagged mobile sales that still lack a payment customer. */
-export function mobileOutletSalesWithoutPaymentCustomerFilter(
-  outletId: string,
-) {
+function mobileOutletTagFilter(outletId: string) {
   const escapedOutletId = escapeRegex(outletId.trim());
   return {
-    $or: [{ customerId: { $exists: false } }, { customerId: null }],
     receiptNumber: { $regex: /^MOB-/ },
     remarks: {
       $regex: new RegExp(`OUTLET:${escapedOutletId}(?:\\s|$)`, "i"),
     },
+  };
+}
+
+/** Matches every non-voided mobile sale tagged to one outlet. */
+export function mobileOutletSalesFilter(outletId: string) {
+  return {
+    ...mobileOutletTagFilter(outletId),
+    isVoided: { $ne: true },
+  };
+}
+
+/** Matches tagged mobile sales that still lack a payment customer. */
+export function mobileOutletSalesWithoutPaymentCustomerFilter(
+  outletId: string,
+) {
+  return {
+    ...mobileOutletTagFilter(outletId),
+    $or: [{ customerId: { $exists: false } }, { customerId: null }],
   };
 }
 
