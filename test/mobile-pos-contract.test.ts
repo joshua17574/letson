@@ -4,12 +4,63 @@ import test from "node:test";
 import {
   isDirectSellCategory,
   parseMobileCartLine,
+  parseMobileInventoryDeductionRequest,
   prepareDirectInventorySaleLine,
   pricePerPiece,
   saleSourceForLines,
   serializeMobileInventoryItem,
   validateMobileSaleTender,
 } from "../lib/mobile-pos-contract";
+
+test("parses an outlet ingredient deduction request", () => {
+  assert.deepEqual(
+    parseMobileInventoryDeductionRequest({
+      items: [{ inventoryId: "inventory-1", qty: 3 }],
+      remarks: "  Spoilage  ",
+    }),
+    {
+      ok: true,
+      value: {
+        items: [{ inventoryId: "inventory-1", qty: 3 }],
+        remarks: "Spoilage",
+      },
+    },
+  );
+});
+
+test("rejects invalid outlet ingredient deductions", () => {
+  assert.deepEqual(parseMobileInventoryDeductionRequest({ items: [] }), {
+    ok: false,
+    message: "At least one ingredient is required.",
+  });
+  assert.deepEqual(
+    parseMobileInventoryDeductionRequest({
+      items: [{ inventoryId: "inventory-1", qty: 0 }],
+    }),
+    {
+      ok: false,
+      message: "Each deduction needs an inventory ID and a whole-piece quantity.",
+    },
+  );
+  assert.equal(
+    parseMobileInventoryDeductionRequest({
+      items: [{ inventoryId: "inventory-1", qty: 1.5 }],
+    }).ok,
+    false,
+  );
+  assert.deepEqual(
+    parseMobileInventoryDeductionRequest({
+      items: [
+        { inventoryId: "inventory-1", qty: 1 },
+        { inventoryId: "inventory-1", qty: 2 },
+      ],
+    }),
+    {
+      ok: false,
+      message: "Each ingredient may only appear once per deduction.",
+    },
+  );
+});
 
 test("serializes authoritative bodega prices as per-piece mobile prices", () => {
   const item = serializeMobileInventoryItem(

@@ -32,6 +32,15 @@ export type MobileCartLineParseResult =
   | { ok: true; line: ParsedMobileCartLine }
   | { ok: false; message: string };
 
+export type MobileInventoryDeductionRequest = {
+  items: Array<{ inventoryId: string; qty: number }>;
+  remarks: string;
+};
+
+export type MobileInventoryDeductionParseResult =
+  | { ok: true; value: MobileInventoryDeductionRequest }
+  | { ok: false; message: string };
+
 export type MobileSaleTenderResult =
   | { ok: true; cashReceived: number; change: number }
   | { ok: false; message: string };
@@ -47,6 +56,64 @@ function nonNegativeMoney(value: unknown): number {
 
 function roundMoney(value: number): number {
   return Math.round((Number(value) || 0) * 100) / 100;
+}
+
+export function parseMobileInventoryDeductionRequest(
+  value: unknown,
+): MobileInventoryDeductionParseResult {
+  if (value == null || typeof value !== "object" || Array.isArray(value)) {
+    return { ok: false, message: "Invalid request body." };
+  }
+
+  const input = value as Record<string, unknown>;
+  if (!Array.isArray(input.items) || input.items.length === 0) {
+    return { ok: false, message: "At least one ingredient is required." };
+  }
+  if (input.items.length > 100) {
+    return { ok: false, message: "A deduction can contain at most 100 ingredients." };
+  }
+
+  const items: MobileInventoryDeductionRequest["items"] = [];
+  const inventoryIds = new Set<string>();
+  for (const rawItem of input.items) {
+    if (
+      rawItem == null ||
+      typeof rawItem !== "object" ||
+      Array.isArray(rawItem)
+    ) {
+      return {
+        ok: false,
+        message: "Each deduction needs an inventory ID and a whole-piece quantity.",
+      };
+    }
+
+    const item = rawItem as Record<string, unknown>;
+    const inventoryId =
+      typeof item.inventoryId === "string" ? item.inventoryId.trim() : "";
+    const qty = finiteNumber(item.qty);
+    if (!inventoryId || qty == null || !Number.isInteger(qty) || qty <= 0) {
+      return {
+        ok: false,
+        message: "Each deduction needs an inventory ID and a whole-piece quantity.",
+      };
+    }
+    if (inventoryIds.has(inventoryId)) {
+      return {
+        ok: false,
+        message: "Each ingredient may only appear once per deduction.",
+      };
+    }
+    inventoryIds.add(inventoryId);
+    items.push({ inventoryId, qty });
+  }
+
+  const remarks =
+    typeof input.remarks === "string" ? input.remarks.trim() : "";
+  if (remarks.length > 500) {
+    return { ok: false, message: "Remarks must be 500 characters or fewer." };
+  }
+
+  return { ok: true, value: { items, remarks } };
 }
 
 export function pricePerPiece(price: unknown, packSize: unknown): number {
