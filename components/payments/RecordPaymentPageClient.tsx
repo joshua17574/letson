@@ -51,6 +51,7 @@ type CustomerSummary = {
   paid: number;
   balance: number;
   packs: number;
+  pcs: number;
 };
 
 type CustomerDetail = {
@@ -63,12 +64,14 @@ type CustomerDetail = {
     totalPaid: number;
     balance: number;
     totalPacks: number;
+    totalPcs: number;
   };
   filtered: {
     totalSales: number;
     totalPaid: number;
     balance: number;
     totalPacks: number;
+    totalPcs: number;
   };
   recentSales: RecentSale[];
   recentPayments: RecentPayment[];
@@ -82,6 +85,7 @@ type RecentSale = {
   paidAmount: number;
   balance: number;
   totalPacks: number;
+  totalPcs: number;
   remarks: string;
   status: string;
 };
@@ -551,6 +555,9 @@ export function RecordPaymentPageClient({ initialCustomerId = "" }: Props) {
                           <TableHead className="text-center">
                             Total Packs Sold (Overall)
                           </TableHead>
+                          <TableHead className="text-center">
+                            Total PCS Sold (Overall)
+                          </TableHead>
                         </TableRow>
                       </TableHeader>
 
@@ -571,6 +578,9 @@ export function RecordPaymentPageClient({ initialCustomerId = "" }: Props) {
                           </TableCell>
                           <TableCell className="text-center">
                             {detail.overall.totalPacks.toLocaleString()}
+                          </TableCell>
+                          <TableCell className="text-center">
+                            {detail.overall.totalPcs.toLocaleString()}
                           </TableCell>
                         </TableRow>
                       </TableBody>
@@ -603,6 +613,9 @@ export function RecordPaymentPageClient({ initialCustomerId = "" }: Props) {
                             <TableHead className="text-center">
                               Total Packs Sold (Filtered)
                             </TableHead>
+                            <TableHead className="text-center">
+                              Total PCS Sold (Filtered)
+                            </TableHead>
                           </TableRow>
                         </TableHeader>
 
@@ -623,6 +636,9 @@ export function RecordPaymentPageClient({ initialCustomerId = "" }: Props) {
                             </TableCell>
                             <TableCell className="text-center">
                               {detail.filtered.totalPacks.toLocaleString()}
+                            </TableCell>
+                            <TableCell className="text-center">
+                              {detail.filtered.totalPcs.toLocaleString()}
                             </TableCell>
                           </TableRow>
                         </TableBody>
@@ -659,6 +675,9 @@ export function RecordPaymentPageClient({ initialCustomerId = "" }: Props) {
                             Packs
                           </TableHead>
                           <TableHead className="text-center text-white">
+                            PCS
+                          </TableHead>
+                          <TableHead className="text-center text-white">
                             Remarks
                           </TableHead>
                           <TableHead className="text-center text-white">
@@ -671,7 +690,7 @@ export function RecordPaymentPageClient({ initialCustomerId = "" }: Props) {
                         {detail.recentSales.length === 0 ? (
                           <TableRow>
                             <TableCell
-                              colSpan={6}
+                              colSpan={7}
                               className="h-24 text-center text-muted-foreground"
                             >
                               No sales found for the selected date range.
@@ -691,6 +710,9 @@ export function RecordPaymentPageClient({ initialCustomerId = "" }: Props) {
                               </TableCell>
                               <TableCell className="text-center">
                                 {sale.totalPacks.toLocaleString()}
+                              </TableCell>
+                              <TableCell className="text-center">
+                                {sale.totalPcs.toLocaleString()}
                               </TableCell>
                               <TableCell className="text-center">
                                 {sale.remarks || sale.status || "—"}

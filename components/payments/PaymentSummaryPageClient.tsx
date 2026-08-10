@@ -26,6 +26,7 @@ type PaymentSummaryRow = {
   paid: number;
   balance: number;
   packs: number;
+  pcs: number;
 };
 
 type CustomerGroup = "ALL" | "OUTLET" | "SALE";
@@ -44,12 +45,14 @@ export function PaymentSummaryPageClient() {
         paid: sum.paid + row.paid,
         balance: sum.balance + row.balance,
         packs: sum.packs + row.packs,
+        pcs: sum.pcs + row.pcs,
       }),
       {
         sales: 0,
         paid: 0,
         balance: 0,
         packs: 0,
+        pcs: 0,
       }
     );
   }, [rows]);
@@ -190,6 +193,9 @@ export function PaymentSummaryPageClient() {
                     Packs
                   </TableHead>
                   <TableHead className="text-center font-bold text-slate-900">
+                    PCS
+                  </TableHead>
+                  <TableHead className="text-center font-bold text-slate-900">
                     Action
                   </TableHead>
                 </TableRow>
@@ -198,14 +204,14 @@ export function PaymentSummaryPageClient() {
               <TableBody>
                 {isLoading ? (
                   <TableRow>
-                    <TableCell colSpan={6} className="h-32 text-center">
+                    <TableCell colSpan={7} className="h-32 text-center">
                       <Loader2 className="mx-auto h-5 w-5 animate-spin" />
                     </TableCell>
                   </TableRow>
                 ) : rows.length === 0 ? (
                   <TableRow>
                     <TableCell
-                      colSpan={6}
+                      colSpan={7}
                       className="h-32 text-center text-muted-foreground"
                     >
                       No customer payment summary found.
@@ -244,6 +250,10 @@ export function PaymentSummaryPageClient() {
                       </TableCell>
 
                       <TableCell className="text-center">
+                        {row.pcs.toLocaleString()}
+                      </TableCell>
+
+                      <TableCell className="text-center">
                         <Button
                           size="sm"
                           className="bg-emerald-600 hover:bg-emerald-700"
@@ -272,6 +282,9 @@ export function PaymentSummaryPageClient() {
                     </TableCell>
                     <TableCell className="text-center">
                       {totals.packs.toLocaleString()}
+                    </TableCell>
+                    <TableCell className="text-center">
+                      {totals.pcs.toLocaleString()}
                     </TableCell>
                     <TableCell />
                   </TableRow>
