@@ -8,6 +8,7 @@
     "start": "next start",
     "lint": "eslint",
     "typecheck": "tsc --noEmit --pretty false",
+    "test": "tsx --test test/mobile-outlet-payments.test.ts test/mobile-pos-contract.test.ts",
     "test:outlet-payments": "tsx --test test/mobile-outlet-payments.test.ts",
     "reconcile:outlet-payments": "tsx scripts/reconcile-mobile-outlet-payments.ts",
     "seed:admin": "tsx scripts/seed-admin.ts",

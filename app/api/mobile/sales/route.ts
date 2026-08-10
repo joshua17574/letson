@@ -1,8 +1,8 @@
 // app/api/mobile/sales/route.ts
 //
-// Records a cash sale from the mobile cashier. The cart is a list of menu
-// items + quantities. We total it, create the Sale (+ lines), and deduct any
-// mapped raw stock from outlet inventory — all in one transaction.
+// Records a cash sale from the mobile cashier. Each cart line references either
+// a menu item or directly sellable outlet inventory. We total it, create the
+// Sale (+ lines), and deduct outlet stock — all in one transaction.
 //
 // Cash only, walk-in by default (no customer). Out-of-stock components do NOT
 // block the sale (a POS shouldn't freeze at the counter); the shortfall is
@@ -15,9 +15,21 @@ import dbConnect from "@/lib/mongodb";
 import { requireMobileAuth } from "@/lib/mobile-auth";
 import { manilaDateString } from "@/lib/date-utils";
 import { ensureMongooseOutletPaymentCustomer } from "@/lib/mongoose-outlet-payment-customer";
+import {
+  parseMobileCartLine,
+  prepareDirectInventorySaleLine,
+  saleSourceForLines,
+  validateMobileSaleTender,
+  type CatalogPriceRecord,
+  type ParsedMobileCartLine,
+} from "@/lib/mobile-pos-contract";
+import BodegaProductModel from "@/models/BodegaProduct";
 import OutletMenuItemModel from "@/models/OutletMenuItem";
-import OutletInventoryModel from "@/models/OutletInventory";
+import OutletInventoryModel, {
+  type IOutletInventory,
+} from "@/models/OutletInventory";
 import OutletStockTransactionModel from "@/models/OutletStockTransaction";
+import ProductModel from "@/models/Product";
 import SaleModel from "@/models/Sale";
 import SaleLineModel from "@/models/SaleLine";
 import CashShiftModel from "@/models/CashShift";
@@ -33,7 +45,19 @@ class ApiError extends Error {
   }
 }
 
-type CartLine = { menuItemId?: string; qty?: number };
+type CartLine = {
+  menuItemId?: string;
+  inventoryItemId?: string;
+  qty?: number;
+};
+
+type StockDeduction = {
+  source: "BODEGA" | "GROCERY";
+  productId: string;
+  qty: number;
+  name: string;
+  strict: boolean;
+};
 
 async function nextReceiptNumber(): Promise<string> {
   // MOB-YYYYMMDD-NNNN per Manila day. The unique index is the real guard;
@@ -133,6 +157,23 @@ export async function POST(req: NextRequest) {
       { status: 400 },
     );
   }
+  const parsedCart: ParsedMobileCartLine[] = [];
+  for (const item of cart) {
+    const parsed = parseMobileCartLine(item);
+    if (!parsed.ok) {
+      return NextResponse.json(
+        { success: false, message: parsed.message },
+        { status: 400 },
+      );
+    }
+    if (!isValidObjectId(parsed.line.itemId)) {
+      return NextResponse.json(
+        { success: false, message: "No valid items in cart." },
+        { status: 400 },
+      );
+    }
+    parsedCart.push(parsed.line);
+  }
 
   const outlet = user.outlet;
   const outletId = outlet.id;
@@ -154,57 +195,125 @@ export async function POST(req: NextRequest) {
     const shiftTag = openShift ? ` SHIFT:${openShift._id.toString()}` : "";
 
     await mongoSession.withTransaction(async () => {
-      // 1) Load the menu items in the cart (scoped to this outlet).
-      const ids = cart
-        .map((c) => String(c.menuItemId || ""))
-        .filter((id) => isValidObjectId(id));
-
-      if (ids.length === 0) throw new ApiError(400, "No valid items in cart.");
-
+      // 1) Load both accepted cart-reference variants, always scoped to the
+      // cashier's outlet. Existing menuItemId behavior stays unchanged.
+      const menuIds = parsedCart
+        .filter((line) => line.kind === "menu")
+        .map((line) => line.itemId);
+      const inventoryIds = parsedCart
+        .filter((line) => line.kind === "inventory")
+        .map((line) => line.itemId);
+      // MongoDB transactions do not support parallel operations on one session.
       const menuItems = await OutletMenuItemModel.find({
-        _id: { $in: ids },
+        _id: { $in: menuIds },
+        outletId,
+        isActive: true,
+      }).session(mongoSession);
+      const directInventoryItems = await OutletInventoryModel.find({
+        _id: { $in: inventoryIds },
         outletId,
         isActive: true,
       }).session(mongoSession);
 
-      const menuById = new Map(menuItems.map((m) => [m._id.toString(), m]));
+      const menuById = new Map(
+        menuItems.map((item) => [item._id.toString(), item]),
+      );
+      const inventoryById = new Map(
+        directInventoryItems.map((item) => [item._id.toString(), item]),
+      );
+      const bodegaProductIds = directInventoryItems
+        .filter((item) => item.productSource === "BODEGA")
+        .map((item) => item.productId);
+      const groceryProductIds = directInventoryItems
+        .filter((item) => item.productSource === "GROCERY")
+        .map((item) => item.productId);
+      const bodegaProducts = await BodegaProductModel.find({
+        _id: { $in: bodegaProductIds },
+        isActive: true,
+      })
+        .select("_id buyingPrice sellingPrice")
+        .session(mongoSession);
+      const groceryProducts = await ProductModel.find({
+        _id: { $in: groceryProductIds },
+        isActive: true,
+      })
+        .select("_id buyingPrice unitPrice")
+        .session(mongoSession);
+      const catalogByKey = new Map<
+        string,
+        NonNullable<CatalogPriceRecord>
+      >();
+      for (const product of bodegaProducts) {
+        catalogByKey.set(`BODEGA:${product._id.toString()}`, product);
+      }
+      for (const product of groceryProducts) {
+        catalogByKey.set(`GROCERY:${product._id.toString()}`, product);
+      }
 
       // 2) Build sale lines + accumulate stock deductions.
       const lines: any[] = [];
-      const stockDeductions = new Map<
-        string,
-        { source: string; productId: string; qty: number; name: string }
-      >();
+      const stockDeductions = new Map<string, StockDeduction>();
       let totalAmount = 0;
       let totalQty = 0;
 
-      for (const c of cart) {
-        const menu = menuById.get(String(c.menuItemId));
+      function addStockDeduction(deduction: StockDeduction) {
+        const key = `${deduction.source}:${deduction.productId}`;
+        const existing = stockDeductions.get(key);
+        if (existing) {
+          existing.qty += deduction.qty;
+          existing.strict = existing.strict || deduction.strict;
+        } else {
+          stockDeductions.set(key, { ...deduction });
+        }
+      }
+
+      for (const cartLine of parsedCart) {
+        if (cartLine.kind === "inventory") {
+          const inventory = inventoryById.get(cartLine.itemId);
+          if (!inventory) {
+            throw new ApiError(
+              404,
+              "An outlet inventory item was not found or is unavailable.",
+            );
+          }
+          const catalogProduct = catalogByKey.get(
+            `${inventory.productSource}:${inventory.productId.toString()}`,
+          );
+          const prepared = prepareDirectInventorySaleLine(
+            inventory,
+            catalogProduct ?? null,
+            cartLine.qty,
+          );
+          if (!prepared.ok) throw new ApiError(400, prepared.message);
+
+          lines.push(prepared.line);
+          totalAmount += prepared.line.lineTotal;
+          totalQty += cartLine.qty;
+          addStockDeduction(prepared.deduction);
+          continue;
+        }
+
+        const menu = menuById.get(cartLine.itemId);
         if (!menu)
           throw new ApiError(
             404,
             "A menu item was not found or is unavailable.",
           );
 
-        const qty = Math.trunc(Number(c.qty || 0));
-        if (!Number.isFinite(qty) || qty < 1) {
-          throw new ApiError(400, `Invalid quantity for ${menu.name}.`);
-        }
-
-        const lineTotal = Number(menu.price) * qty;
+        const lineTotal = Number(menu.price) * cartLine.qty;
         totalAmount += lineTotal;
-        totalQty += qty;
+        totalQty += cartLine.qty;
 
         lines.push({
           source: "BODEGA",
           productName: menu.name,
           categoryName: menu.category,
-          qty,
+          qty: cartLine.qty,
           price: Number(menu.price),
           lineTotal,
           stockUnit: "QTY",
           packSize: 1,
-          stockPcsOut: qty,
+          stockPcsOut: cartLine.qty,
           remarks: `MENU:${menu._id.toString()}`,
         });
 
@@ -212,19 +321,22 @@ export async function POST(req: NextRequest) {
         for (const comp of menu.components || []) {
           const per = Number(comp.qtyPerSale || 0);
           if (per <= 0) continue;
-          const key = `${comp.productSource}:${comp.productId.toString()}`;
-          const existing = stockDeductions.get(key);
-          const add = per * qty;
-          if (existing) existing.qty += add;
-          else
-            stockDeductions.set(key, {
-              source: comp.productSource,
-              productId: comp.productId.toString(),
-              qty: add,
-              name: comp.productName || "",
-            });
+          addStockDeduction({
+            source: comp.productSource,
+            productId: comp.productId.toString(),
+            qty: per * cartLine.qty,
+            name: comp.productName || "",
+            strict: false,
+          });
         }
       }
+
+      const tender = validateMobileSaleTender(
+        body.cashReceived,
+        totalAmount,
+        inventoryIds.length > 0,
+      );
+      if (!tender.ok) throw new ApiError(400, tender.message);
 
       const outletPaymentCustomer = await ensureMongooseOutletPaymentCustomer({
         outlet,
@@ -242,7 +354,7 @@ export async function POST(req: NextRequest) {
                 receiptNumber,
                 customerId: outletPaymentCustomer.id,
                 saleDate: new Date(),
-                source: "BODEGA",
+                source: saleSourceForLines(lines.map((line) => line.source)),
                 totalAmount,
                 paidAmount: totalAmount, // cash, fully paid
                 balance: 0,
@@ -275,34 +387,59 @@ export async function POST(req: NextRequest) {
         { session: mongoSession },
       );
 
-      // 4) Deduct mapped raw stock from outlet inventory. Does NOT block on
-      //    insufficient stock — records the shortfall and continues.
+      // 4) Deduct outlet stock. Direct inventory lines are stock-guarded;
+      //    existing menu-component lines retain their shortfall warning.
       const warnings: string[] = [];
       for (const dec of stockDeductions.values()) {
-        const inv = await OutletInventoryModel.findOne({
-          outletId,
-          productSource: dec.source as "BODEGA" | "GROCERY",
-          productId: dec.productId,
-          isActive: true,
-        }).session(mongoSession);
-
-        if (!inv) {
-          warnings.push(
-            `${dec.name || "An ingredient"} is not stocked at this outlet.`,
+        let inv: IOutletInventory | null;
+        let before: number;
+        let after: number;
+        if (dec.strict) {
+          inv = await OutletInventoryModel.findOneAndUpdate(
+            {
+              outletId,
+              productSource: dec.source,
+              productId: dec.productId,
+              isActive: true,
+              stockQty: { $gte: dec.qty },
+            },
+            { $inc: { stockQty: -dec.qty } },
+            { new: true, session: mongoSession },
           );
-          continue;
-        }
+          if (!inv) {
+            throw new ApiError(
+              409,
+              `Not enough stock for ${dec.name || "this item"}. Refresh and try again.`,
+            );
+          }
+          after = Number(inv.stockQty || 0);
+          before = after + dec.qty;
+        } else {
+          inv = await OutletInventoryModel.findOne({
+            outletId,
+            productSource: dec.source,
+            productId: dec.productId,
+            isActive: true,
+          }).session(mongoSession);
 
-        const before = Number(inv.stockQty || 0);
-        const after = before - dec.qty;
-        if (after < 0) {
-          warnings.push(
-            `${inv.productName}: sold ${dec.qty} but only ${before} in stock (now ${after}).`,
-          );
-        }
+          if (!inv) {
+            warnings.push(
+              `${dec.name || "An ingredient"} is not stocked at this outlet.`,
+            );
+            continue;
+          }
 
-        inv.stockQty = after; // allow negative to reflect reality; warned above
-        await inv.save({ session: mongoSession });
+          before = Number(inv.stockQty || 0);
+          after = before - dec.qty;
+          if (after < 0) {
+            warnings.push(
+              `${inv.productName}: sold ${dec.qty} but only ${before} in stock (now ${after}).`,
+            );
+          }
+
+          inv.stockQty = after; // preserve menu-component shortfall behavior
+          await inv.save({ session: mongoSession });
+        }
 
         await (OutletStockTransactionModel as any).create(
           [
@@ -328,14 +465,13 @@ export async function POST(req: NextRequest) {
         );
       }
 
-      const cashReceived = Number(body?.cashReceived || 0);
       result = {
         id: sale._id.toString(),
         receiptNumber,
         totalAmount,
         totalQty,
-        cashReceived: cashReceived > 0 ? cashReceived : totalAmount,
-        change: cashReceived > totalAmount ? cashReceived - totalAmount : 0,
+        cashReceived: tender.cashReceived,
+        change: tender.change,
         warnings,
       };
     });

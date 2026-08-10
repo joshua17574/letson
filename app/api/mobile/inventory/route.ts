@@ -2,8 +2,14 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { requireMobileAuth } from "@/lib/mobile-auth";
+import {
+  serializeMobileInventoryItem,
+  type CatalogPriceRecord,
+} from "@/lib/mobile-pos-contract";
 import connectDb from "@/lib/mongodb";
+import BodegaProductModel from "@/models/BodegaProduct";
 import OutletInventoryModel from "@/models/OutletInventory";
+import ProductModel from "@/models/Product";
 
 export const dynamic = "force-dynamic";
 
@@ -30,16 +36,43 @@ export async function GET(req: NextRequest) {
     .sort({ productName: 1 })
     .lean();
 
-  const data = (items as any[]).map((it) => ({
-    id: it._id.toString(),
-    productName: it.productName || "",
-    categoryName: it.categoryName || "",
-    productSource: it.productSource,
-    stockQty: Number(it.stockQty || 0),
-    unitLabel: it.unitLabel || "QTY",
-    packSize: Number(it.packSize || 0),
-    lowStockAlert: Number(it.lowStockAlert || 0),
-  }));
+  const inventory = items;
+  const bodegaProductIds = inventory
+    .filter((item) => item.productSource === "BODEGA")
+    .map((item) => item.productId);
+  const groceryProductIds = inventory
+    .filter((item) => item.productSource === "GROCERY")
+    .map((item) => item.productId);
+  const [bodegaProducts, groceryProducts] = await Promise.all([
+    BodegaProductModel.find({
+      _id: { $in: bodegaProductIds },
+      isActive: true,
+    })
+      .select("_id buyingPrice sellingPrice")
+      .lean(),
+    ProductModel.find({
+      _id: { $in: groceryProductIds },
+      isActive: true,
+    })
+      .select("_id buyingPrice unitPrice")
+      .lean(),
+  ]);
+  const catalogByKey = new Map<string, NonNullable<CatalogPriceRecord>>();
+  for (const product of bodegaProducts) {
+    catalogByKey.set(`BODEGA:${product._id.toString()}`, product);
+  }
+  for (const product of groceryProducts) {
+    catalogByKey.set(`GROCERY:${product._id.toString()}`, product);
+  }
+
+  const data = inventory.map((item) =>
+    serializeMobileInventoryItem(
+      item,
+      catalogByKey.get(
+        `${item.productSource}:${item.productId?.toString?.() || ""}`,
+      ) ?? null,
+    ),
+  );
 
   return NextResponse.json({ success: true, outlet: user.outlet, data });
 }
