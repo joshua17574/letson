@@ -5,6 +5,7 @@ export type CustomerType = "SALE" | "DELIVERY" | "BOTH";
 
 export interface ICustomer extends Document {
   _id: Types.ObjectId;
+  outletId?: Types.ObjectId;
   name: string;
   email?: string;
   phone?: string;
@@ -18,6 +19,12 @@ export interface ICustomer extends Document {
 
 const CustomerSchema = new Schema<ICustomer>(
   {
+    outletId: {
+      type: Schema.Types.ObjectId,
+      ref: "Outlet",
+      required: false,
+    },
+
     name: {
       type: String,
       required: true,
@@ -63,10 +70,17 @@ const CustomerSchema = new Schema<ICustomer>(
   },
   {
     timestamps: true,
-  }
+  },
 );
 
 CustomerSchema.index({ name: 1 });
+CustomerSchema.index(
+  { outletId: 1 },
+  {
+    unique: true,
+    partialFilterExpression: { outletId: { $type: "objectId" } },
+  },
+);
 CustomerSchema.index({ type: 1 });
 CustomerSchema.index({ isActive: 1 });
 

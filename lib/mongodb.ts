@@ -1,4 +1,3 @@
-
 import mongoose from "mongoose";
 
 const MONGODB_URI = process.env.MONGODB_URI!;
@@ -13,7 +12,6 @@ type MongooseCache = {
 };
 
 declare global {
-  // eslint-disable-next-line no-var
   var mongooseCache: MongooseCache | undefined;
 }
 
@@ -34,6 +32,11 @@ export default async function dbConnect() {
   if (!cached.promise) {
     cached.promise = mongoose.connect(MONGODB_URI!, {
       bufferCommands: false,
+      // Production indexes are installed explicitly by migrations before the
+      // application starts writing against them. Avoid background index work
+      // racing with requests during a deployment.
+      autoIndex: process.env.NODE_ENV !== "production",
+      autoCreate: process.env.NODE_ENV !== "production",
     });
   }
 

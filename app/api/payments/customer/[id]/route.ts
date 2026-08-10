@@ -5,6 +5,7 @@ import { isValidObjectId, Types } from "mongoose";
 import dbConnect from "@/lib/mongodb";
 import { requirePermission } from "@/lib/require-permission";
 import { cleanString } from "@/lib/crud-utils";
+import { paymentPosition } from "@/lib/payment-summary";
 import CustomerModel from "@/models/Customer";
 import PaymentModel from "@/models/Payment";
 import SaleModel from "@/models/Sale";
@@ -39,7 +40,7 @@ function getPaymentAmount(payment: any) {
       payment.amountReceived ??
       payment.amountPaid ??
       payment.appliedAmount ??
-      0
+      0,
   );
 }
 
@@ -84,32 +85,41 @@ function summarizeSales(sales: any[]) {
   return sales.reduce(
     (sum, sale) => ({
       totalSales: sum.totalSales + Number(sale.totalAmount || 0),
+      immediateCashSales:
+        sum.immediateCashSales +
+        (/^MOB-/.test(String(sale.receiptNumber || ""))
+          ? Number(sale.paidAmount || 0)
+          : 0),
       totalPacks:
         sum.totalPacks + Number(sale.totalPacks || sale.totalQty || 0),
     }),
     {
       totalSales: 0,
+      immediateCashSales: 0,
       totalPacks: 0,
-    }
+    },
   );
 }
 
 function summarizePayments(payments: any[]) {
   return payments.reduce(
     (sum, payment) => ({
-      totalPaid: sum.totalPaid + getAppliedAmount(payment),
+      recordedPayments: sum.recordedPayments + getPaymentAmount(payment),
     }),
     {
-      totalPaid: 0,
-    }
+      recordedPayments: 0,
+    },
   );
 }
 
 export async function GET(
   req: NextRequest,
-  context: { params: Promise<{ id: string }> }
+  context: { params: Promise<{ id: string }> },
 ) {
-  const { response } = await requirePermission(["payments.view", "payments.manage"]);
+  const { response } = await requirePermission([
+    "payments.view",
+    "payments.manage",
+  ]);
 
   if (response) return response;
 
@@ -121,7 +131,7 @@ export async function GET(
         success: false,
         message: "Invalid customer ID.",
       },
-      { status: 400 }
+      { status: 400 },
     );
   }
 
@@ -196,15 +206,25 @@ export async function GET(
         success: false,
         message: "Customer not found.",
       },
-      { status: 404 }
+      { status: 404 },
     );
   }
 
   const overallSales = summarizeSales(overallSalesRecords);
   const overallPayments = summarizePayments(overallPaymentsRecords);
+  const overallPosition = paymentPosition({
+    sales: overallSales.totalSales,
+    immediateCashSales: overallSales.immediateCashSales,
+    recordedPayments: overallPayments.recordedPayments,
+  });
 
   const filteredSales = summarizeSales(filteredSalesRecords);
   const filteredPayments = summarizePayments(filteredPaymentsRecords);
+  const filteredPosition = paymentPosition({
+    sales: filteredSales.totalSales,
+    immediateCashSales: filteredSales.immediateCashSales,
+    recordedPayments: filteredPayments.recordedPayments,
+  });
 
   return NextResponse.json({
     success: true,
@@ -215,19 +235,16 @@ export async function GET(
     },
 
     overall: {
-      totalSales: overallSales.totalSales,
-      totalPaid: overallPayments.totalPaid,
-      balance: Math.max(overallSales.totalSales - overallPayments.totalPaid, 0),
+      totalSales: overallPosition.sales,
+      totalPaid: overallPosition.paid,
+      balance: overallPosition.balance,
       totalPacks: overallSales.totalPacks,
     },
 
     filtered: {
-      totalSales: filteredSales.totalSales,
-      totalPaid: filteredPayments.totalPaid,
-      balance: Math.max(
-        filteredSales.totalSales - filteredPayments.totalPaid,
-        0
-      ),
+      totalSales: filteredPosition.sales,
+      totalPaid: filteredPosition.paid,
+      balance: filteredPosition.balance,
       totalPacks: filteredSales.totalPacks,
     },
 
