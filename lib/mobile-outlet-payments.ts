@@ -47,10 +47,19 @@ function mobileOutletTagFilter(outletId: string) {
 }
 
 /** Matches every non-voided mobile sale tagged to one outlet. */
-export function mobileOutletSalesFilter(outletId: string) {
+export function mobileOutletSalesFilter(outletId: string, clearedBefore?: Date) {
   return {
     ...mobileOutletTagFilter(outletId),
     isVoided: { $ne: true },
+    ...(clearedBefore ? { createdAt: { $gt: clearedBefore } } : {}),
+  };
+}
+
+/** Matches one tagged mobile sale, including a sale already voided by a retry. */
+export function mobileOutletSaleFilter(outletId: string, saleId: string) {
+  return {
+    _id: saleId,
+    ...mobileOutletTagFilter(outletId),
   };
 }
 

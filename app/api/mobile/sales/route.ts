@@ -18,6 +18,7 @@ import { ensureMongooseOutletPaymentCustomer } from "@/lib/mongoose-outlet-payme
 import { mobileOutletSalesFilter } from "@/lib/mobile-outlet-payments";
 import {
   parseMobileCartLine,
+  parseMobileSaleReference,
   prepareDirectInventorySaleLine,
   pricePerPiece,
   saleSourceForLines,
@@ -35,6 +36,7 @@ import ProductModel from "@/models/Product";
 import SaleModel from "@/models/Sale";
 import SaleLineModel from "@/models/SaleLine";
 import CashShiftModel from "@/models/CashShift";
+import MobileSalesHistoryCursorModel from "@/models/MobileSalesHistoryCursor";
 
 export const dynamic = "force-dynamic";
 
@@ -54,6 +56,7 @@ type CartLine = {
 };
 
 type StockDeduction = {
+  inventoryId?: string;
   source: "BODEGA" | "GROCERY";
   productId: string;
   qty: number;
@@ -99,7 +102,15 @@ export async function GET(req: NextRequest) {
     500,
   );
 
-  const sales = await SaleModel.find(mobileOutletSalesFilter(user.outlet.id))
+  const historyCursor = await MobileSalesHistoryCursorModel.findOne({
+    cashierId: user.id,
+    outletId: user.outlet.id,
+  })
+    .select("clearedBefore")
+    .lean<{ clearedBefore?: Date }>();
+  const sales = await SaleModel.find(
+    mobileOutletSalesFilter(user.outlet.id, historyCursor?.clearedBefore),
+  )
     .sort({ createdAt: -1 })
     .limit(limit)
     .lean();
@@ -109,11 +120,7 @@ export async function GET(req: NextRequest) {
     .sort({ createdAt: 1 })
     .lean();
   const inventoryIds = lines
-    .map((line) =>
-      /^OUTLET_INVENTORY:([a-f0-9]{24})$/i.exec(
-        String(line.remarks || ""),
-      )?.[1],
-    )
+    .map((line) => parseMobileSaleReference(line.remarks, "OUTLET_INVENTORY"))
     .filter((id): id is string => Boolean(id));
   const inventory = await OutletInventoryModel.find({
     _id: { $in: inventoryIds },
@@ -134,12 +141,11 @@ export async function GET(req: NextRequest) {
   const data = sales.map((s) => {
     total += Number(s.totalAmount || 0);
     const items = (linesBySaleId.get(s._id.toString()) || []).map((line) => {
-      const inventoryId = /^OUTLET_INVENTORY:([a-f0-9]{24})$/i.exec(
-        String(line.remarks || ""),
-      )?.[1];
-      const menuItemId = /^MENU:([a-f0-9]{24})$/i.exec(
-        String(line.remarks || ""),
-      )?.[1];
+      const inventoryId = parseMobileSaleReference(
+        line.remarks,
+        "OUTLET_INVENTORY",
+      );
+      const menuItemId = parseMobileSaleReference(line.remarks, "MENU");
       const inventoryItem = inventoryId
         ? inventoryById.get(inventoryId)
         : undefined;
@@ -180,6 +186,34 @@ export async function GET(req: NextRequest) {
     success: true,
     data,
     summary: { count: data.length, total },
+  });
+}
+
+export async function DELETE(req: NextRequest) {
+  const { user, response } = await requireMobileAuth(req, "sales.manage");
+  if (response) return response;
+  if (!user.outlet) {
+    return NextResponse.json(
+      { success: false, message: "Your account is not assigned to an outlet." },
+      { status: 400 },
+    );
+  }
+
+  await dbConnect();
+  const clearedBefore = new Date();
+  await MobileSalesHistoryCursorModel.findOneAndUpdate(
+    { cashierId: user.id, outletId: user.outlet.id },
+    {
+      $set: { clearedBefore },
+      $setOnInsert: { cashierId: user.id, outletId: user.outlet.id },
+    },
+    { upsert: true, new: true },
+  );
+
+  return NextResponse.json({
+    success: true,
+    message: "Sale history cleared for this cashier.",
+    clearedBefore: clearedBefore.toISOString(),
   });
 }
 
@@ -295,10 +329,7 @@ export async function POST(req: NextRequest) {
       })
         .select("_id buyingPrice unitPrice")
         .session(mongoSession);
-      const catalogByKey = new Map<
-        string,
-        NonNullable<CatalogPriceRecord>
-      >();
+      const catalogByKey = new Map<string, NonNullable<CatalogPriceRecord>>();
       for (const product of bodegaProducts) {
         catalogByKey.set(`BODEGA:${product._id.toString()}`, product);
       }
@@ -313,7 +344,9 @@ export async function POST(req: NextRequest) {
       let totalQty = 0;
 
       function addStockDeduction(deduction: StockDeduction) {
-        const key = `${deduction.source}:${deduction.productId}`;
+        const key = deduction.inventoryId
+          ? `INVENTORY:${deduction.inventoryId}`
+          : `${deduction.source}:${deduction.productId}`;
         const existing = stockDeductions.get(key);
         if (existing) {
           existing.qty += deduction.qty;
@@ -451,15 +484,23 @@ export async function POST(req: NextRequest) {
         let before: number;
         let after: number;
         if (dec.strict) {
+          if (!dec.inventoryId) {
+            throw new ApiError(
+              500,
+              "The outlet inventory reference is missing from this sale.",
+            );
+          }
           inv = await OutletInventoryModel.findOneAndUpdate(
             {
+              _id: dec.inventoryId,
               outletId,
-              productSource: dec.source,
-              productId: dec.productId,
               isActive: true,
               stockQty: { $gte: dec.qty },
             },
-            { $inc: { stockQty: -dec.qty } },
+            {
+              $inc: { stockQty: -dec.qty },
+              $set: { updatedBy: user.id },
+            },
             { new: true, session: mongoSession },
           );
           if (!inv) {
