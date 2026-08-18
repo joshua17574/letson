@@ -17,6 +17,7 @@ export interface IOutletInventory extends Document {
   lowStockAlert: number;
   buyingPrice: number;
   sellingPrice: number;
+  sellingPriceOverride?: number;
   remarks?: string;
   isActive: boolean;
   createdBy?: Types.ObjectId;
@@ -92,6 +93,11 @@ const OutletInventorySchema = new Schema<IOutletInventory>(
     sellingPrice: {
       type: Number,
       default: 0,
+      min: 0,
+    },
+
+    sellingPriceOverride: {
+      type: Number,
       min: 0,
     },
 

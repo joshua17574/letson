@@ -3,6 +3,8 @@ import test from "node:test";
 
 import {
   ensureOutletPaymentCustomer,
+  mobileOutletSaleFilter,
+  mobileOutletSalesFilter,
   mobileOutletSalesWithoutPaymentCustomerFilter,
   resolveMobileSaleOutletId,
   type OutletPaymentCustomer,
@@ -15,6 +17,37 @@ const outlet = {
   id: "507f1f77bcf86cd799439011",
   name: "Main Outlet",
 };
+
+test("matches an outlet's mobile sales across report dates", () => {
+  const filter = mobileOutletSalesFilter(outlet.id);
+
+  assert.match("MOB-20260807-0001", filter.receiptNumber.$regex);
+  assert.match("MOB-20260810-0002", filter.receiptNumber.$regex);
+  assert.match(`MOBILE SALE OUTLET:${outlet.id}`, filter.remarks.$regex);
+  assert.doesNotMatch(
+    "MOBILE SALE OUTLET:507f1f77bcf86cd799439012",
+    filter.remarks.$regex,
+  );
+  assert.deepEqual(filter.isVoided, { $ne: true });
+});
+
+test("can hide mobile sales cleared from one cashier history", () => {
+  const clearedBefore = new Date("2026-08-16T10:00:00.000Z");
+  const filter = mobileOutletSalesFilter(outlet.id, clearedBefore);
+
+  assert.deepEqual(filter.createdAt, { $gt: clearedBefore });
+  assert.match(`MOBILE SALE OUTLET:${outlet.id}`, filter.remarks.$regex);
+});
+
+test("matches one outlet-owned mobile sale for voiding, including retries", () => {
+  const saleId = "507f1f77bcf86cd799439099";
+  const filter = mobileOutletSaleFilter(outlet.id, saleId);
+
+  assert.equal(filter._id, saleId);
+  assert.match("MOB-20260812-0001", filter.receiptNumber.$regex);
+  assert.match(`MOBILE SALE OUTLET:${outlet.id}`, filter.remarks.$regex);
+  assert.equal("isVoided" in filter, false);
+});
 
 test("matches missing and null customer links for only one tagged outlet", () => {
   const filter = mobileOutletSalesWithoutPaymentCustomerFilter(outlet.id);

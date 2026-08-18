@@ -113,6 +113,23 @@ export const ROLE_PERMISSION_KEYS = ROLE_PERMISSION_GROUPS.flatMap((group) =>
 
 export type RolePermission = (typeof ROLE_PERMISSION_KEYS)[number];
 
+/// Minimum permissions required by a cashier using the Android mobile POS.
+/// Keep this shared by every cashier provisioning path so a newly dispatched
+/// transfer is visible and receivable at the assigned outlet.
+export const MOBILE_CASHIER_PERMISSIONS: RolePermission[] = [
+  "sales.view",
+  "sales.manage",
+  "sales-lines.view",
+  "cash.manage",
+  "stock-transfers.view",
+  "stock-transfers.confirm",
+  "outlet-inventory.view",
+  "expenses-bodega.view",
+  "expenses-bodega.manage",
+  "customers.view",
+  "dashboard.view",
+];
+
 export function isValidRolePermission(value: string) {
   return ROLE_PERMISSION_KEYS.includes(value as RolePermission);
 }

@@ -20,22 +20,9 @@
 import dotenv from "dotenv";
 import path from "node:path";
 import bcrypt from "bcryptjs";
+import { MOBILE_CASHIER_PERMISSIONS } from "../lib/role-permissions";
 
 dotenv.config({ path: path.resolve(process.cwd(), ".env") });
-
-const CASHIER_PERMISSIONS = [
-  "sales.view",
-  "sales.manage",
-  "sales-lines.view",
-  "cash.manage",
-  "stock-transfers.view",
-  "stock-transfers.confirm",
-  "outlet-inventory.view",
-  "expenses-bodega.view",
-  "expenses-bodega.manage",
-  "customers.view",
-  "dashboard.view",
-];
 
 async function main() {
   if (!process.env.MONGODB_URI) {
@@ -70,14 +57,14 @@ async function main() {
     role = await RoleModel.create({
       name: "CASHIER",
       description: "Mobile cashier (POS) access",
-      permissions: CASHIER_PERMISSIONS,
+      permissions: MOBILE_CASHIER_PERMISSIONS,
       isActive: true,
     });
     console.log("Created CASHIER role.");
   } else {
     // Make sure it has all the permissions the mobile app needs.
     const merged = Array.from(
-      new Set([...(role.permissions || []), ...CASHIER_PERMISSIONS])
+      new Set([...(role.permissions || []), ...MOBILE_CASHIER_PERMISSIONS])
     );
     role.permissions = merged;
     role.isActive = true;

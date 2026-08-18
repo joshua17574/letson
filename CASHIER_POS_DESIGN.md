@@ -98,9 +98,14 @@ and easy to secure.
 | `/api/mobile/cash/close` | POST | Close shift, count cash, variance | sales.manage |
 | `/api/mobile/cash/current` | GET | Current open shift + running totals | sales.view |
 | `/api/mobile/expenses` | POST | Record an outlet expense | expenses-bodega.manage |
+| `/api/mobile/expenses` | GET | Persistent expense history for the authenticated outlet, across cash shifts | expenses-bodega.view or expenses-bodega.manage |
 | `/api/mobile/transfers/incoming` | GET | Transfers in transit to this outlet | stock-transfers.confirm |
 | `/api/mobile/transfers/[id]/confirm` | POST | Confirm received qty (reuses confirm logic) | stock-transfers.confirm |
 | `/api/mobile/inventory` | GET | This outlet's current stock | outlet-inventory.view |
+| `/api/mobile/inventory/deductions` | GET | Date-filtered, paged deduction history for this outlet | outlet-inventory.view, outlet-inventory.manage, or sales.manage |
+| `/api/mobile/inventory/{id}/price` | PATCH | Change a Chicken product's whole-peso selling price per piece | outlet-inventory.manage or sales.manage |
+| `/api/mobile/customer-stock-transfers` | POST | Deduct Chicken stock for a named customer and record an audit trail | outlet-inventory.manage or sales.manage |
+| `/api/mobile/sales` | DELETE | Clear only the current cashier's mobile history view (financial records remain intact) | sales.manage |
 | `/api/mobile/customers` | GET | Customer list for credit sales | customers.view |
 
 These reuse your existing business logic (the sale/transfer/stock functions);

@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import mongoose, { isValidObjectId } from "mongoose";
 
 import { requireMobileAuth } from "@/lib/mobile-auth";
+import { normalizeMobileInventoryCategory } from "@/lib/mobile-pos-contract";
 import connectDb from "@/lib/mongodb";
 import StockTransferModel from "@/models/StockTransfer";
 import StockTransferItemModel from "@/models/StockTransferItem";
@@ -68,7 +69,7 @@ export async function GET(
   });
 }
 
-// POST confirm: body { items: [{ itemId, receivedQty, remarks? }], outletRemarks? }
+// POST confirm: body { items: [{ itemId, receivedQty, inventoryCategory, remarks? }], outletRemarks? }
 export async function POST(
   req: NextRequest,
   context: { params: Promise<{ id: string }> }
@@ -89,18 +90,36 @@ export async function POST(
 
   await connectDb();
 
-  let body: { items?: Array<{ itemId?: string; receivedQty?: number; remarks?: string }>; outletRemarks?: string };
+  let body: {
+    items?: Array<{
+      itemId?: string;
+      receivedQty?: number;
+      inventoryCategory?: string;
+      remarks?: string;
+    }>;
+    outletRemarks?: string;
+  };
   try {
     body = await req.json();
   } catch {
     return NextResponse.json({ success: false, message: "Invalid request body." }, { status: 400 });
   }
 
-  const receivedMap = new Map<string, { receivedQty: number; remarks: string }>();
+  const receivedMap = new Map<
+    string,
+    {
+      receivedQty: number;
+      inventoryCategory: ReturnType<typeof normalizeMobileInventoryCategory>;
+      remarks: string;
+    }
+  >();
   for (const i of body?.items || []) {
     if (i?.itemId) {
       receivedMap.set(String(i.itemId), {
         receivedQty: Math.trunc(Number(i.receivedQty)),
+        inventoryCategory: normalizeMobileInventoryCategory(
+          i.inventoryCategory,
+        ),
         remarks: String(i.remarks || "").trim(),
       });
     }
@@ -134,6 +153,14 @@ export async function POST(
           throw new ApiError(400, `${item.productName}: received (${receivedQty}) cannot exceed dispatched (${item.qty}).`);
         }
 
+        const inventoryCategory = input?.inventoryCategory;
+        if (receivedQty > 0 && inventoryCategory == null) {
+          throw new ApiError(
+            400,
+            `${item.productName}: classify this product as Chicken, Drinks, or Ingredients.`,
+          );
+        }
+
         const varianceQty = item.qty - receivedQty;
         const packSize = Number(item.packSize || 0);
         const unitToPcs = item.unitLabel === "PACK" && packSize > 0 ? packSize : 1;
@@ -144,6 +171,7 @@ export async function POST(
         item.receivedPcs = receivedPcs;
         item.varianceQty = varianceQty;
         item.itemStatus = receivedQty === 0 ? "REJECTED" : varianceQty > 0 ? "PARTIAL" : "ACCEPTED";
+        if (inventoryCategory != null) item.categoryName = inventoryCategory;
         if (input?.remarks) item.remarks = input.remarks;
         await item.save({ session: mongoSession });
 
@@ -151,13 +179,20 @@ export async function POST(
         totalVarianceQty += variancePcs;
 
         if (receivedPcs <= 0) continue;
+        const receivedCategory = inventoryCategory!;
 
         const source = item.source === "GROCERY" ? "GROCERY" : "BODEGA";
         const productRef = source === "GROCERY" ? item.productId : item.bodegaProductId;
 
         const existingInventory = await OutletInventoryModel.findOneAndUpdate(
           { outletId: transfer.outletId, productSource: source, productId: productRef, isActive: true },
-          { $inc: { stockQty: receivedPcs } },
+          {
+            $inc: { stockQty: receivedPcs },
+            $set: {
+              categoryName: receivedCategory,
+              updatedBy: user.id,
+            },
+          },
           { new: true, session: mongoSession }
         );
 
@@ -176,7 +211,7 @@ export async function POST(
                 productSource: source,
                 productId: productRef,
                 productName: item.productName,
-                categoryName: item.categoryName,
+                categoryName: receivedCategory,
                 stockQty: receivedPcs,
                 unitLabel: "PCS",
                 packSize,

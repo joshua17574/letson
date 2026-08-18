@@ -20,6 +20,7 @@ export interface IOutletStockTransaction extends Document {
   productSource: OutletStockSource;
   productId: Types.ObjectId;
   productName: string;
+  categoryName?: string;
   transactionDate: Date;
   type: OutletStockTransactionType;
   quantity: number;
@@ -64,6 +65,13 @@ const OutletStockTransactionSchema = new Schema<IOutletStockTransaction>(
       required: true,
       trim: true,
       uppercase: true,
+    },
+
+    categoryName: {
+      type: String,
+      trim: true,
+      uppercase: true,
+      default: "",
     },
 
     transactionDate: {
@@ -136,11 +144,21 @@ const OutletStockTransactionSchema = new Schema<IOutletStockTransaction>(
   },
   {
     timestamps: true,
-  }
+  },
 );
 
 OutletStockTransactionSchema.index({ outletId: 1, transactionDate: -1 });
-OutletStockTransactionSchema.index({ outletInventoryId: 1, transactionDate: -1 });
+OutletStockTransactionSchema.index({
+  outletId: 1,
+  referenceType: 1,
+  type: 1,
+  transactionDate: -1,
+  referenceId: 1,
+});
+OutletStockTransactionSchema.index({
+  outletInventoryId: 1,
+  transactionDate: -1,
+});
 OutletStockTransactionSchema.index({ productSource: 1 });
 OutletStockTransactionSchema.index({ type: 1 });
 OutletStockTransactionSchema.index({ referenceType: 1, referenceId: 1 });
@@ -149,7 +167,7 @@ const OutletStockTransactionModel: Model<IOutletStockTransaction> =
   mongoose.models.OutletStockTransaction ||
   mongoose.model<IOutletStockTransaction>(
     "OutletStockTransaction",
-    OutletStockTransactionSchema
+    OutletStockTransactionSchema,
   );
 
 export default OutletStockTransactionModel;

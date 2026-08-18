@@ -2,6 +2,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { requireMobileAuth } from "@/lib/mobile-auth";
+import { mobileExpenseOutletPattern } from "@/lib/mobile-pos-contract";
 import connectDb from "@/lib/mongodb";
 import ExpenseModel from "@/models/Expense";
 import CashShiftModel from "@/models/CashShift";
@@ -18,7 +19,21 @@ const EXPENSE_TYPES = [
   "SALARIES",
   "INCENTIVES_AND_ALLOWANCES",
   "OTHERS",
-];
+] as const;
+
+type MobileExpenseType = (typeof EXPENSE_TYPES)[number];
+
+function isMobileExpenseType(value: string): value is MobileExpenseType {
+  return EXPENSE_TYPES.includes(value as MobileExpenseType);
+}
+
+type MobileExpenseRow = {
+  _id: { toString(): string };
+  name?: string;
+  type?: string;
+  amount?: number;
+  createdAt?: Date | string;
+};
 
 export async function GET(req: NextRequest) {
   const { user, response } = await requireMobileAuth(req, [
@@ -27,29 +42,26 @@ export async function GET(req: NextRequest) {
   ]);
   if (response) return response;
 
-  await connectDb();
-
-  // Expenses recorded by this cashier for the current open shift.
-  const shift = await CashShiftModel.findOne({
-    cashierId: user.id,
-    status: "OPEN",
-  })
-    .select("_id")
-    .lean<{ _id: { toString: () => string } }>();
-
-  if (!shift) {
-    return NextResponse.json({ success: true, data: [], summary: { total: 0 } });
+  if (!user.outlet) {
+    return NextResponse.json(
+      { success: false, message: "Your account is not assigned to an outlet." },
+      { status: 400 },
+    );
   }
 
+  await connectDb();
+
+  // The Expenses screen is a persistent outlet ledger, not a view of only the
+  // current cash shift. Shift tags remain on each row for cash reconciliation.
   const expenses = await ExpenseModel.find({
     isActive: true,
-    remarks: { $regex: `SHIFT:${shift._id.toString()}` },
+    remarks: { $regex: mobileExpenseOutletPattern(user.outlet.id) },
   })
     .sort({ createdAt: -1 })
-    .lean();
+    .lean<MobileExpenseRow[]>();
 
   let total = 0;
-  const data = (expenses as any[]).map((e) => {
+  const data = expenses.map((e) => {
     total += Number(e.amount || 0);
     return {
       id: e._id.toString(),
@@ -64,13 +76,16 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-  const { user, response } = await requireMobileAuth(req, "expenses-bodega.manage");
+  const { user, response } = await requireMobileAuth(
+    req,
+    "expenses-bodega.manage",
+  );
   if (response) return response;
 
   if (!user.outlet) {
     return NextResponse.json(
       { success: false, message: "Your account is not assigned to an outlet." },
-      { status: 400 }
+      { status: 400 },
     );
   }
 
@@ -82,26 +97,27 @@ export async function POST(req: NextRequest) {
   } catch {
     return NextResponse.json(
       { success: false, message: "Invalid request body." },
-      { status: 400 }
+      { status: 400 },
     );
   }
 
   const name = String(body?.name || "").trim();
   const amount = Number(body?.amount);
-  const type = EXPENSE_TYPES.includes(String(body?.type))
-    ? String(body?.type)
+  const requestedType = String(body?.type);
+  const type: MobileExpenseType = isMobileExpenseType(requestedType)
+    ? requestedType
     : "OTHERS";
 
   if (!name) {
     return NextResponse.json(
       { success: false, message: "Expense description is required." },
-      { status: 400 }
+      { status: 400 },
     );
   }
   if (!Number.isFinite(amount) || amount <= 0) {
     return NextResponse.json(
       { success: false, message: "Enter a valid amount." },
-      { status: 400 }
+      { status: 400 },
     );
   }
 
@@ -115,7 +131,7 @@ export async function POST(req: NextRequest) {
     .lean<{ _id: { toString: () => string } }>();
   const shiftTag = shift ? ` SHIFT:${shift._id.toString()}` : "";
 
-  const expense: any = await (ExpenseModel as any).create({
+  const expense = await ExpenseModel.create({
     name,
     expenseCategory: "BODEGA",
     type,
