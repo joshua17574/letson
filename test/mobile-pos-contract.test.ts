@@ -10,6 +10,7 @@ import {
   parseMobileDeductionHistoryQuery,
   parseMobileCartLine,
   parseMobileInventoryDeductionRequest,
+  parseMobileMenuPriceUpdateRequest,
   parseMobilePriceUpdateRequest,
   parseMobileSaleReference,
   parseMobileSaleVoidRequest,
@@ -182,6 +183,23 @@ test("rejects invalid mobile price updates", () => {
   assert.equal(parseMobilePriceUpdateRequest({ sell: 12.5 }).ok, false);
   assert.equal(parseMobilePriceUpdateRequest({ sell: "nope" }).ok, false);
   assert.equal(parseMobilePriceUpdateRequest({}).ok, false);
+});
+
+test("parses a documented mobile menu price update", () => {
+  assert.deepEqual(parseMobileMenuPriceUpdateRequest({ price: 89 }), {
+    ok: true,
+    value: { price: 89 },
+  });
+});
+
+test("rejects invalid mobile menu price updates", () => {
+  assert.equal(parseMobileMenuPriceUpdateRequest({ price: -1 }).ok, false);
+  assert.equal(
+    parseMobileMenuPriceUpdateRequest({ price: Number.NaN }).ok,
+    false,
+  );
+  assert.equal(parseMobileMenuPriceUpdateRequest({ price: "nope" }).ok, false);
+  assert.equal(parseMobileMenuPriceUpdateRequest({}).ok, false);
 });
 
 test("normalizes uppercased persisted mobile sale references", () => {

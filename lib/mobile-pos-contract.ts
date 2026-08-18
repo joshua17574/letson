@@ -53,6 +53,9 @@ export type MobileCustomerStockTransferParseResult =
 export type MobilePriceUpdateParseResult =
   { ok: true; value: { sell: number } } | { ok: false; message: string };
 
+export type MobileMenuPriceUpdateParseResult =
+  { ok: true; value: { price: number } } | { ok: false; message: string };
+
 export type MobileSaleVoidParseResult =
   | { ok: true; value: { reason: string; refunded?: number } }
   | { ok: false; message: string };
@@ -206,6 +209,23 @@ export function parseMobilePriceUpdateRequest(
     };
   }
   return { ok: true, value: { sell } };
+}
+
+export function parseMobileMenuPriceUpdateRequest(
+  value: unknown,
+): MobileMenuPriceUpdateParseResult {
+  if (value == null || typeof value !== "object" || Array.isArray(value)) {
+    return { ok: false, message: "Invalid request body." };
+  }
+  const rawPrice = (value as Record<string, unknown>).price;
+  const price = finiteNumber(rawPrice);
+  if (typeof rawPrice !== "number" || price == null || price < 0 || price > 1_000_000) {
+    return {
+      ok: false,
+      message: "Price must be a valid non-negative amount.",
+    };
+  }
+  return { ok: true, value: { price } };
 }
 
 export function parseMobileSaleVoidRequest(
